@@ -12,7 +12,9 @@ class Ledger:
     def append(self, event: dict) -> dict:
         row = dict(event)
         row.setdefault("ts_ms", int(time.time() * 1000))
-        row.setdefault("id", f"{row['ts_ms']}-{row.get('type', 'event')}")
+        row.setdefault("id", f"{row['ts_ms']}-{row.get('type', 'event')}-{row.get('symbol', '')}")
+        if any(existing.get("id") == row["id"] for existing in self.read()):
+            return {"duplicate": True, "id": row["id"]}
         with self.path.open("a", encoding="utf-8") as handle:
             handle.write(json.dumps(row, sort_keys=True) + "\n")
         return row
