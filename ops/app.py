@@ -213,7 +213,7 @@ canvas{width:100%;height:180px;background:#0f121a;border-radius:8px}
       <button data-tf="1h">1h</button>
       <button data-tf="4h">4h</button>
     </div>
-    <canvas id="chart" width="720" height="220"></canvas>
+    <canvas id="chart" width="720" height="220" role="img" aria-label="Closed candlestick chart"></canvas>
     <p class="muted" id="chartmeta">Loading closed Binance candles. Not a signal. Gold has no chart.</p>
   </section>
 </div>
@@ -251,7 +251,10 @@ function draw(data){
   const meta = document.getElementById("chartmeta");
   if (!candles.length) { ctx.fillStyle="#9aa3b5"; ctx.fillText("no closed candles", 8, 20); meta.textContent = "No closed candles."; return; }
   const last = candles[candles.length-1];
-  meta.textContent = SYM+" "+TF+" · last closed "+new Date(last.t).toISOString()+" · source "+(data.source||"unknown")+" · watch only";
+  const age = Date.now() - last.t;
+  const stale = age > 30*60*1000;
+  meta.className = stale ? "warn" : "muted";
+  meta.textContent = SYM+" "+TF+" · last closed "+new Date(last.t).toISOString()+" · "+(stale?"stale":"fresh")+" · source "+(data.source||"unknown")+" · watch only";
   const hi = Math.max(...candles.map(x=>x.h)), lo = Math.min(...candles.map(x=>x.l));
   const span = hi - lo || 1;
   const cw = w / candles.length;
