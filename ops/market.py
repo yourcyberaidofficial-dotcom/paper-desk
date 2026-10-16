@@ -42,6 +42,8 @@ def fetch_klines(symbol: str, interval: str = "15m", limit: int = 100, now_ms: i
     now_ms = int(now_ms if now_ms is not None else time.time() * 1000)
     if symbol not in {"BTCUSDT", "ETHUSDT"}:
         return {"symbol": symbol, "error": "symbol_not_allowed", "candles": []}
+    if interval not in {"15m", "1h", "4h", "1d"}:
+        return {"symbol": symbol, "error": "interval_not_allowed", "candles": []}
     query = urllib.parse.urlencode({"symbol": symbol, "interval": interval, "limit": min(limit, 200)})
     request = urllib.request.Request(
         f"https://data-api.binance.vision/api/v3/klines?{query}",
