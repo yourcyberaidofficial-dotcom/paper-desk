@@ -300,6 +300,7 @@ canvas{width:100%;height:180px;background:#0f121a;border-radius:8px}
       <button data-tf="15m" class="active">15m</button>
       <button data-tf="1h">1h</button>
       <button data-tf="4h">4h</button>
+      <button data-tf="1d">1d</button>
     </div>
     <canvas id="chart" width="720" height="220" role="img" aria-label="Closed candlestick chart"></canvas>
     <p class="muted" id="chartmeta">Loading closed Binance candles. Not a signal. Gold has no chart.</p>
