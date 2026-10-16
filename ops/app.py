@@ -70,6 +70,19 @@ def market():
     return blocked if blocked else jsonify(market_snapshot())
 
 
+@app.get("/api/signal")
+def signal():
+    return jsonify({
+        "asset": "BTCUSDT",
+        "direction": "WAIT",
+        "classification": "no_validated_strategy",
+        "label": "Not a trading signal",
+        "rationale": "No hypothesis has passed the sealed research protocol.",
+        "validated": False,
+        "paper_only": True,
+    })
+
+
 @app.get("/api/state")
 @require_token
 def state():
@@ -175,9 +188,14 @@ canvas{width:100%;height:180px;background:#0f121a;border-radius:8px}
     <p class="warnbox">Simulated desk. No broker. No real-money execution.</p>
   </section>
   <section class="card">
+    <h2>Market</h2>
+    <pre id="market">loading</pre>
+    <p class="muted">Closed Binance candles. Watch only. Gold has no feed.</p>
+  </section>
+  <section class="card">
     <h2>Signal</h2>
-    <p><b>WAIT</b></p>
-    <p class="muted">No hypothesis has passed the sealed research protocol. No edge is claimed.</p>
+    <p><b id="sig">WAIT</b> <span class="badge">NOT A VALIDATED SIGNAL</span></p>
+    <p class="muted" id="sigwhy">No hypothesis has passed the sealed research protocol. No edge is claimed.</p>
   </section>
   <section class="card">
     <h2>Paper equity</h2>
