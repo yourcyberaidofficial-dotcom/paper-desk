@@ -221,6 +221,7 @@ canvas{width:100%;height:180px;background:#0f121a;border-radius:8px}
   <section class="card">
     <h2>Research</h2>
     <p class="muted">G0 is a frozen, protocol-defective historical result. It is not deployed here.</p>
+    <p class="muted"><b>G1-H4-r2: CLOSED / NO PROMOTION.</b> Positive point estimates are not validated signals.</p>
     <p class="muted">No new generation is authorized. Holdout remains sealed. No candidate is approved.</p>
   </section>
 </div>
