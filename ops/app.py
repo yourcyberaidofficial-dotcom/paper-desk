@@ -68,3 +68,60 @@ def klines():
 def market():
     blocked = _limited()
     return blocked if blocked else jsonify(market_snapshot())
+
+
+@app.get("/api/state")
+@require_token
+def state():
+    return jsonify(engine.snapshot())
+
+
+@app.get("/api/events")
+@require_token
+def events():
+    return jsonify(ledger.read()[-50:])
+
+
+@app.post("/api/bar")
+@require_token
+def bar():
+    payload = request.get_json(force=True)
+    if payload.get("symbol") not in {"BTCUSDT", "ETHUSDT"}:
+        return jsonify({"error": "symbol_not_allowed"}), 400
+    return jsonify(engine.ingest_bar(payload["symbol"], payload.get("bar")))
+
+
+@app.post("/api/alert-test")
+@require_token
+def alert_test():
+    result = send_alert("SYSTEM TEST \u2014 Aureon Trading Lab. Not a trade signal.")
+    ledger.append({
+        "type": "alert",
+        "status": result["status"],
+        "delivered": result["delivered"],
+        "id": f"system-test-{int(time.time() * 1000)}",
+    })
+    return jsonify({k: v for k, v in result.items() if k != "response"})
+
+
+@app.post("/login")
+def login():
+    token = (request.form.get("token") or "").strip()
+    expected = api_token()
+    if not expected or token != expected:
+        return redirect("/?login=failed")
+    session["ok"] = True
+    return redirect("/")
+
+
+@app.post("/logout")
+def logout():
+    session.clear()
+    return redirect("/")
+
+
+@app.get("/")
+def index():
+    authed = bool(session.get("ok"))
+    failed = request.args.get("login") == "failed"
+    return make_response(DASHBOARD.replace("{{AUTHED}}", "1" if authed else "0").replace("{{FAILED}}", "1" if failed else "0"))
