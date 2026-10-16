@@ -1,4 +1,4 @@
-"""Aureon Trading Lab dashboard. Paper only."""
+"""Aureon Trading Lab dashboard. Paper only. Public health is coarse."""
 
 import os
 import time
@@ -9,7 +9,7 @@ from flask import Flask, jsonify, request, session, redirect, make_response
 from ops.auth import RateLimit, api_token, require_token
 from ops.engine import PaperEngine
 from ops.ledger import Ledger
-from ops.market import snapshot as market_snapshot
+from ops.market import snapshot as market_snapshot, fetch_klines
 from ops.notify import send_alert
 from ops.strategy import WaitStrategy
 
@@ -20,9 +20,20 @@ LIMITER = RateLimit(60)
 
 app = Flask(__name__)
 app.secret_key = os.environ.get("DESK_SESSION_SECRET") or api_token() or "disabled"
-app.config.update(SESSION_COOKIE_HTTPONLY=True, SESSION_COOKIE_SAMESITE="Lax")
+app.config.update(
+    SESSION_COOKIE_HTTPONLY=True,
+    SESSION_COOKIE_SAMESITE="Lax",
+    SESSION_COOKIE_SECURE=os.environ.get("DESK_COOKIE_SECURE", "0") == "1",
+)
 ledger = Ledger(LEDGER_PATH)
 engine = PaperEngine(ledger, WaitStrategy())
+
+
+def _limited():
+    if not LIMITER.allow(request.remote_addr or "local"):
+        return jsonify({"error": "rate_limited"}), 429
+    return None
+
 
 @app.get("/health")
 def health():
@@ -41,3 +52,19 @@ def health():
         "paper_only": True,
         "broker": False,
     })
+
+
+@app.get("/api/klines")
+def klines():
+    blocked = _limited()
+    if blocked:
+        return blocked
+    symbol = request.args.get("symbol", "BTCUSDT")
+    interval = request.args.get("interval", "15m")
+    return jsonify(fetch_klines(symbol, interval))
+
+
+@app.get("/api/market")
+def market():
+    blocked = _limited()
+    return blocked if blocked else jsonify(market_snapshot())
