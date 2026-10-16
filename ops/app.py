@@ -70,13 +70,13 @@ def bar():
 @app.post("/api/alert-test")
 @require_token
 def alert_test():
-    result = send_alert("SYSTEM TEST — paper desk. Not a trade signal.")
+    result = send_alert("SYSTEM TEST — Aureon Trading Lab. Not a trade signal.")
     ledger.append({"type": "alert", "status": result["status"], "delivered": result["delivered"], "id": "system-test"})
     return jsonify({k: v for k, v in result.items() if k != "response"})
 
 @app.get("/")
 def index():
-    return """<!doctype html><html><head><meta charset=\"utf-8\"><title>Paper Desk</title></head><body><h1>Paper Desk</h1><p>Paper only. Strategy WAIT. Balances are private.</p><pre id=\"h\"></pre><script>fetch('/health').then(r=>r.json()).then(d=>document.getElementById('h').textContent=JSON.stringify(d,null,2));</script></body></html>"""
+    return """<!doctype html><html><head><meta charset=\"utf-8\"><title>Aureon Trading Lab</title></head><body><h1>Aureon Trading Lab</h1><p>Paper only. Strategy WAIT. Balances are private.</p><pre id=\"h\"></pre><script>fetch('/health').then(r=>r.json()).then(d=>document.getElementById('h').textContent=JSON.stringify(d,null,2));</script></body></html>"""
 
 if __name__ == "__main__":
     app.run(host=os.environ.get("DESK_BIND", "127.0.0.1"), port=int(os.environ.get("PORT", "8080")))
