@@ -320,6 +320,7 @@ canvas{width:100%;height:180px;background:#0f121a;border-radius:8px}
     <form id="prefsform">
       <label><input type="checkbox" name="btc" checked> BTC</label>
       <label><input type="checkbox" name="eth" checked> ETH</label>
+      <label><input type="checkbox" name="experimental"> Experimental alerts (not validated)</label>
       <select name="interval"><option>15m</option><option>1h</option><option>4h</option></select>
       <input name="max_alerts" type="number" min="0" max="48" value="24">
       <input name="quiet" placeholder="quiet hours UTC, e.g. 0,1,2">
@@ -399,6 +400,7 @@ function loadPrefs(){
     document.querySelector("[name=interval]").value = p.interval || "15m";
     document.querySelector("[name=max_alerts]").value = p.max_alerts_per_day || 24;
     document.querySelector("[name=quiet]").value = (p.quiet_hours_utc||[]).join(",");
+    document.querySelector("[name=experimental]").checked = !!p.experimental_alerts;
   });
 }
 document.getElementById("prefsform").onsubmit = (e) => {
@@ -407,7 +409,7 @@ document.getElementById("prefsform").onsubmit = (e) => {
   if (document.querySelector("[name=btc]").checked) assets.push("BTCUSDT");
   if (document.querySelector("[name=eth]").checked) assets.push("ETHUSDT");
   const quiet = document.querySelector("[name=quiet]").value.split(",").map(x=>parseInt(x,10)).filter(x=>x>=0 && x<=23);
-  fetch("/api/prefs", {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({assets, interval:document.querySelector("[name=interval]").value, max_alerts_per_day:Number(document.querySelector("[name=max_alerts]").value), quiet_hours_utc:quiet})})
+  fetch("/api/prefs", {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({assets, interval:document.querySelector("[name=interval]").value, max_alerts_per_day:Number(document.querySelector("[name=max_alerts]").value), quiet_hours_utc:quiet, experimental_alerts:document.querySelector("[name=experimental]").checked})})
     .then(r=>r.json()).then(p=>{ document.getElementById("prefstatus").textContent = "Saved. Assets: "+(p.assets||[]).join(","); })
     .catch(()=>{ document.getElementById("prefstatus").textContent = "Save failed."; });
 };
