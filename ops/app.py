@@ -32,11 +32,32 @@ engine = PaperEngine(ledger, WaitStrategy())
 worker = Worker(ledger, LEDGER_PATH.parent / "prefs.json")
 
 
+SESSION_TTL = 12 * 3600
+
+def _session_ok():
+    exp = session.get("exp")
+    if not session.get("ok") or not exp or time.time() > exp:
+        session.clear()
+        return False
+    return True
+
+def _csrf():
+    token = session.get("csrf")
+    if not token:
+        token = os.urandom(16).hex()
+        session["csrf"] = token
+    return token
+
 def _limited():
     if not LIMITER.allow(request.remote_addr or "local"):
         return jsonify({"error": "rate_limited"}), 429
     return None
 
+
+@app.before_request
+def _expire():
+    if session.get("ok") and not _session_ok():
+        session.clear()
 
 @app.get("/health")
 def health():
@@ -123,16 +144,22 @@ def alert_test():
 
 @app.post("/login")
 def login():
+    if request.form.get("csrf") != session.get("csrf"):
+        return redirect("/?login=failed")
     token = (request.form.get("token") or "").strip()
     expected = api_token()
     if not expected or token != expected:
         return redirect("/?login=failed")
     session["ok"] = True
+    session["exp"] = time.time() + SESSION_TTL
+    session["csrf"] = os.urandom(16).hex()
     return redirect("/")
 
 
 @app.post("/logout")
 def logout():
+    if request.form.get("csrf") != session.get("csrf"):
+        return redirect("/")
     session.clear()
     return redirect("/")
 
@@ -141,7 +168,12 @@ def logout():
 @app.get("/api/evaluations")
 @require_token
 def evaluations():
-    return jsonify([row for row in ledger.read() if row.get("type") == "evaluation"][-50:])
+    try:
+        limit = min(int(request.args.get("limit", 20)), 50)
+    except ValueError:
+        limit = 20
+    rows = [row for row in ledger.read() if row.get("type") == "evaluation"]
+    return jsonify({"rows": rows[-limit:], "total": len(rows)})
 
 
 @app.get("/api/prefs")
@@ -169,9 +201,10 @@ threading.Thread(target=_loop, daemon=True).start()
 
 @app.get("/")
 def index():
-    authed = bool(session.get("ok"))
+    authed = _session_ok()
     failed = request.args.get("login") == "failed"
-    return make_response(DASHBOARD.replace("{{AUTHED}}", "1" if authed else "0").replace("{{FAILED}}", "1" if failed else "0"))
+    page = DASHBOARD.replace("{{AUTHED}}", "1" if authed else "0").replace("{{FAILED}}", "1" if failed else "0").replace("{{CSRF}}", _csrf())
+    return make_response(page)
 
 
 DASHBOARD = """<!doctype html>
@@ -211,6 +244,8 @@ canvas{width:100%;height:180px;background:#0f121a;border-radius:8px}
   <nav>
     <button class="active" data-panel="desk">Desk</button>
     <button data-panel="charts">Charts</button>
+    <button data-panel="history">History</button>
+    <button data-panel="settings">Settings</button>
     <button data-panel="research">Research</button>
   </nav>
   <span class="badge">PAPER ONLY · WAIT_DEFAULT</span>
@@ -241,7 +276,8 @@ canvas{width:100%;height:180px;background:#0f121a;border-radius:8px}
     <div id="loginbox">
       <p class="muted">Enter the desk token to view balances and events. It is not stored in the page.</p>
       <form method="post" action="/login">
-        <input type="password" name="token" placeholder="DESK_API_TOKEN" required>
+        <input type="hidden" name="csrf" value="{{CSRF}}">
+        <input type="password" name="token" placeholder="Owner token" required autocomplete="current-password">
         <button type="submit">Unlock</button>
       </form>
       <p id="fail" class="bad" hidden>Token rejected.</p>
@@ -251,7 +287,7 @@ canvas{width:100%;height:180px;background:#0f121a;border-radius:8px}
       <pre id="state">loading</pre>
       <h3>Recent events</h3>
       <pre id="events">loading</pre>
-      <form method="post" action="/logout"><button type="submit">Lock</button></form>
+      <form method="post" action="/logout"><input type="hidden" name="csrf" value="{{CSRF}}"><button type="submit">Lock</button></form>
     </div>
   </section>
 </div>
@@ -269,6 +305,29 @@ canvas{width:100%;height:180px;background:#0f121a;border-radius:8px}
     <p class="muted" id="chartmeta">Loading closed Binance candles. Not a signal. Gold has no chart.</p>
   </section>
 </div>
+
+<div id="history" class="grid" hidden>
+  <section class="card" style="grid-column:1/-1">
+    <h2>Signal history</h2>
+    <p class="muted">Evaluations only. Not orders. Not fills. Not a performance record.</p>
+    <pre id="historybox">Unlock to load history.</pre>
+  </section>
+</div>
+<div id="settings" class="grid" hidden>
+  <section class="card">
+    <h2>Preferences</h2>
+    <p class="muted">BTC and ETH only. Cap cannot exceed 48. Gold is not available.</p>
+    <form id="prefsform">
+      <label><input type="checkbox" name="btc" checked> BTC</label>
+      <label><input type="checkbox" name="eth" checked> ETH</label>
+      <select name="interval"><option>15m</option><option>1h</option><option>4h</option></select>
+      <input name="max_alerts" type="number" min="0" max="48" value="24">
+      <input name="quiet" placeholder="quiet hours UTC, e.g. 0,1,2">
+      <button type="submit">Save</button>
+    </form>
+    <p id="prefstatus" class="muted"></p>
+  </section>
+</div>
 <div id="research" class="grid" hidden>
   <section class="card">
     <h2>Research</h2>
@@ -284,7 +343,7 @@ let SYM = "BTCUSDT", TF = "15m";
 document.querySelectorAll("nav button").forEach(b => b.onclick = () => {
   document.querySelectorAll("nav button").forEach(x => x.classList.remove("active"));
   b.classList.add("active");
-  ["desk","charts","research"].forEach(id => document.getElementById(id).hidden = id !== b.dataset.panel);
+  ["desk","charts","history","settings","research"].forEach(id => document.getElementById(id).hidden = id !== b.dataset.panel);
   if (b.dataset.panel === "charts") loadChart();
 });
 document.querySelectorAll("[data-sym]").forEach(b => b.onclick = () => { SYM = b.dataset.sym; document.querySelectorAll("[data-sym]").forEach(x=>x.classList.remove("active")); b.classList.add("active"); loadChart(); });
@@ -322,7 +381,40 @@ function draw(data){
 }
 loadChart();
 if (FAILED) document.getElementById("fail").hidden = false;
+
+function loadHistory(){
+  const box = document.getElementById("historybox");
+  if (!AUTHED) { box.textContent = "Unlock to load history."; return; }
+  box.textContent = "Loading…";
+  fetch("/api/evaluations?limit=20").then(r=>{ if(!r.ok) throw new Error("unauthorized"); return r.json(); }).then(d=>{
+    if (!d.rows || !d.rows.length) { box.textContent = "No evaluations yet."; return; }
+    box.textContent = d.rows.map(r => [r.asset, r.timeframe, r.result, r.reason, r.fresh?"fresh":"stale", r.classification, new Date(r.candle_ts_ms||0).toISOString()].join(" · ")).join("\n");
+  }).catch(()=>{ box.textContent = "History unavailable."; });
+}
+function loadPrefs(){
+  if (!AUTHED) return;
+  fetch("/api/prefs").then(r=>r.json()).then(p=>{
+    document.querySelector("[name=btc]").checked = (p.assets||[]).includes("BTCUSDT");
+    document.querySelector("[name=eth]").checked = (p.assets||[]).includes("ETHUSDT");
+    document.querySelector("[name=interval]").value = p.interval || "15m";
+    document.querySelector("[name=max_alerts]").value = p.max_alerts_per_day || 24;
+    document.querySelector("[name=quiet]").value = (p.quiet_hours_utc||[]).join(",");
+  });
+}
+document.getElementById("prefsform").onsubmit = (e) => {
+  e.preventDefault();
+  const assets = [];
+  if (document.querySelector("[name=btc]").checked) assets.push("BTCUSDT");
+  if (document.querySelector("[name=eth]").checked) assets.push("ETHUSDT");
+  const quiet = document.querySelector("[name=quiet]").value.split(",").map(x=>parseInt(x,10)).filter(x=>x>=0 && x<=23);
+  fetch("/api/prefs", {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({assets, interval:document.querySelector("[name=interval]").value, max_alerts_per_day:Number(document.querySelector("[name=max_alerts]").value), quiet_hours_utc:quiet})})
+    .then(r=>r.json()).then(p=>{ document.getElementById("prefstatus").textContent = "Saved. Assets: "+(p.assets||[]).join(","); })
+    .catch(()=>{ document.getElementById("prefstatus").textContent = "Save failed."; });
+};
 if (AUTHED) {
+  loadHistory();
+  loadPrefs();
+
   document.getElementById("loginbox").hidden = true;
   document.getElementById("private").hidden = false;
   fetch("/api/state").then(r=>r.json()).then(d=>document.getElementById("state").textContent=JSON.stringify(d,null,2));
