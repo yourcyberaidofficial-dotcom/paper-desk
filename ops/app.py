@@ -265,6 +265,7 @@ canvas{width:100%;height:180px;background:#0f121a;border-radius:8px}
     <h2>Signal</h2>
     <p><b id="sig">WAIT</b> <span class="badge">NOT A VALIDATED SIGNAL</span></p>
     <p class="muted" id="sigwhy">No hypothesis has passed the sealed research protocol. No edge is claimed.</p>
+    <p class="muted" id="alertstatus">Alert status loading.</p>
   </section>
   <section class="card">
     <h2>Paper equity</h2>
@@ -350,7 +351,19 @@ document.querySelectorAll("nav button").forEach(b => b.onclick = () => {
 });
 document.querySelectorAll("[data-sym]").forEach(b => b.onclick = () => { SYM = b.dataset.sym; document.querySelectorAll("[data-sym]").forEach(x=>x.classList.remove("active")); b.classList.add("active"); loadChart(); });
 document.querySelectorAll("[data-tf]").forEach(b => b.onclick = () => { TF = b.dataset.tf; document.querySelectorAll("[data-tf]").forEach(x=>x.classList.remove("active")); b.classList.add("active"); loadChart(); });
-fetch("/health").then(r=>r.json()).then(d=>document.getElementById("health").textContent=JSON.stringify(d,null,2));
+fetch("/health").then(r=>r.json()).then(d=>{
+  document.getElementById("health").textContent=JSON.stringify(d,null,2);
+  const w = d.worker || {};
+  const p = w.prefs || {};
+  const last = w.last_result || {};
+  const n = last.notification || {};
+  document.getElementById("alertstatus").textContent =
+    "Experimental alerts: " + (p.experimental_alerts ? "ON" : "OFF") +
+    " · last eval: " + (last.asset || "none") +
+    " · last notify: " + (n.status || "none") +
+    " · delivered: " + (n.delivered === true) +
+    " · read proof: false";
+});
 function loadChart(){
   const meta = document.getElementById("chartmeta");
   meta.textContent = "Loading…";

@@ -107,7 +107,21 @@ class Worker:
                 else:
                     text = f"Aureon {symbol} {prefs['interval']} WAIT. {reason}. Not a trade."
                 notified = sender(text)
-                self.ledger.append({"type": "notify", "eval_id": key, "status": notified.get("status"), "delivered": notified.get("delivered")})
+                self.ledger.append({
+                    "type": "notify",
+                    "id": f"notify:{key}",
+                    "eval_id": key,
+                    "rule": "E1-donchian-20" if experimental and experimental.get("result") != "WAIT" else "WAIT_DEFAULT",
+                    "asset": symbol,
+                    "timeframe": prefs["interval"],
+                    "candle_ts_ms": close_time,
+                    "attempted_at_ms": now_ms,
+                    "status": notified.get("status"),
+                    "delivered": notified.get("delivered"),
+                    "reason": notified.get("reason"),
+                    "telegram_message_id": notified.get("telegram_message_id"),
+                    "read_proof": False,
+                })
             record["notification"] = notified
             out.append(record)
         self.last_result = out[-1] if out else self.last_result
