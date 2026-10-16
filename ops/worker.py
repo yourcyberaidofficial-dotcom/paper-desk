@@ -39,7 +39,10 @@ class Worker:
             if key in payload:
                 current[key] = payload[key]
         current["assets"] = [a for a in current.get("assets", []) if a in {"BTCUSDT", "ETHUSDT"}] or ["BTCUSDT"]
-        current["max_alerts_per_day"] = min(int(current.get("max_alerts_per_day", 24)), 48)
+        if current.get("interval") not in {"15m", "1h", "4h"}:
+            current["interval"] = "15m"
+        current["max_alerts_per_day"] = min(max(int(current.get("max_alerts_per_day", 24)), 0), 48)
+        current["quiet_hours_utc"] = [h for h in current.get("quiet_hours_utc") or [] if isinstance(h, int) and 0 <= h <= 23]
         self.prefs_path.parent.mkdir(parents=True, exist_ok=True)
         self.prefs_path.write_text(json.dumps(current, indent=2))
         return current
