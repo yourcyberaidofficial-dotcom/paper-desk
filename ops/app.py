@@ -12,6 +12,8 @@ from ops.ledger import Ledger
 from ops.market import snapshot as market_snapshot, fetch_klines
 from ops.notify import send_alert
 from ops.strategy import WaitStrategy
+from ops.worker import Worker
+import threading
 
 ROOT = Path(__file__).resolve().parents[1]
 LEDGER_PATH = ROOT / "data" / "paper" / "ledger.jsonl"
@@ -27,6 +29,7 @@ app.config.update(
 )
 ledger = Ledger(LEDGER_PATH)
 engine = PaperEngine(ledger, WaitStrategy())
+worker = Worker(ledger, LEDGER_PATH.parent / "prefs.json")
 
 
 def _limited():
@@ -51,6 +54,7 @@ def health():
         "strategy_status": "WAIT_DEFAULT",
         "paper_only": True,
         "broker": False,
+        "worker": worker.status(),
     })
 
 
@@ -132,6 +136,36 @@ def logout():
     session.clear()
     return redirect("/")
 
+
+
+@app.get("/api/evaluations")
+@require_token
+def evaluations():
+    return jsonify([row for row in ledger.read() if row.get("type") == "evaluation"][-50:])
+
+
+@app.get("/api/prefs")
+@require_token
+def get_prefs():
+    return jsonify(worker.prefs())
+
+
+@app.post("/api/prefs")
+@require_token
+def set_prefs():
+    return jsonify(worker.save_prefs(request.get_json(force=True)))
+
+
+def _loop():
+    while True:
+        try:
+            worker.evaluate()
+        except Exception:
+            pass
+        time.sleep(60)
+
+
+threading.Thread(target=_loop, daemon=True).start()
 
 @app.get("/")
 def index():
