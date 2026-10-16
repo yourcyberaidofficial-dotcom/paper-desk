@@ -4,7 +4,7 @@ import json
 import time
 from pathlib import Path
 
-from ops.market import fetch_last_closed
+from ops.market import fetch_last_closed, fetch_klines
 from ops.notify import send_alert
 from ops.e1 import e1_side
 
@@ -84,16 +84,28 @@ class Worker:
                 "classification": "no_validated_strategy",
                 "validated": False,
             }
+            experimental = None
             if prefs.get("experimental_alerts") and fresh:
-                record["experimental"] = {
+                candles = fetch_klines(symbol, prefs["interval"], limit=21, now_ms=now_ms).get("candles") or []
+                bars = [{"high": c["h"], "low": c["l"], "close": c["c"]} for c in candles]
+                side = e1_side(bars) if len(bars) >= 21 else "WAIT"
+                experimental = {
                     "rule": "E1-donchian-20",
+                    "version": "e1-20261016",
                     "classification": "experimental_unvalidated",
-                    "result": "see_channel",
+                    "result": side,
+                    "reference": bar.get("close"),
+                    "candle_ts_ms": close_time,
+                    "validated": False,
                 }
+                record["experimental"] = experimental
             self.ledger.append(record)
             notified = None
             if prefs.get("alerts_enabled") and not quiet and self._alerts_today(now_ms) < prefs["max_alerts_per_day"]:
-                text = f"Aureon {symbol} {prefs['interval']} WAIT. {reason}. Not a trade."
+                if experimental and experimental["result"] != "WAIT":
+                    text = f"EXPERIMENTAL NOT VALIDATED {symbol} {prefs['interval']} {experimental['result']}. E1-donchian-20. Not a trade."
+                else:
+                    text = f"Aureon {symbol} {prefs['interval']} WAIT. {reason}. Not a trade."
                 notified = sender(text)
                 self.ledger.append({"type": "notify", "eval_id": key, "status": notified.get("status"), "delivered": notified.get("delivered")})
             record["notification"] = notified
