@@ -6,6 +6,7 @@ from pathlib import Path
 
 from ops.market import fetch_last_closed
 from ops.notify import send_alert
+from ops.e1 import e1_side
 
 DEFAULT_PREFS = {
     "assets": ["BTCUSDT", "ETHUSDT"],
@@ -13,6 +14,7 @@ DEFAULT_PREFS = {
     "quiet_hours_utc": [],
     "max_alerts_per_day": 24,
     "alerts_enabled": True,
+    "experimental_alerts": False,
 }
 
 
@@ -35,7 +37,7 @@ class Worker:
 
     def save_prefs(self, payload: dict) -> dict:
         current = self.prefs()
-        for key in ("assets", "interval", "quiet_hours_utc", "max_alerts_per_day", "alerts_enabled"):
+        for key in ("assets", "interval", "quiet_hours_utc", "max_alerts_per_day", "alerts_enabled", "experimental_alerts"):
             if key in payload:
                 current[key] = payload[key]
         current["assets"] = [a for a in current.get("assets", []) if a in {"BTCUSDT", "ETHUSDT"}] or ["BTCUSDT"]
@@ -82,6 +84,12 @@ class Worker:
                 "classification": "no_validated_strategy",
                 "validated": False,
             }
+            if prefs.get("experimental_alerts") and fresh:
+                record["experimental"] = {
+                    "rule": "E1-donchian-20",
+                    "classification": "experimental_unvalidated",
+                    "result": "see_channel",
+                }
             self.ledger.append(record)
             notified = None
             if prefs.get("alerts_enabled") and not quiet and self._alerts_today(now_ms) < prefs["max_alerts_per_day"]:
