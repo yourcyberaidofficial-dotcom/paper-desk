@@ -7,7 +7,11 @@ from functools import wraps
 from flask import jsonify, request
 
 def api_token() -> str | None:
-    return os.environ.get("DESK_API_TOKEN")
+    raw = os.environ.get("DESK_API_TOKEN", "")
+    token = raw.strip()
+    if len(token) < 24:
+        return None
+    return token
 
 def require_token(view):
     @wraps(view)
