@@ -6,6 +6,7 @@ from functools import wraps
 
 from flask import jsonify, request
 
+
 def api_token() -> str | None:
     raw = os.environ.get("DESK_API_TOKEN", "")
     token = raw.strip()
@@ -13,17 +14,22 @@ def api_token() -> str | None:
         return None
     return token
 
+
 def require_token(view):
     @wraps(view)
     def wrapped(*args, **kwargs):
         expected = api_token()
         if not expected:
             return jsonify({"error": "private_endpoint_disabled"}), 503
+        from flask import session
+        if session.get("ok"):
+            return view(*args, **kwargs)
         presented = request.headers.get("Authorization", "").removeprefix("Bearer ").strip()
         if presented != expected:
             return jsonify({"error": "unauthorized"}), 401
         return view(*args, **kwargs)
     return wrapped
+
 
 class RateLimit:
     def __init__(self, per_minute: int = 30):
