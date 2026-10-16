@@ -389,7 +389,10 @@ function loadHistory(){
   box.textContent = "Loading…";
   fetch("/api/evaluations?limit=20").then(r=>{ if(!r.ok) throw new Error("unauthorized"); return r.json(); }).then(d=>{
     if (!d.rows || !d.rows.length) { box.textContent = "No evaluations yet."; return; }
-    box.textContent = d.rows.map(r => [r.asset, r.timeframe, r.result, r.reason, r.fresh?"fresh":"stale", r.classification, new Date(r.candle_ts_ms||0).toISOString()].join(" · ")).join("\n");
+    box.textContent = d.rows.map(r => {
+      const exp = r.experimental ? (" | experimental " + r.experimental.result + " " + r.experimental.classification) : "";
+      return [r.asset, r.timeframe, r.result, r.reason, r.fresh?"fresh":"stale", new Date(r.candle_ts_ms||0).toISOString()].join(" · ") + exp;
+    }).join("\n");
   }).catch(()=>{ box.textContent = "History unavailable."; });
 }
 function loadPrefs(){

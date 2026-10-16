@@ -48,3 +48,18 @@ def test_prefs_cap(tmp_path):
     saved = worker.save_prefs({"assets": ["BTCUSDT", "XAU"], "max_alerts_per_day": 999})
     assert saved["assets"] == ["BTCUSDT"]
     assert saved["max_alerts_per_day"] == 48
+
+
+def test_experimental_opt_in(tmp_path, monkeypatch):
+    monkeypatch.setattr("ops.worker.fetch_last_closed", lambda symbol, interval, now_ms=None: _bar(symbol, 3000))
+    candles = [{"h": 10, "l": 9, "c": 9.5} for _ in range(20)] + [{"h": 12, "l": 11, "c": 11}]
+    monkeypatch.setattr("ops.worker.fetch_klines", lambda symbol, interval, limit=21, now_ms=None: {"candles": candles})
+    ledger = Ledger(tmp_path / "ledger.jsonl")
+    prefs = tmp_path / "prefs.json"
+    prefs.write_text('{"assets":["BTCUSDT"],"experimental_alerts":true,"alerts_enabled":false}')
+    worker = Worker(ledger, prefs)
+    rows = worker.evaluate(now_ms=1_700_000_000_000, sender=lambda text: {"status":"FAILED","delivered":False})
+    assert rows[0]["experimental"]["result"] == "LONG_BIAS"
+    assert rows[0]["experimental"]["classification"] == "experimental_unvalidated"
+    again = worker.evaluate(now_ms=1_700_000_000_000, sender=lambda text: {"status":"FAILED","delivered":False})
+    assert again == []
