@@ -11,6 +11,8 @@ from ops.engine import PaperEngine
 from ops.ledger import Ledger
 from ops.signals import research_states
 from ops.paper_candidates import candidates
+from ops.experimental import ExperimentalBook
+from pathlib import Path
 from ops.replay import replay, yesterday_ms, period
 from ops.leaderboard import leaderboard
 from ops.deepboard import deep_board
@@ -221,6 +223,17 @@ def replay_api():
         return jsonify({"error": type(exc).__name__}), 502
 
 
+@app.get("/api/paper-status")
+def paper_status():
+    book = ExperimentalBook(Path("/app/data/paper/experimental.jsonl"))
+    return jsonify({
+        "open": book.open_position(),
+        "rows": book.read()[-10:],
+        "label": "EXPERIMENTAL PAPER — NOT VALIDATED",
+        "broker": False,
+    })
+
+
 @app.get("/api/research-signals")
 def research_signals():
     symbol = request.args.get("symbol", "BTCUSDT")
@@ -357,6 +370,10 @@ canvas{width:100%;height:180px;background:#0f121a;border-radius:8px}
     <pre id="researchstates">loading</pre>
   </section>
   <section class="card">
+    <h2>Paper path</h2>
+    <pre id="paperbox">loading</pre>
+  </section>
+  <section class="card">
     <h2>Live signals</h2>
     <p class="warnbox">Research outputs on the latest closed candle. Not validated. Not an order.</p>
     <pre id="livesignals">loading</pre>
@@ -475,6 +492,7 @@ document.getElementById("deepbtn").onclick = () => {
   document.getElementById("replaybox").textContent = "loading deep board";
   fetch("/api/deep-board").then(r=>r.json()).then(d=>{ document.getElementById("replaybox").textContent = JSON.stringify(d, null, 2); });
 };
+fetch('/api/paper-status').then(r=>r.json()).then(d=>{ document.getElementById('paperbox').textContent = JSON.stringify(d, null, 2); }).catch(()=>{ document.getElementById('paperbox').textContent = 'paper status unavailable'; });
 Promise.all(["BTCUSDT","ETHUSDT"].map(s => fetch("/api/research-signals?symbol="+s+"&interval=15m").then(r=>r.json()))).then(rows=>{
   document.getElementById("livesignals").textContent = rows.map(d => {
     const dirs = d.states.map(s => s.direction);
