@@ -30,6 +30,7 @@ def fetch_last_closed(symbol: str, interval: str = "15m", now_ms: int | None = N
         "interval": interval,
         "open_time_ms": int(bar[0]),
         "close_time_ms": close_time,
+        "open": float(bar[1]),
         "close": float(bar[4]),
         "fresh": (now_ms - close_time) <= STALE_MS,
         "checked_at_ms": now_ms,

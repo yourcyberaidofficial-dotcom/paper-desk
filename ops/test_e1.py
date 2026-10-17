@@ -17,3 +17,10 @@ def test_long_and_short():
 def test_no_future():
     bars = [{"high": 10 + i, "low": 9 + i, "close": 9.5 + i} for i in range(21)]
     assert e1_side(bars) in {"WAIT", "LONG_BIAS", "SHORT_BIAS"}
+
+
+def test_needs_twenty_one_bars():
+    bars = [{"high": 10, "low": 9, "close": 8} for _ in range(20)]
+    assert e1_side(bars) == "WAIT"
+    bars.append({"high": 8, "low": 7, "close": 7})
+    assert e1_side(bars) == "SHORT_BIAS"

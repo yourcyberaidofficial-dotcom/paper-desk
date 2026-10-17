@@ -129,18 +129,52 @@ class Worker:
                     "read_proof": False,
                 })
             record["notification"] = notified
-            if experimental and experimental["result"] in {"LONG_BIAS", "SHORT_BIAS"} and self.book.open_position() is None:
+            if experimental and experimental["result"] in {"LONG_BIAS", "SHORT_BIAS"}:
                 self.book.append({
-                    "id": f"paper:{key}",
-                    "type": "paper_open",
+                    "id": f"signal:{key}",
+                    "type": "paper_signal",
                     "asset": symbol,
                     "side": experimental["result"],
                     "rule": "E1-donchian-20",
-                    "classification": "experimental_unvalidated",
-                    "entry_reference": experimental.get("reference"),
                     "candle_ts_ms": close_time,
+                    "reference": experimental.get("reference"),
                     "label": "EXPERIMENTAL PAPER — NOT VALIDATED",
                 })
+            pending = [r for r in self.book.read() if r.get("type") == "paper_signal" and r.get("asset") == symbol]
+            opened = {r.get("signal_id") for r in self.book.read() if r.get("type") == "paper_open"}
+            if pending and self.book.open_position() is None:
+                sig = pending[-1]
+                if sig["id"] not in opened and sig.get("candle_ts_ms") != close_time and bar.get("open") is not None:
+                    fee = 11 / 10000
+                    self.book.append({
+                        "id": f"open:{sig['id']}",
+                        "type": "paper_open",
+                        "signal_id": sig["id"],
+                        "asset": symbol,
+                        "side": sig["side"],
+                        "entry_price": bar["open"],
+                        "entry_ts_ms": close_time,
+                        "fee_bps": 11,
+                        "label": "EXPERIMENTAL PAPER — NOT VALIDATED",
+                    })
+            pos = self.book.open_position()
+            if pos and pos.get("asset") == symbol and experimental and pos.get("entry_ts_ms") != close_time:
+                age_bars = max(0, int((close_time - pos.get("entry_ts_ms", close_time)) / (15 * 60 * 1000)))
+                opposite = experimental["result"] == ("SHORT_BIAS" if pos["side"] == "LONG_BIAS" else "LONG_BIAS")
+                if opposite or age_bars >= 20:
+                    exit_price = bar.get("close")
+                    side = 1 if pos["side"] == "LONG_BIAS" else -1
+                    gross = side * (exit_price - pos["entry_price"]) / pos["entry_price"]
+                    net = gross - 22 / 10000
+                    self.book.append({
+                        "id": f"close:{pos['id']}",
+                        "type": "paper_close",
+                        "open_id": pos["id"],
+                        "exit_price": exit_price,
+                        "exit_ts_ms": close_time,
+                        "net": net,
+                        "label": "EXPERIMENTAL PAPER — NOT VALIDATED",
+                    })
             out.append(record)
         self.last_result = out[-1] if out else self.last_result
         return out
