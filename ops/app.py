@@ -236,7 +236,6 @@ def paper_status():
     })
 
 
-@app.get("/api/markets")
 def _gold():
     try:
         with urllib.request.urlopen("https://xaus.com/api/v1/spot", timeout=10) as response:
@@ -247,6 +246,7 @@ def _gold():
         return {"symbol": "XAUUSD", "source": "xaus.com", "status": "error", "error": type(exc).__name__, "fresh": False}
 
 
+@app.get("/api/markets")
 def markets():
     snap = market_snapshot()
     return jsonify({
