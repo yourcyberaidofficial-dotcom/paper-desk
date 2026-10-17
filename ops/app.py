@@ -435,6 +435,20 @@ const titles = {"/":"Overview","/signals":"Live Signals","/trading":"Trading Ter
 document.getElementById("title").textContent = titles[path] || "Aureon";
 const view = document.getElementById("view");
 function cls(d){ return d.includes("LONG")?"long":d.includes("SHORT")?"short":"wait"; }
+function label(d){ if (d==="SHORT_BIAS") return "Bearish observation"; if (d==="LONG_BIAS") return "Bullish observation"; if (d==="WAIT") return "No entry yet"; return d; }
+function spark(id, candles){
+  const c = document.getElementById(id);
+  if (!c || !candles.length) return;
+  const ctx = c.getContext("2d");
+  const w = c.width = 180, h = c.height = 48;
+  const vals = candles.slice(-30).map(x => x.c);
+  const hi = Math.max(...vals), lo = Math.min(...vals);
+  ctx.clearRect(0,0,w,h);
+  ctx.strokeStyle = vals[vals.length-1] >= vals[0] ? "#2fce8b" : "#ff5d6c";
+  ctx.beginPath();
+  vals.forEach((v,i)=>{ const x=i*(w/(vals.length-1||1)); const y=h-((v-lo)/(hi-lo||1))*h; i?ctx.lineTo(x,y):ctx.moveTo(x,y); });
+  ctx.stroke();
+}
 function draw(candles){
   const c = document.getElementById("chart");
   if (!c || !candles.length) return;
@@ -460,11 +474,11 @@ async function overview(){
     if (item.id === "GOLD") {
       const g = item.data || {};
       const sig = await fetch("/api/gold/signal").then(r=>r.json()).catch(()=>({}));
-      return `<article class="card"><div class="muted">XAUUSD · Gold</div><div class="price">${Number(g.price||0).toLocaleString(undefined,{maximumFractionDigits:2})}</div><div class="row"><span>E1 daily</span><span class="${cls(sig.result||"")}">${sig.result||"unavailable"}</span></div><div class="muted">Source ${sig.source_date||""}</div></article>`;
+      return `<article class="card"><div class="muted">XAUUSD · Gold</div><div class="price">${Number(g.price||0).toLocaleString(undefined,{maximumFractionDigits:2})}</div><canvas id="spark-gold"></canvas><div class="row"><span>E1 daily</span><span class="${cls(sig.result||"")}">${label(sig.result||"unavailable")}</span></div><div class="muted">No entry yet on the latest daily bar. Source ${sig.source_date||""}</div></article>`;
     }
     const s = await fetch(`/api/research-signals?symbol=${item.symbol}&interval=15m`).then(r=>r.json());
     const price = item.data && item.data.close != null ? Number(item.data.close).toLocaleString() : "unavailable";
-    return `<article class="card"><div class="muted">${item.symbol}</div><div class="price">${price}</div>${(s.states||[]).map(st => `<div class="row"><span>${st.strategy}</span><span class="${cls(st.direction)}">${st.direction}</span></div>`).join("")}</article>`;
+    return `<article class="card"><div class="muted">${item.symbol}</div><div class="price">${price}</div><canvas id="spark-${item.symbol}"></canvas>${(s.states||[]).map(st => `<div class="row"><span>${st.strategy}</span><span class="${cls(st.direction)}">${label(st.direction)}</span></div>`).join("")}</article>`;
   }));
   view.innerHTML = `<div class="markets">${cards.join("")}</div><div class="workspace"><article class="card"><h2>Chart</h2><select id="sym"><option>BTCUSDT</option><option>ETHUSDT</option><option>XAUUSD</option></select> <select id="tf"><option>15m</option><option>1h</option><option>4h</option><option>1d</option></select><canvas id="chart"></canvas></article><article class="card"><h2>Live signals</h2><div id="feed">loading</div><p><a href="/signals">View all signals</a></p></article></div>`;
   async function load(){
@@ -480,13 +494,22 @@ async function overview(){
   document.getElementById("sym").onchange = load;
   document.getElementById("tf").onchange = load;
   load();
+  for (const item of m.markets) {
+    if (item.id === "GOLD") {
+      const g = await fetch("/api/gold/candles").then(r=>r.json());
+      spark("spark-gold", (g.candles||[]).map(c=>({c:c.c})));
+    } else {
+      const bars = await fetch(`/api/klines?symbol=${item.symbol}&interval=15m`).then(r=>r.json());
+      spark("spark-"+item.symbol, bars.candles||[]);
+    }
+  }
   const rows = await Promise.all(["BTCUSDT","ETHUSDT"].map(s => fetch("/api/research-signals?symbol="+s+"&interval=15m").then(r=>r.json())));
   document.getElementById("feed").innerHTML = rows.map(d => d.states.map(s => `<div class="row"><span>${d.symbol} ${s.strategy}</span><span class="${cls(s.direction)}">${s.direction}</span></div>`).join("")).join("");
 }
 async function signals(){
   const rows = await Promise.all(["BTCUSDT","ETHUSDT"].map(s=>fetch("/api/research-signals?symbol="+s+"&interval=15m").then(r=>r.json())));
   const gold = await fetch("/api/gold/signal").then(r=>r.json()).catch(()=>({}));
-  view.innerHTML = rows.map(d => `<article class="card"><h2>${d.symbol}</h2>${d.states.map(s => `<div class="row"><span>${s.strategy}</span><span class="${cls(s.direction)}">${s.direction}</span></div>`).join("")}</article>`).join("") + `<article class="card"><h2>XAUUSD</h2><div class="row"><span>E1 daily</span><span class="${cls(gold.result||"")}">${gold.result||"unavailable"}</span></div><div class="muted">Source ${gold.source_date||""}</div></article><article class="card"><h2>Research backtest</h2><button id="backtest">Run research backtest</button><pre id="backtestout">waiting</pre></article>`;
+  view.innerHTML = rows.map(d => `<article class="card"><h2>${d.symbol}</h2>${d.states.map(s => `<div class="row"><span>${s.strategy}</span><span class="${cls(s.direction)}">${s.direction}</span></div>`).join("")}</article>`).join("") + `<article class="card"><h2>XAUUSD</h2><div class="row"><span>E1 daily</span><span class="${cls(gold.result||"")}">${label(gold.result||"unavailable")}</span></div><div class="muted">Source ${gold.source_date||""}</div></article><article class="card"><h2>Research backtest</h2><button id="backtest">Run research backtest</button><pre id="backtestout">waiting</pre></article>`;
   document.getElementById("backtest").onclick = async () => {
     const box = document.getElementById("backtestout");
     box.textContent = "loading";
