@@ -228,14 +228,18 @@ def research_signals():
     bars = [{"high": c["h"], "low": c["l"], "close": c["c"]} for c in data.get("candles") or []]
     candles = data.get("candles") or []
     last = candles[-1] if candles else {}
+    steps = {"15m": 15 * 60 * 1000, "1h": 60 * 60 * 1000, "4h": 4 * 60 * 60 * 1000, "1d": 24 * 60 * 60 * 1000}
+    close_ms = last.get("t") + steps.get(interval, 0) if last else None
+    now_ms = int(time.time() * 1000)
+    fresh = bool(close_ms and now_ms - close_ms < 2 * steps.get(interval, 15 * 60 * 1000))
     return jsonify({
         "symbol": symbol,
         "interval": interval,
         "production": "WAIT_DEFAULT",
         "validated": False,
         "kind": "research_observation",
-        "fresh": bool(data.get("fresh")),
-        "source_candle_close_ms": last.get("close_time_ms"),
+        "fresh": fresh,
+        "source_candle_close_ms": close_ms,
         "states": research_states(bars) if bars else [],
         "label": "RESEARCH OBSERVATION — NOT VALIDATED",
     })
