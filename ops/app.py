@@ -235,13 +235,23 @@ def paper_status():
 
 
 @app.get("/api/markets")
+def _gold():
+    try:
+        with urllib.request.urlopen("https://xaus.com/api/v1/spot", timeout=10) as response:
+            spot = json.loads(response.read().decode())
+        price = spot.get("spot_usd_oz")
+        return {"symbol": "XAUUSD", "source": "xaus.com", "kind": "spot", "price": price, "fresh": price is not None, "note": "Gold spot USD/oz. Not a crypto exchange candle."}
+    except Exception as exc:
+        return {"symbol": "XAUUSD", "source": "xaus.com", "status": "error", "error": type(exc).__name__, "fresh": False}
+
+
 def markets():
     snap = market_snapshot()
     return jsonify({
         "markets": [
             {"id": "BTC", "symbol": "BTCUSDT", "status": "configured", "data": snap.get("BTCUSDT")},
             {"id": "ETH", "symbol": "ETHUSDT", "status": "configured", "data": snap.get("ETHUSDT")},
-            {"id": "GOLD", "symbol": None, "status": "NOT_CONFIGURED", "reason": "No verified XAUUSD feed is configured. Gold is visible but unavailable."},
+            {"id": "GOLD", "symbol": "XAUUSD", "status": "configured", "source": "xaus.com", "kind": "spot", "data": _gold()},
         ],
         "broker": False,
         "production": "WAIT_DEFAULT",
@@ -335,6 +345,7 @@ DASHBOARD = """<!doctype html>
 *{box-sizing:border-box}
 body{margin:0;font-family:Inter,system-ui,-apple-system,Segoe UI,sans-serif;background:var(--bg);color:var(--text)}
 .shell{display:grid;grid-template-columns:240px 1fr;min-height:100vh}
+#menu{display:none;background:#1b2130;color:var(--text);border:1px solid var(--line);border-radius:8px;padding:8px 12px;margin:12px}
 aside{background:#10141b;border-right:1px solid var(--line);padding:18px 12px}
 aside strong{font-size:1.05rem;letter-spacing:.02em}
 aside a{display:block;color:var(--muted);text-decoration:none;padding:9px 12px;border-radius:8px;margin:3px 0;font-size:.92rem}
@@ -352,12 +363,13 @@ h1{margin:0;font-size:1.35rem}
 .long{color:var(--ok)} .short{color:var(--bad)} .wait{color:var(--warn)}
 canvas{width:100%;height:420px;background:#0d1118;border-radius:10px;margin-top:10px}
 select{background:#1b2130;color:var(--text);border:1px solid var(--line);border-radius:8px;padding:8px 10px}
-@media(max-width:900px){.shell{grid-template-columns:1fr}.grid{grid-template-columns:1fr} aside{border-right:0;border-bottom:1px solid var(--line)}}
+@media(max-width:900px){.shell{grid-template-columns:1fr}#menu{display:inline-block}aside{display:none;position:fixed;inset:0 auto 0 0;width:240px;z-index:20}aside.open{display:block}.grid,.grid3{grid-template-columns:1fr}}
 </style>
 </head>
 <body>
 <div class="shell">
-  <aside>
+  <button id="menu" aria-label="Open navigation" aria-expanded="false">☰</button>
+  <aside id="nav">
     <strong>Aureon</strong>
     <div class="muted">Trading Lab</div>
     <a href="/" data-path="/">Overview</a>
@@ -380,6 +392,10 @@ select{background:#1b2130;color:var(--text);border:1px solid var(--line);border-
   </main>
 </div>
 <script>
+const menu = document.getElementById("menu");
+const nav = document.getElementById("nav");
+menu.onclick = () => { const open = nav.classList.toggle("open"); menu.setAttribute("aria-expanded", open); };
+document.querySelectorAll("#nav a").forEach(a => a.onclick = () => nav.classList.remove("open"));
 const path = location.pathname;
 document.querySelectorAll("aside a").forEach(a => { if (a.dataset.path === path) a.classList.add("active"); });
 const titles = {"/":"Overview","/signals":"Live Signals","/trading":"Trading Terminal","/strategies":"Strategies","/indicators":"Indicators","/research":"Backtesting & Research","/portfolio":"Portfolio","/risk":"Risk Management","/activity":"Orders & Trade History","/system":"System Status","/settings":"Account & Settings"};
@@ -421,8 +437,12 @@ async function terminal(){
 async function overview(){
   const m = await fetch("/api/markets").then(r=>r.json());
   const cards = await Promise.all(m.markets.map(async item => {
+    if (item.id === "GOLD") {
+      const g = item.data || {};
+      return `<article class="card"><h2>GOLD <span class="muted">XAUUSD</span></h2><p class="price">${g.price || "unavailable"}</p><p class="muted">${g.source || ""} · spot USD/oz · fresh=${g.fresh}</p><p class="muted">Strategy evaluation needs candle history. Spot only is not a Donchian signal.</p></article>`;
+    }
     if (item.status !== "configured") {
-      return `<article class="card"><h2>GOLD</h2><p class="wait">NOT_CONFIGURED</p><p class="muted">${item.reason}</p></article>`;
+      return `<article class="card"><h2>GOLD</h2><p class="wait">NOT_CONFIGURED</p></article>`;
     }
     const s = await fetch(`/api/research-signals?symbol=${item.symbol}&interval=15m`).then(r=>r.json());
     const price = item.data && item.data.close != null ? item.data.close : "unavailable";
