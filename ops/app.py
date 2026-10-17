@@ -316,23 +316,25 @@ DASHBOARD = """<!doctype html>
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Aureon Trading Lab</title>
 <style>
-:root{--bg:#0e1116;--panel:#171b22;--line:#2a3140;--text:#e8edf5;--muted:#9aa3b5;--accent:#7ea0ff;--ok:#3dd68c;--bad:#ff6b6b;--warn:#f5c451}
+:root{--bg:#0b0e14;--panel:#141922;--line:#242b38;--text:#f2f5fa;--muted:#8b95a7;--accent:#8fb0ff;--ok:#2fce8b;--bad:#ef5b6a;--warn:#e0b15a}
 *{box-sizing:border-box}
-body{margin:0;font-family:system-ui,-apple-system,Segoe UI,sans-serif;background:var(--bg);color:var(--text)}
-.shell{display:grid;grid-template-columns:220px 1fr;min-height:100vh}
-aside{background:#12161d;border-right:1px solid var(--line);padding:14px}
-aside a{display:block;color:var(--text);text-decoration:none;padding:8px 10px;border-radius:8px;margin:2px 0}
-aside a.active{background:#24304a;color:var(--accent)}
-main{padding:14px}
-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px}
-.grid{display:grid;grid-template-columns:2fr 1fr;gap:12px}
-.card{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:12px}
-.muted{color:var(--muted);font-size:.85rem}
-.warn{color:var(--warn)} .ok{color:var(--ok)} .bad{color:var(--bad)}
-canvas{width:100%;height:360px;background:#10141a;border-radius:8px}
-select,button{background:#222833;color:var(--text);border:1px solid var(--line);border-radius:8px;padding:8px}
-button{background:var(--accent);color:#111;font-weight:600}
-@media(max-width:900px){.shell{grid-template-columns:1fr}.grid{grid-template-columns:1fr}}
+body{margin:0;font-family:Inter,system-ui,-apple-system,Segoe UI,sans-serif;background:var(--bg);color:var(--text)}
+.shell{display:grid;grid-template-columns:240px 1fr;min-height:100vh}
+aside{background:#10141b;border-right:1px solid var(--line);padding:18px 12px}
+aside strong{font-size:1.05rem;letter-spacing:.02em}
+aside a{display:block;color:var(--muted);text-decoration:none;padding:9px 12px;border-radius:8px;margin:3px 0;font-size:.92rem}
+aside a.active{background:#1d2636;color:var(--text)}
+main{padding:18px}
+header{display:flex;justify-content:space-between;align-items:center;margin-bottom:14px}
+h1{margin:0;font-size:1.35rem}
+.grid{display:grid;grid-template-columns:minmax(0,2.2fr) minmax(280px,1fr);gap:14px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:14px}
+.muted{color:var(--muted);font-size:.84rem}
+.row{display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--line)}
+.long{color:var(--ok)} .short{color:var(--bad)} .wait{color:var(--warn)}
+canvas{width:100%;height:420px;background:#0d1118;border-radius:10px;margin-top:10px}
+select{background:#1b2130;color:var(--text);border:1px solid var(--line);border-radius:8px;padding:8px 10px}
+@media(max-width:900px){.shell{grid-template-columns:1fr}.grid{grid-template-columns:1fr} aside{border-right:0;border-bottom:1px solid var(--line)}}
 </style>
 </head>
 <body>
@@ -399,7 +401,7 @@ async function terminal(){
 }
 async function signals(){
   const rows = await Promise.all(["BTCUSDT","ETHUSDT"].map(s=>fetch("/api/research-signals?symbol="+s+"&interval=15m").then(r=>r.json())));
-  view.innerHTML = rows.map(d=>`<article class="card"><h2>${d.symbol} ${d.interval}</h2><p class="muted">fresh=${d.fresh} candle=${d.source_candle_close_ms}</p><pre>${d.states.map(s=>s.strategy+" "+s.direction).join(" | ")}</pre><a href="/trading">Open in terminal</a></article>`).join("");
+  view.innerHTML = rows.map(d => `<article class="card"><h2>${d.symbol} ${d.interval}</h2><p class="muted">fresh=${d.fresh}</p>${d.states.map(s => `<div class="row"><span>${s.strategy}</span><span class="${s.direction.includes("LONG")?"long":s.direction.includes("SHORT")?"short":"wait"}">${s.direction}</span></div>`).join("")}<p><a href="/trading">Open in terminal</a></p></article>`).join("");
 }
 async function load(){
   if (path === "/trading") return terminal();
