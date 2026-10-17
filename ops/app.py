@@ -346,6 +346,11 @@ canvas{width:100%;height:180px;background:#0f121a;border-radius:8px}
     <pre id="researchstates">loading</pre>
   </section>
   <section class="card">
+    <h2>Live signals</h2>
+    <p class="warnbox">Research outputs on the latest closed candle. Not validated. Not an order.</p>
+    <pre id="livesignals">loading</pre>
+  </section>
+  <section class="card">
     <h2>Signal</h2>
     <p><b id="sig">WAIT</b> <span class="badge">NOT A VALIDATED SIGNAL</span></p>
     <p class="muted" id="sigwhy">No hypothesis has passed the sealed research protocol. No edge is claimed.</p>
@@ -459,6 +464,9 @@ document.getElementById("deepbtn").onclick = () => {
   document.getElementById("replaybox").textContent = "loading deep board";
   fetch("/api/deep-board").then(r=>r.json()).then(d=>{ document.getElementById("replaybox").textContent = JSON.stringify(d, null, 2); });
 };
+Promise.all(["BTCUSDT","ETHUSDT"].map(s => fetch("/api/research-signals?symbol="+s+"&interval=15m").then(r=>r.json()))).then(rows=>{
+  document.getElementById("livesignals").textContent = rows.map(d => d.symbol+" "+d.interval+"\n"+d.states.map(s => "  "+s.strategy+" "+s.direction).join("\n")).join("\n");
+}).catch(()=>{ document.getElementById("livesignals").textContent = "Live signals unavailable"; });
 fetch("/api/research-signals?symbol=BTCUSDT&interval=15m").then(r=>r.json()).then(d=>{
   document.getElementById("researchstates").textContent = d.states.map(s => s.strategy+" "+s.direction+" validated="+s.validated).join("\n");
 }).catch(()=>{ document.getElementById("researchstates").textContent = "Research states unavailable"; });
