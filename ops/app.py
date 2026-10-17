@@ -260,7 +260,20 @@ def markets():
     })
 
 
+@app.get("/api/gold/candles")
+def gold_candles():
+    try:
+        with urllib.request.urlopen("https://xaus.com/api/v1/history", timeout=15) as response:
+            data = json.loads(response.read().decode())
+        points = data.get("points") or []
+        candles = [{"t": p.get("d"), "o": p.get("c"), "h": p.get("h"), "l": p.get("l"), "c": p.get("c")} for p in points[-120:]]
+        return jsonify({"symbol": "XAUUSD", "interval": "1d", "source": "xaus.com", "kind": "daily_spot_history", "count": len(points), "candles": candles, "note": "Daily gold history. Open is not supplied, so open is shown as close."})
+    except Exception as exc:
+        return jsonify({"error": type(exc).__name__}), 502
+
+
 @app.get("/api/research-signals")
+
 
 def research_signals():
     symbol = request.args.get("symbol", "BTCUSDT")
@@ -423,9 +436,15 @@ function draw(candles){
   });
 }
 async function terminal(){
-  view.innerHTML = `<div class="grid"><article class="card"><h2>Chart</h2><select id="sym"><option>BTCUSDT</option><option>ETHUSDT</option></select> <select id="tf"><option>15m</option><option>1h</option><option>4h</option><option>1d</option></select><canvas id="chart"></canvas></article><article class="card"><h2>Strategies</h2><pre id="states">loading</pre><p><a href="/signals">Open Live Signals</a></p></article></div>`;
+  view.innerHTML = `<div class="grid"><article class="card"><h2>Chart</h2><select id="sym"><option>BTCUSDT</option><option>ETHUSDT</option><option>XAUUSD</option></select> <select id="tf"><option>15m</option><option>1h</option><option>4h</option><option>1d</option></select><canvas id="chart"></canvas></article><article class="card"><h2>Strategies</h2><pre id="states">loading</pre><p><a href="/signals">Open Live Signals</a></p></article></div>`;
   async function load(){
     const sym = document.getElementById("sym").value, tf = document.getElementById("tf").value;
+    if (sym === "XAUUSD") {
+      const bars = await fetch("/api/gold/candles").then(r=>r.json());
+      draw((bars.candles||[]).map(c => ({o:c.o,h:c.h,l:c.l,c:c.c})));
+      document.getElementById("states").textContent = "Gold uses daily spot history. E1 is not evaluated on gold yet.";
+      return;
+    }
     const bars = await fetch(`/api/klines?symbol=${sym}&interval=${tf}`).then(r=>r.json());
     draw(bars.candles||[]);
     const s = await fetch(`/api/research-signals?symbol=${sym}&interval=${tf}`).then(r=>r.json());
@@ -474,12 +493,17 @@ async function load(){
   if (path === "/signals") return signals();
   if (path === "/portfolio" || path === "/activity") {
     const p = await fetch("/api/paper-status").then(r=>r.json());
-    view.innerHTML = `<article class="card"><h2>${titles[path]}</h2><pre>${JSON.stringify(p,null,2)}</pre></article>`;
+    const open = p.open ? `${p.open.asset} ${p.open.side} at ${p.open.entry_price}` : "No open paper position";
+    view.innerHTML = `<article class="card"><h2>${titles[path]}</h2><p>${open}</p><p class="muted">${p.label||""}</p></article>`;
     return;
   }
   if (path === "/system") {
     const h = await fetch("/health").then(r=>r.json());
-    view.innerHTML = `<article class="card"><h2>System</h2><pre>${JSON.stringify(h,null,2)}</pre></article>`;
+    view.innerHTML = `<article class="card"><h2>System</h2><div class="row"><span>Market data</span><span>${h.market_data}</span></div><div class="row"><span>Strategy</span><span>${h.strategy_status}</span></div><div class="row"><span>Broker</span><span>${h.broker}</span></div></article>`;
+    return;
+  }
+  if (path === "/strategies") {
+    view.innerHTML = `<article class="card"><h2>E1 Donchian-20</h2><p>Breakout on the prior 20 bars. Entry is the next open. Exit is the opposite band or 20 bars in the current worker.</p><p class="muted">BTC and ETH. Not yet evaluated on gold.</p></article><article class="card"><h2>SMA20 and RSI14</h2><p>Research observations only. They do not create paper orders.</p></article>`;
     return;
   }
   if (path === "/settings") {
