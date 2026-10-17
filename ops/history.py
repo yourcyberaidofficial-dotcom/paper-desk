@@ -1,4 +1,4 @@
-"""Paginated Binance history. Closed bars only."""
+"""Paginated Binance history. Closed bars only. No artificial bar ceiling."""
 
 import json
 import time
@@ -7,12 +7,13 @@ import urllib.request
 from datetime import datetime, timezone
 
 
-def fetch_history(symbol, interval, years=2, page=1000):
+def fetch_history(symbol, interval, years=3, page=1000):
     end = int(datetime.now(timezone.utc).timestamp() * 1000)
     start = end - int(years * 365.25 * 24 * 60 * 60 * 1000)
     bars = []
     cursor = start
-    while cursor < end and len(bars) < 20000:
+    pages = 0
+    while cursor < end:
         query = urllib.parse.urlencode({
             "symbol": symbol,
             "interval": interval,
@@ -25,6 +26,7 @@ def fetch_history(symbol, interval, years=2, page=1000):
         )
         with urllib.request.urlopen(request, timeout=20) as response:
             rows = json.loads(response.read().decode())
+        pages += 1
         if not rows:
             break
         for row in rows:
@@ -47,3 +49,11 @@ def fetch_history(symbol, interval, years=2, page=1000):
     unique = {b["open_time_ms"]: b for b in bars}
     ordered = [unique[k] for k in sorted(unique)]
     return ordered
+
+
+def coverage_status(bars, end_ms, interval):
+    if not bars:
+        return "FAILED"
+    last = bars[-1]["close_time_ms"]
+    recent = end_ms - last < 2 * 24 * 60 * 60 * 1000
+    return "COMPLETE" if recent else "PARTIAL"
