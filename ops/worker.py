@@ -56,7 +56,7 @@ class Worker:
 
     def _alerts_today(self, now_ms: int) -> int:
         day = now_ms // 86_400_000
-        return sum(1 for row in self.ledger.read() if row.get("type") == "notify" and row.get("ts_ms", 0) // 86_400_000 == day)
+        return sum(1 for row in self.ledger.read() if row.get("type") == "notify" and row.get("rule") != "WAIT_DEFAULT" and row.get("ts_ms", 0) // 86_400_000 == day)
 
     def evaluate(self, now_ms: int | None = None, sender=send_alert) -> list[dict]:
         now_ms = int(now_ms if now_ms is not None else time.time() * 1000)

@@ -176,6 +176,13 @@ def evaluations():
     return jsonify({"rows": rows[-limit:], "total": len(rows)})
 
 
+@app.get("/api/experimental")
+@require_token
+def experimental():
+    rows = worker.book.read()
+    return jsonify({"rows": rows[-50:], "total": len(rows), "label": "EXPERIMENTAL PAPER — NOT VALIDATED"})
+
+
 @app.get("/api/prefs")
 @require_token
 def get_prefs():
@@ -266,6 +273,11 @@ canvas{width:100%;height:180px;background:#0f121a;border-radius:8px}
     <p><b id="sig">WAIT</b> <span class="badge">NOT A VALIDATED SIGNAL</span></p>
     <p class="muted" id="sigwhy">No hypothesis has passed the sealed research protocol. No edge is claimed.</p>
     <p class="muted" id="alertstatus">Alert status loading.</p>
+  </section>
+  <section class="card">
+    <h2>Experimental paper</h2>
+    <p class="warnbox">EXPERIMENTAL PAPER — NOT VALIDATED. Not production. Not a real account.</p>
+    <pre id="paper">Unlock to view.</pre>
   </section>
   <section class="card">
     <h2>Paper equity</h2>
@@ -397,6 +409,13 @@ function draw(data){
 loadChart();
 if (FAILED) document.getElementById("fail").hidden = false;
 
+function loadPaper(){
+  const box = document.getElementById("paper");
+  if(!box) return;
+  fetch("/api/experimental").then(r=>{ if(!r.ok) throw new Error("unauthorized"); return r.json(); }).then(d=>{
+    box.textContent = d.rows.length ? d.rows.map(r => [r.type, r.asset, r.side||"", r.entry_price||r.reference||"", r.net||"", r.label].join(" · ")).join("\n") : "No experimental paper records.";
+  }).catch(()=>{ box.textContent = "Unlock to view experimental paper records."; });
+}
 function loadHistory(){
   const box = document.getElementById("historybox");
   if (!AUTHED) { box.textContent = "Unlock to load history."; return; }
@@ -431,7 +450,7 @@ document.getElementById("prefsform").onsubmit = (e) => {
     .catch(()=>{ document.getElementById("prefstatus").textContent = "Save failed."; });
 };
 if (AUTHED) {
-  loadHistory();
+  loadHistory(); loadPaper();
   loadPrefs();
 
   document.getElementById("loginbox").hidden = true;
