@@ -9,6 +9,7 @@ from flask import Flask, jsonify, request, session, redirect, make_response
 from ops.auth import RateLimit, api_token, require_token
 from ops.engine import PaperEngine
 from ops.ledger import Ledger
+from ops.signals import research_states
 from ops.market import snapshot as market_snapshot, fetch_klines
 from ops.notify import send_alert
 from ops.strategy import WaitStrategy
@@ -176,6 +177,22 @@ def evaluations():
     return jsonify({"rows": rows[-limit:], "total": len(rows)})
 
 
+@app.get("/api/research-signals")
+def research_signals():
+    symbol = request.args.get("symbol", "BTCUSDT")
+    interval = request.args.get("interval", "15m")
+    data = fetch_klines(symbol, interval, limit=50)
+    bars = [{"high": c["h"], "low": c["l"], "close": c["c"]} for c in data.get("candles") or []]
+    return jsonify({
+        "symbol": symbol,
+        "interval": interval,
+        "production": "WAIT_DEFAULT",
+        "validated": False,
+        "states": research_states(bars) if bars else [],
+        "label": "RESEARCH OBSERVATION — NOT VALIDATED",
+    })
+
+
 @app.get("/api/experimental")
 @require_token
 def experimental():
@@ -267,6 +284,11 @@ canvas{width:100%;height:180px;background:#0f121a;border-radius:8px}
     <h2>Market</h2>
     <pre id="market">loading</pre>
     <p class="muted">Closed Binance candles. Watch only. Gold has no feed.</p>
+  </section>
+  <section class="card">
+    <h2>Research states</h2>
+    <p class="warnbox">Independent model outputs. Not production. Not validated.</p>
+    <pre id="researchstates">loading</pre>
   </section>
   <section class="card">
     <h2>Signal</h2>
@@ -363,6 +385,9 @@ document.querySelectorAll("nav button").forEach(b => b.onclick = () => {
 });
 document.querySelectorAll("[data-sym]").forEach(b => b.onclick = () => { SYM = b.dataset.sym; document.querySelectorAll("[data-sym]").forEach(x=>x.classList.remove("active")); b.classList.add("active"); loadChart(); });
 document.querySelectorAll("[data-tf]").forEach(b => b.onclick = () => { TF = b.dataset.tf; document.querySelectorAll("[data-tf]").forEach(x=>x.classList.remove("active")); b.classList.add("active"); loadChart(); });
+fetch("/api/research-signals?symbol=BTCUSDT&interval=15m").then(r=>r.json()).then(d=>{
+  document.getElementById("researchstates").textContent = d.states.map(s => s.strategy+" "+s.direction+" validated="+s.validated).join("\n");
+}).catch(()=>{ document.getElementById("researchstates").textContent = "Research states unavailable"; });
 fetch("/health").then(r=>r.json()).then(d=>{
   document.getElementById("health").textContent=JSON.stringify(d,null,2);
   const w = d.worker || {};
