@@ -101,11 +101,15 @@ class Worker:
                 record["experimental"] = experimental
             self.ledger.append(record)
             notified = None
-            if prefs.get("alerts_enabled") and not quiet and self._alerts_today(now_ms) < prefs["max_alerts_per_day"]:
-                if experimental and experimental["result"] != "WAIT":
-                    text = f"EXPERIMENTAL NOT VALIDATED {symbol} {prefs['interval']} {experimental['result']}. E1-donchian-20. Not a trade."
-                else:
-                    text = f"Aureon {symbol} {prefs['interval']} WAIT. {reason}. Not a trade."
+            text = None
+            if experimental and experimental["result"] in {"LONG_BIAS", "SHORT_BIAS"}:
+                text = (
+                    f"EXPERIMENTAL — NOT VALIDATED {symbol} {prefs['interval']} {experimental['result']}. "
+                    f"E1-donchian-20. close={experimental.get('reference')}. candle={close_time}. fresh={fresh}. Not a trade."
+                )
+            elif not fresh:
+                text = f"Aureon {symbol} {prefs['interval']} stale or unavailable. candle={close_time}. Not a trade."
+            if text and prefs.get("alerts_enabled") and not quiet and self._alerts_today(now_ms) < prefs["max_alerts_per_day"]:
                 notified = sender(text)
                 self.ledger.append({
                     "type": "notify",
