@@ -226,11 +226,16 @@ def research_signals():
     interval = request.args.get("interval", "15m")
     data = fetch_klines(symbol, interval, limit=50)
     bars = [{"high": c["h"], "low": c["l"], "close": c["c"]} for c in data.get("candles") or []]
+    candles = data.get("candles") or []
+    last = candles[-1] if candles else {}
     return jsonify({
         "symbol": symbol,
         "interval": interval,
         "production": "WAIT_DEFAULT",
         "validated": False,
+        "kind": "research_observation",
+        "fresh": bool(data.get("fresh")),
+        "source_candle_close_ms": last.get("close_time_ms"),
         "states": research_states(bars) if bars else [],
         "label": "RESEARCH OBSERVATION — NOT VALIDATED",
     })
@@ -465,7 +470,11 @@ document.getElementById("deepbtn").onclick = () => {
   fetch("/api/deep-board").then(r=>r.json()).then(d=>{ document.getElementById("replaybox").textContent = JSON.stringify(d, null, 2); });
 };
 Promise.all(["BTCUSDT","ETHUSDT"].map(s => fetch("/api/research-signals?symbol="+s+"&interval=15m").then(r=>r.json()))).then(rows=>{
-  document.getElementById("livesignals").textContent = rows.map(d => d.symbol+" "+d.interval+"\n"+d.states.map(s => "  "+s.strategy+" "+s.direction).join("\n")).join("\n");
+  document.getElementById("livesignals").textContent = rows.map(d => {
+    const dirs = d.states.map(s => s.direction);
+    const conflict = new Set(dirs.filter(x => x !== "WAIT")).size > 1;
+    return d.symbol+" "+d.interval+" fresh="+d.fresh+" candle="+d.source_candle_close_ms+" kind="+d.kind+"\n"+d.states.map(s => "  "+s.strategy+" "+s.direction+" bias-only").join("\n")+(conflict?"\n  CONFLICT":"");
+  }).join("\n");
 }).catch(()=>{ document.getElementById("livesignals").textContent = "Live signals unavailable"; });
 fetch("/api/research-signals?symbol=BTCUSDT&interval=15m").then(r=>r.json()).then(d=>{
   document.getElementById("researchstates").textContent = d.states.map(s => s.strategy+" "+s.direction+" validated="+s.validated).join("\n");
