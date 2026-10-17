@@ -399,7 +399,7 @@ async function terminal(){
 }
 async function signals(){
   const rows = await Promise.all(["BTCUSDT","ETHUSDT"].map(s=>fetch("/api/research-signals?symbol="+s+"&interval=15m").then(r=>r.json())));
-  view.innerHTML = rows.map(d=>`<article class="card"><h2>${d.symbol} ${d.interval}</h2><p class="muted">fresh=${d.fresh} candle=${d.source_candle_close_ms}</p><pre>${d.states.map(s=>s.strategy+" "+s.direction).join("\n")}</pre><a href="/trading">Open in terminal</a></article>`).join("");
+  view.innerHTML = rows.map(d=>`<article class="card"><h2>${d.symbol} ${d.interval}</h2><p class="muted">fresh=${d.fresh} candle=${d.source_candle_close_ms}</p><pre>${d.states.map(s=>s.strategy+" "+s.direction).join(" | ")}</pre><a href="/trading">Open in terminal</a></article>`).join("");
 }
 async function load(){
   if (path === "/trading") return terminal();
