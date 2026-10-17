@@ -372,38 +372,36 @@ DASHBOARD = """<!doctype html>
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Aureon Trading Lab</title>
 <style>
-:root{--bg:#07090d;--panel:#121821;--line:#243041;--text:#f5f7fb;--muted:#93a0b5;--accent:#9db7ff;--ok:#35d39a;--bad:#ff6b78;--warn:#f0c36a}
+:root{--bg:#070b12;--panel:#101826;--panel2:#0d1420;--line:#1d2a3d;--text:#eef3fb;--muted:#8ea0b8;--blue:#4f7dff;--ok:#2fce8b;--bad:#ff5d6c;--warn:#e0b15a}
 *{box-sizing:border-box}
 body{margin:0;font-family:Inter,system-ui,-apple-system,Segoe UI,sans-serif;background:var(--bg);color:var(--text)}
-.shell{display:grid;grid-template-columns:240px 1fr;min-height:100vh}
-#menu{display:none;background:#1b2130;color:var(--text);border:1px solid var(--line);border-radius:8px;padding:8px 12px;margin:12px}
-aside{background:#10141b;border-right:1px solid var(--line);padding:18px 12px}
-aside strong{font-size:1.05rem;letter-spacing:.02em}
-aside a{display:block;color:var(--muted);text-decoration:none;padding:9px 12px;border-radius:8px;margin:3px 0;font-size:.92rem}
-aside a.active{background:#1d2636;color:var(--text)}
-main{padding:18px}
+.shell{display:grid;grid-template-columns:230px 1fr;min-height:100vh}
+aside{background:#0b1220;border-right:1px solid var(--line);padding:16px 12px}
+.brand{font-weight:700;letter-spacing:.02em;margin-bottom:14px}
+aside a{display:flex;align-items:center;gap:8px;color:var(--muted);text-decoration:none;padding:9px 10px;border-radius:10px;margin:2px 0}
+aside a.active{background:#17305c;color:#fff}
+main{padding:16px}
 header{display:flex;justify-content:space-between;align-items:center;margin-bottom:14px}
-h1{margin:0;font-size:1.35rem}
-.grid{display:grid;grid-template-columns:minmax(0,2.2fr) minmax(280px,1fr);gap:14px}
-.grid3{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px}
-.price{font-size:1.6rem;margin:6px 0}
-@media(max-width:900px){.grid3{grid-template-columns:1fr}}
-.card{background:linear-gradient(180deg,#151c27,#10161f);border:1px solid var(--line);border-radius:14px;padding:16px;box-shadow:0 8px 24px rgba(0,0,0,.25)}
-.gold{border-color:#6b5420}
-.muted{color:var(--muted);font-size:.84rem}
-.row{display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--line)}
+.pills{display:flex;gap:8px;flex-wrap:wrap}
+.pill{background:var(--panel);border:1px solid var(--line);border-radius:999px;padding:6px 10px;color:var(--muted);font-size:.82rem}
+.markets{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin-bottom:12px}
+.card{background:linear-gradient(180deg,#121c2c,#0e1624);border:1px solid var(--line);border-radius:14px;padding:14px}
+.price{font-size:1.7rem;font-weight:700;margin:6px 0}
+.muted{color:var(--muted);font-size:.82rem}
+.row{display:flex;justify-content:space-between;gap:8px;padding:6px 0;border-bottom:1px solid rgba(255,255,255,.04)}
 .long{color:var(--ok)} .short{color:var(--bad)} .wait{color:var(--warn)}
-canvas{width:100%;height:420px;background:#0d1118;border-radius:10px;margin-top:10px}
-select{background:#1b2130;color:var(--text);border:1px solid var(--line);border-radius:8px;padding:8px 10px}
-@media(max-width:900px){.shell{grid-template-columns:1fr}#menu{display:inline-block}aside{display:none;position:fixed;inset:0 auto 0 0;width:240px;z-index:20}aside.open{display:block}.grid,.grid3{grid-template-columns:1fr}}
+.workspace{display:grid;grid-template-columns:minmax(0,2fr) minmax(280px,1fr);gap:12px}
+canvas{width:100%;height:360px;background:#0a101a;border-radius:10px}
+select,button{background:#152033;color:var(--text);border:1px solid var(--line);border-radius:8px;padding:8px 10px}
+#menu{display:none;background:#152033;color:#fff;border:1px solid var(--line);border-radius:8px;padding:8px 12px;margin:10px}
+@media(max-width:900px){.shell{grid-template-columns:1fr}#menu{display:inline-block}aside{display:none;position:fixed;inset:0 auto 0 0;width:240px;z-index:20}aside.open{display:block}.markets,.workspace{grid-template-columns:1fr}}
 </style>
 </head>
 <body>
 <div class="shell">
-  <button id="menu" aria-label="Open navigation" aria-expanded="false">☰</button>
+  <button id="menu" aria-label="Open navigation" aria-expanded="false">☰ Menu</button>
   <aside id="nav">
-    <strong>Aureon</strong>
-    <div class="muted">Trading Lab</div>
+    <div class="brand">Aureon Trading Lab</div>
     <a href="/" data-path="/">Overview</a>
     <a href="/trading" data-path="/trading">Trading Terminal</a>
     <a href="/signals" data-path="/signals">Live Signals</a>
@@ -417,8 +415,11 @@ select{background:#1b2130;color:var(--text);border:1px solid var(--line);border-
   </aside>
   <main>
     <header>
-      <h1 id="title">Overview</h1>
-      <span class="warn">WAIT_DEFAULT · paper only · broker off</span>
+      <div>
+        <h1 id="title">Overview</h1>
+        <div class="muted">Live market desk. Paper only. Broker off.</div>
+      </div>
+      <div class="pills"><span class="pill">Engine online</span><span class="pill">Paper only</span><span class="pill">Broker off</span></div>
     </header>
     <section id="view"></section>
   </main>
@@ -430,84 +431,75 @@ menu.onclick = () => { const open = nav.classList.toggle("open"); menu.setAttrib
 document.querySelectorAll("#nav a").forEach(a => a.onclick = () => nav.classList.remove("open"));
 const path = location.pathname;
 document.querySelectorAll("aside a").forEach(a => { if (a.dataset.path === path) a.classList.add("active"); });
-const titles = {"/":"Overview","/signals":"Live Signals","/trading":"Trading Terminal","/strategies":"Strategies","/indicators":"Indicators","/research":"Backtesting & Research","/portfolio":"Portfolio","/risk":"Risk Management","/activity":"Orders & Trade History","/system":"System Status","/settings":"Account & Settings"};
+const titles = {"/":"Overview","/signals":"Live Signals","/trading":"Trading Terminal","/strategies":"Strategies","/portfolio":"Portfolio","/risk":"Risk Management","/activity":"Orders & Trade History","/system":"System Status","/settings":"Account & Settings","/research":"Backtesting & Research"};
 document.getElementById("title").textContent = titles[path] || "Aureon";
 const view = document.getElementById("view");
+function cls(d){ return d.includes("LONG")?"long":d.includes("SHORT")?"short":"wait"; }
 function draw(candles){
   const c = document.getElementById("chart");
   if (!c || !candles.length) return;
   const ctx = c.getContext("2d");
   const w = c.width = c.clientWidth * 2, h = c.height = 720;
   ctx.clearRect(0,0,w,h);
-  const slice = candles.slice(-80);
+  const slice = candles.slice(-90);
   const hi = Math.max(...slice.map(x=>x.h)), lo = Math.min(...slice.map(x=>x.l));
   const bw = w / slice.length;
   slice.forEach((bar,i)=>{
     const x = i*bw + bw/2;
     const y = p => h - ((p-lo)/(hi-lo||1))*h;
-    ctx.strokeStyle = bar.c >= bar.o ? "#3dd68c" : "#ff6b6b";
+    ctx.strokeStyle = bar.c >= bar.o ? "#2fce8b" : "#ff5d6c";
     ctx.beginPath(); ctx.moveTo(x,y(bar.h)); ctx.lineTo(x,y(bar.l)); ctx.stroke();
     ctx.fillStyle = ctx.strokeStyle;
     const top = Math.min(y(bar.o), y(bar.c)), bot = Math.max(y(bar.o), y(bar.c));
-    ctx.fillRect(x-bw*0.25, top, bw*0.5, Math.max(2, bot-top));
+    ctx.fillRect(x-bw*0.22, top, bw*0.44, Math.max(2, bot-top));
   });
 }
-async function terminal(){
-  view.innerHTML = `<div class="grid"><article class="card"><h2>Chart</h2><select id="sym"><option>BTCUSDT</option><option>ETHUSDT</option><option>XAUUSD</option></select> <select id="tf"><option>15m</option><option>1h</option><option>4h</option><option>1d</option></select><canvas id="chart"></canvas></article><article class="card"><h2>Strategies</h2><pre id="states">loading</pre><p><a href="/signals">Open Live Signals</a></p></article></div>`;
-  async function load(){
-    const sym = document.getElementById("sym").value, tf = document.getElementById("tf").value;
-    if (sym === "XAUUSD") {
-      const bars = await fetch("/api/gold/candles").then(r=>r.json());
-      draw((bars.candles||[]).map(c => ({o:c.o,h:c.h,l:c.l,c:c.c})));
-      document.getElementById("states").textContent = "Gold uses daily spot history. E1 is not evaluated on gold yet.";
-      return;
-    }
-    const bars = await fetch(`/api/klines?symbol=${sym}&interval=${tf}`).then(r=>r.json());
-    draw(bars.candles||[]);
-    const s = await fetch(`/api/research-signals?symbol=${sym}&interval=${tf}`).then(r=>r.json());
-    document.getElementById("states").textContent = (s.states||[]).map(x=>x.strategy+" "+x.direction).join(" | ")+" fresh="+s.fresh;
-  }
-  document.getElementById("sym").onchange = load;
-  document.getElementById("tf").onchange = load;
-  load();
-}
-
 async function overview(){
   const m = await fetch("/api/markets").then(r=>r.json());
   const cards = await Promise.all(m.markets.map(async item => {
     if (item.id === "GOLD") {
       const g = item.data || {};
       const sig = await fetch("/api/gold/signal").then(r=>r.json()).catch(()=>({}));
-      return `<article class="card gold"><h2>GOLD <span class="muted">XAUUSD</span></h2><p class="price">${g.price || "unavailable"}</p><div class="row"><span>E1 daily</span><span class="${(sig.result||"").includes("LONG")?"long":(sig.result||"").includes("SHORT")?"short":"wait"}">${sig.result || "unavailable"}</span></div><p class="muted">Source ${sig.source_date || ""} · close ${sig.close || ""} · not a paper order</p></article>`;
-    }
-    if (item.status !== "configured") {
-      return `<article class="card"><h2>GOLD</h2><p class="wait">NOT_CONFIGURED</p></article>`;
+      return `<article class="card"><div class="muted">XAUUSD · Gold</div><div class="price">${Number(g.price||0).toLocaleString(undefined,{maximumFractionDigits:2})}</div><div class="row"><span>E1 daily</span><span class="${cls(sig.result||"")}">${sig.result||"unavailable"}</span></div><div class="muted">Source ${sig.source_date||""}</div></article>`;
     }
     const s = await fetch(`/api/research-signals?symbol=${item.symbol}&interval=15m`).then(r=>r.json());
-    const price = item.data && item.data.close != null ? item.data.close : "unavailable";
-    return `<article class="card"><h2>${item.id} <span class="muted">${item.symbol}</span></h2><p class="price">${price}</p><p class="muted">fresh=${item.data && item.data.fresh}</p>${(s.states||[]).map(st => `<div class="row"><span>${st.strategy}</span><span class="${st.direction.includes("LONG")?"long":st.direction.includes("SHORT")?"short":"wait"}">${st.direction}</span></div>`).join("")}<p><a href="/trading">Open terminal</a></p></article>`;
+    const price = item.data && item.data.close != null ? Number(item.data.close).toLocaleString() : "unavailable";
+    return `<article class="card"><div class="muted">${item.symbol}</div><div class="price">${price}</div>${(s.states||[]).map(st => `<div class="row"><span>${st.strategy}</span><span class="${cls(st.direction)}">${st.direction}</span></div>`).join("")}</article>`;
   }));
-  view.innerHTML = `<div class="grid3">${cards.join("")}</div><p class="muted">Production ${m.production}. Broker ${m.broker ? "on" : "off"}.</p>`;
+  view.innerHTML = `<div class="markets">${cards.join("")}</div><div class="workspace"><article class="card"><h2>Chart</h2><select id="sym"><option>BTCUSDT</option><option>ETHUSDT</option><option>XAUUSD</option></select> <select id="tf"><option>15m</option><option>1h</option><option>4h</option><option>1d</option></select><canvas id="chart"></canvas></article><article class="card"><h2>Live signals</h2><div id="feed">loading</div><p><a href="/signals">View all signals</a></p></article></div>`;
+  async function load(){
+    const sym = document.getElementById("sym").value, tf = document.getElementById("tf").value;
+    if (sym === "XAUUSD") {
+      const bars = await fetch("/api/gold/candles").then(r=>r.json());
+      draw((bars.candles||[]).map(c => ({o:c.o,h:c.h,l:c.l,c:c.c})));
+      return;
+    }
+    const bars = await fetch(`/api/klines?symbol=${sym}&interval=${tf}`).then(r=>r.json());
+    draw(bars.candles||[]);
+  }
+  document.getElementById("sym").onchange = load;
+  document.getElementById("tf").onchange = load;
+  load();
+  const rows = await Promise.all(["BTCUSDT","ETHUSDT"].map(s => fetch("/api/research-signals?symbol="+s+"&interval=15m").then(r=>r.json())));
+  document.getElementById("feed").innerHTML = rows.map(d => d.states.map(s => `<div class="row"><span>${d.symbol} ${s.strategy}</span><span class="${cls(s.direction)}">${s.direction}</span></div>`).join("")).join("");
 }
 async function signals(){
   const rows = await Promise.all(["BTCUSDT","ETHUSDT"].map(s=>fetch("/api/research-signals?symbol="+s+"&interval=15m").then(r=>r.json())));
-  view.innerHTML = rows.map(d => `<article class="card"><h2>${d.symbol} ${d.interval}</h2><p class="muted">fresh=${d.fresh}</p>${d.states.map(s => `<div class="row"><span>${s.strategy}</span><span class="${s.direction.includes("LONG")?"long":s.direction.includes("SHORT")?"short":"wait"}">${s.direction}</span></div>`).join("")}<p><a href="/trading">Open in terminal</a></p></article>`).join("") + `<article class="card"><h2>Backtest</h2><button id="backtest">Run research backtest</button><p class="muted">Loads the existing leaderboard. Not validated.</p><pre id="backtestout">waiting</pre></article>`;
-document.getElementById("backtest").onclick = async () => {
-  const box = document.getElementById("backtestout");
-  box.textContent = "loading research board";
-  const ctl = new AbortController();
-  const t = setTimeout(() => ctl.abort(), 20000);
-  try {
-    const d = await fetch("/api/leaderboard", {signal: ctl.signal}).then(r=>r.json());
-    box.textContent = JSON.stringify(d, null, 2);
-  } catch (e) {
-    box.textContent = "Backtest request did not finish. Research board is still NOT VALIDATED.";
-  } finally { clearTimeout(t); }
-};
+  const gold = await fetch("/api/gold/signal").then(r=>r.json()).catch(()=>({}));
+  view.innerHTML = rows.map(d => `<article class="card"><h2>${d.symbol}</h2>${d.states.map(s => `<div class="row"><span>${s.strategy}</span><span class="${cls(s.direction)}">${s.direction}</span></div>`).join("")}</article>`).join("") + `<article class="card"><h2>XAUUSD</h2><div class="row"><span>E1 daily</span><span class="${cls(gold.result||"")}">${gold.result||"unavailable"}</span></div><div class="muted">Source ${gold.source_date||""}</div></article><article class="card"><h2>Research backtest</h2><button id="backtest">Run research backtest</button><pre id="backtestout">waiting</pre></article>`;
+  document.getElementById("backtest").onclick = async () => {
+    const box = document.getElementById("backtestout");
+    box.textContent = "loading";
+    const ctl = new AbortController();
+    const t = setTimeout(() => ctl.abort(), 20000);
+    try { box.textContent = JSON.stringify(await fetch("/api/leaderboard", {signal: ctl.signal}).then(r=>r.json()), null, 2); }
+    catch(e){ box.textContent = "Research board did not finish. Not validated."; }
+    finally { clearTimeout(t); }
+  };
 }
+async function terminal(){ await overview(); }
 async function load(){
-  if (path === "/trading") return terminal();
-  if (path === "/") return overview();
+  if (path === "/" || path === "/trading") return overview();
   if (path === "/signals") return signals();
   if (path === "/portfolio" || path === "/activity") {
     const p = await fetch("/api/paper-status").then(r=>r.json());
@@ -515,17 +507,13 @@ async function load(){
     view.innerHTML = `<article class="card"><h2>${titles[path]}</h2><p>${open}</p><p class="muted">${p.label||""}</p></article>`;
     return;
   }
+  if (path === "/strategies") {
+    view.innerHTML = `<article class="card"><h2>E1 Donchian-20</h2><p>Breakout on the prior 20 bars. Entry is the next open. Exit is the opposite band or 20 bars in the current worker.</p><p class="muted">BTC and ETH 15m. Gold daily.</p></article><article class="card"><h2>SMA20 and RSI14</h2><p>Research observations only. They do not create paper orders.</p></article>`;
+    return;
+  }
   if (path === "/system") {
     const h = await fetch("/health").then(r=>r.json());
     view.innerHTML = `<article class="card"><h2>System</h2><div class="row"><span>Market data</span><span>${h.market_data}</span></div><div class="row"><span>Strategy</span><span>${h.strategy_status}</span></div><div class="row"><span>Broker</span><span>${h.broker}</span></div></article>`;
-    return;
-  }
-  if (path === "/strategies") {
-    view.innerHTML = `<article class="card"><h2>E1 Donchian-20</h2><p>Breakout on the prior 20 bars. Entry is the next open. Exit is the opposite band or 20 bars in the current worker.</p><p class="muted">BTC and ETH. Not yet evaluated on gold.</p></article><article class="card"><h2>SMA20 and RSI14</h2><p>Research observations only. They do not create paper orders.</p></article>`;
-    return;
-  }
-  if (path === "/settings") {
-    view.innerHTML = `<article class="card"><h2>Settings</h2><p>Gold NOT_CONFIGURED. Broker disabled. Production WAIT_DEFAULT.</p></article>`;
     return;
   }
   view.innerHTML = `<article class="card"><h2>${titles[path]||"Aureon"}</h2><p>Connected to the live desk. No fabricated metrics.</p></article>`;
@@ -535,8 +523,6 @@ load();
 </body>
 </html>
 """
-
-
 
 
 if __name__ == "__main__":
