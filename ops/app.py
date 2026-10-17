@@ -10,6 +10,7 @@ from ops.auth import RateLimit, api_token, require_token
 from ops.engine import PaperEngine
 from ops.ledger import Ledger
 from ops.signals import research_states
+from ops.paper_candidates import candidates
 from ops.replay import replay, yesterday_ms, period
 from ops.leaderboard import leaderboard
 from ops.deepboard import deep_board
@@ -241,6 +242,7 @@ def research_signals():
         "fresh": fresh,
         "source_candle_close_ms": close_ms,
         "states": research_states(bars) if bars else [],
+        "paper_candidates": candidates(research_states(bars) if bars else [], symbol, close_ms),
         "label": "RESEARCH OBSERVATION — NOT VALIDATED",
     })
 
