@@ -316,22 +316,23 @@ DASHBOARD = """<!doctype html>
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Aureon Trading Lab</title>
 <style>
-:root{--bg:#111318;--panel:#1a1e27;--line:#2a3140;--text:#e7ebf3;--muted:#9aa3b5;--accent:#8aa4ff;--ok:#3dd68c;--bad:#ff6b6b;--warn:#f5c451}
+:root{--bg:#0e1116;--panel:#171b22;--line:#2a3140;--text:#e8edf5;--muted:#9aa3b5;--accent:#7ea0ff;--ok:#3dd68c;--bad:#ff6b6b;--warn:#f5c451}
 *{box-sizing:border-box}
 body{margin:0;font-family:system-ui,-apple-system,Segoe UI,sans-serif;background:var(--bg);color:var(--text)}
 .shell{display:grid;grid-template-columns:220px 1fr;min-height:100vh}
-aside{background:#151922;border-right:1px solid var(--line);padding:16px}
+aside{background:#12161d;border-right:1px solid var(--line);padding:14px}
 aside a{display:block;color:var(--text);text-decoration:none;padding:8px 10px;border-radius:8px;margin:2px 0}
 aside a.active{background:#24304a;color:var(--accent)}
-main{padding:16px}
+main{padding:14px}
 header{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px}
-.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:12px}
-.card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:12px}
+.grid{display:grid;grid-template-columns:2fr 1fr;gap:12px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:12px}
 .muted{color:var(--muted);font-size:.85rem}
 .warn{color:var(--warn)} .ok{color:var(--ok)} .bad{color:var(--bad)}
-pre{white-space:pre-wrap;word-break:break-word;font-size:.8rem}
-button{background:var(--accent);color:#111;border:0;border-radius:8px;padding:8px 12px;font-weight:600}
-@media(max-width:800px){.shell{grid-template-columns:1fr} aside{border-right:0;border-bottom:1px solid var(--line)}}
+canvas{width:100%;height:360px;background:#10141a;border-radius:8px}
+select,button{background:#222833;color:var(--text);border:1px solid var(--line);border-radius:8px;padding:8px}
+button{background:var(--accent);color:#111;font-weight:600}
+@media(max-width:900px){.shell{grid-template-columns:1fr}.grid{grid-template-columns:1fr}}
 </style>
 </head>
 <body>
@@ -340,62 +341,92 @@ button{background:var(--accent);color:#111;border:0;border-radius:8px;padding:8p
     <strong>Aureon</strong>
     <div class="muted">Trading Lab</div>
     <a href="/" data-path="/">Overview</a>
+    <a href="/trading" data-path="/trading">Trading Terminal</a>
     <a href="/signals" data-path="/signals">Live Signals</a>
-    <a href="/trading" data-path="/trading">Live Trading Desk</a>
-    <a href="/strategies" data-path="/strategies">Strategy Lab</a>
-    <a href="/indicators" data-path="/indicators">Indicators</a>
+    <a href="/strategies" data-path="/strategies">Strategies</a>
+    <a href="/portfolio" data-path="/portfolio">Portfolio</a>
+    <a href="/activity" data-path="/activity">Orders & Trade History</a>
     <a href="/research" data-path="/research">Backtesting & Research</a>
-    <a href="/portfolio" data-path="/portfolio">Paper Portfolio</a>
     <a href="/risk" data-path="/risk">Risk Management</a>
-    <a href="/activity" data-path="/activity">Activity & Trade History</a>
-    <a href="/system" data-path="/system">System Health</a>
-    <a href="/settings" data-path="/settings">Settings & Data Sources</a>
+    <a href="/system" data-path="/system">System Status</a>
+    <a href="/settings" data-path="/settings">Account & Settings</a>
   </aside>
   <main>
     <header>
       <h1 id="title">Overview</h1>
-      <span class="badge warn">WAIT_DEFAULT · paper only</span>
+      <span class="warn">WAIT_DEFAULT · paper only · broker off</span>
     </header>
-    <section id="view" class="grid"></section>
+    <section id="view"></section>
   </main>
 </div>
 <script>
 const path = location.pathname;
 document.querySelectorAll("aside a").forEach(a => { if (a.dataset.path === path) a.classList.add("active"); });
-const titles = {"/":"Overview","/signals":"Live Signals","/trading":"Live Trading Desk","/strategies":"Strategy Lab","/indicators":"Indicators","/research":"Backtesting & Research","/portfolio":"Paper Portfolio","/risk":"Risk Management","/activity":"Activity & Trade History","/system":"System Health","/settings":"Settings & Data Sources"};
+const titles = {"/":"Overview","/signals":"Live Signals","/trading":"Trading Terminal","/strategies":"Strategies","/indicators":"Indicators","/research":"Backtesting & Research","/portfolio":"Portfolio","/risk":"Risk Management","/activity":"Orders & Trade History","/system":"System Status","/settings":"Account & Settings"};
 document.getElementById("title").textContent = titles[path] || "Aureon";
 const view = document.getElementById("view");
-function card(title, body){ return `<article class="card"><h2>${title}</h2>${body}</article>`; }
-async function load(){
-  if (path === "/signals" || path === "/") {
-    const rows = await Promise.all(["BTCUSDT","ETHUSDT"].map(s => fetch("/api/research-signals?symbol="+s+"&interval=15m").then(r=>r.json())));
-    const paper = await fetch("/api/paper-status").then(r=>r.json()).catch(()=>({}));
-    const sig = rows.map(d => `<div><strong>${d.symbol}</strong> fresh=${d.fresh}<br>${d.states.map(s => s.strategy+" "+s.direction).join("<br>")}</div>`).join("");
-    if (path === "/") {
-      view.innerHTML = card("Market", "BTC and ETH research outputs are live.") + card("Live Signals", sig + '<p><a href="/signals">View all signals</a></p>') + card("Paper", "<pre>"+JSON.stringify(paper.open||"no open position",null,2)+"</pre>");
-    } else {
-      view.innerHTML = card("Latest evaluations", sig) + card("Paper state", "<pre>"+JSON.stringify(paper,null,2)+"</pre>");
-    }
-  } else if (path === "/portfolio" || path === "/trading" || path === "/activity") {
-    const paper = await fetch("/api/paper-status").then(r=>r.json());
-    view.innerHTML = card(titles[path], "<pre>"+JSON.stringify(paper,null,2)+"</pre>");
-  } else if (path === "/system") {
-    const h = await fetch("/health").then(r=>r.json());
-    view.innerHTML = card("Health", "<pre>"+JSON.stringify(h,null,2)+"</pre>");
-  } else if (path === "/research") {
-    view.innerHTML = card("Research", "Use the existing replay and leaderboard APIs. Board is NOT VALIDATED.") + card("Actions", '<button onclick="loadBoard()">Load leaderboard</button><pre id="board">waiting</pre>');
-  } else if (path === "/settings") {
-    view.innerHTML = card("Data sources", "BTC/ETH from Binance public. Gold NOT_CONFIGURED. Broker disabled.");
-  } else {
-    view.innerHTML = card(titles[path], "Connected to the existing desk. No fabricated metrics.");
-  }
+function draw(candles){
+  const c = document.getElementById("chart");
+  if (!c || !candles.length) return;
+  const ctx = c.getContext("2d");
+  const w = c.width = c.clientWidth * 2, h = c.height = 720;
+  ctx.clearRect(0,0,w,h);
+  const slice = candles.slice(-80);
+  const hi = Math.max(...slice.map(x=>x.h)), lo = Math.min(...slice.map(x=>x.l));
+  const bw = w / slice.length;
+  slice.forEach((bar,i)=>{
+    const x = i*bw + bw/2;
+    const y = p => h - ((p-lo)/(hi-lo||1))*h;
+    ctx.strokeStyle = bar.c >= bar.o ? "#3dd68c" : "#ff6b6b";
+    ctx.beginPath(); ctx.moveTo(x,y(bar.h)); ctx.lineTo(x,y(bar.l)); ctx.stroke();
+    ctx.fillStyle = ctx.strokeStyle;
+    const top = Math.min(y(bar.o), y(bar.c)), bot = Math.max(y(bar.o), y(bar.c));
+    ctx.fillRect(x-bw*0.25, top, bw*0.5, Math.max(2, bot-top));
+  });
 }
-async function loadBoard(){ const d = await fetch("/api/leaderboard").then(r=>r.json()); document.getElementById("board").textContent = JSON.stringify(d,null,2); }
+async function terminal(){
+  view.innerHTML = `<div class="grid"><article class="card"><h2>Chart</h2><select id="sym"><option>BTCUSDT</option><option>ETHUSDT</option></select> <select id="tf"><option>15m</option><option>1h</option><option>4h</option><option>1d</option></select><canvas id="chart"></canvas></article><article class="card"><h2>Strategies</h2><pre id="states">loading</pre><p><a href="/signals">Open Live Signals</a></p></article></div>`;
+  async function load(){
+    const sym = document.getElementById("sym").value, tf = document.getElementById("tf").value;
+    const bars = await fetch(`/api/klines?symbol=${sym}&interval=${tf}`).then(r=>r.json());
+    draw(bars.candles||[]);
+    const s = await fetch(`/api/research-signals?symbol=${sym}&interval=${tf}`).then(r=>r.json());
+    document.getElementById("states").textContent = (s.states||[]).map(x=>x.strategy+" "+x.direction).join("\n")+"\nfresh="+s.fresh;
+  }
+  document.getElementById("sym").onchange = load;
+  document.getElementById("tf").onchange = load;
+  load();
+}
+async function signals(){
+  const rows = await Promise.all(["BTCUSDT","ETHUSDT"].map(s=>fetch("/api/research-signals?symbol="+s+"&interval=15m").then(r=>r.json())));
+  view.innerHTML = rows.map(d=>`<article class="card"><h2>${d.symbol} ${d.interval}</h2><p class="muted">fresh=${d.fresh} candle=${d.source_candle_close_ms}</p><pre>${d.states.map(s=>s.strategy+" "+s.direction).join("\n")}</pre><a href="/trading">Open in terminal</a></article>`).join("");
+}
+async function load(){
+  if (path === "/trading") return terminal();
+  if (path === "/signals" || path === "/") return signals();
+  if (path === "/portfolio" || path === "/activity") {
+    const p = await fetch("/api/paper-status").then(r=>r.json());
+    view.innerHTML = `<article class="card"><h2>${titles[path]}</h2><pre>${JSON.stringify(p,null,2)}</pre></article>`;
+    return;
+  }
+  if (path === "/system") {
+    const h = await fetch("/health").then(r=>r.json());
+    view.innerHTML = `<article class="card"><h2>System</h2><pre>${JSON.stringify(h,null,2)}</pre></article>`;
+    return;
+  }
+  if (path === "/settings") {
+    view.innerHTML = `<article class="card"><h2>Settings</h2><p>Gold NOT_CONFIGURED. Broker disabled. Production WAIT_DEFAULT.</p></article>`;
+    return;
+  }
+  view.innerHTML = `<article class="card"><h2>${titles[path]||"Aureon"}</h2><p>Connected to the live desk. No fabricated metrics.</p></article>`;
+}
 load();
 </script>
 </body>
 </html>
 """
+
+
 
 
 if __name__ == "__main__":
