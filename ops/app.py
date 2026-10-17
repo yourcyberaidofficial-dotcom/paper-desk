@@ -391,7 +391,7 @@ async function terminal(){
     const bars = await fetch(`/api/klines?symbol=${sym}&interval=${tf}`).then(r=>r.json());
     draw(bars.candles||[]);
     const s = await fetch(`/api/research-signals?symbol=${sym}&interval=${tf}`).then(r=>r.json());
-    document.getElementById("states").textContent = (s.states||[]).map(x=>x.strategy+" "+x.direction).join("\n")+"\nfresh="+s.fresh;
+    document.getElementById("states").textContent = (s.states||[]).map(x=>x.strategy+" "+x.direction).join(" | ")+" fresh="+s.fresh;
   }
   document.getElementById("sym").onchange = load;
   document.getElementById("tf").onchange = load;
