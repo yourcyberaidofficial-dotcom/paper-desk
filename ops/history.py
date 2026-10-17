@@ -54,6 +54,12 @@ def fetch_history(symbol, interval, years=3, page=1000):
 def coverage_status(bars, end_ms, interval):
     if not bars:
         return "FAILED"
+    steps = {"15m": 15 * 60 * 1000, "1h": 60 * 60 * 1000, "4h": 4 * 60 * 60 * 1000, "1d": 24 * 60 * 60 * 1000}
+    step = steps.get(interval)
+    ts = [b["open_time_ms"] for b in bars]
+    gaps = 0 if step is None else sum(1 for a, b in zip(ts, ts[1:]) if b - a != step)
     last = bars[-1]["close_time_ms"]
     recent = end_ms - last < 2 * 24 * 60 * 60 * 1000
+    if gaps:
+        return "PARTIAL"
     return "COMPLETE" if recent else "PARTIAL"
