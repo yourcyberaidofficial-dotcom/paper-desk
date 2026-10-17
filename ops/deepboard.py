@@ -2,7 +2,7 @@
 
 from datetime import datetime, timezone
 
-from ops.history import fetch_history
+from ops.history import fetch_history, coverage_status
 from ops.rules import rule_states
 
 BASE = 11 / 10000
@@ -59,6 +59,7 @@ def deep_board():
             bars = fetch_history(symbol, interval, years=3)
             if not bars:
                 continue
+            end_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
             coverage.append({
                 "symbol": symbol,
                 "interval": interval,
@@ -66,7 +67,8 @@ def deep_board():
                 "start": datetime.fromtimestamp(bars[0]["open_time_ms"] / 1000, timezone.utc).date().isoformat(),
                 "end": datetime.fromtimestamp(bars[-1]["open_time_ms"] / 1000, timezone.utc).date().isoformat(),
                 "source": "binance-public-paginated",
-                "gaps_checked": True,
+                "status": coverage_status(bars, end_ms, interval),
+                "ceiling": None,
             })
             for name in ("E1-donchian-20", "SMA20-cross", "RSI14-band"):
                 base = _metrics(_trades(bars, name, BASE))
