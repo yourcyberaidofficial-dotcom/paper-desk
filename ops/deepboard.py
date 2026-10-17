@@ -74,7 +74,7 @@ def deep_board():
                 rows.append({"symbol": symbol, "interval": interval, "strategy": name, "base": base, "stress": stress, "validated": False})
     return {
         "label": "DEEP RESEARCH BOARD — NOT VALIDATED",
-        "accounting": "sum_unit_return adds trade fractions; compounded_unit_equity multiplies (1+net). Not dollars. No funding.",
+        "accounting": "sum_unit_return = sum(net_i). compounded_unit_equity = product(1+net_i), start 1. A positive sum can still finish below 1 because losses compound. Not dollars. Base 11 bps per fill, stress 15 bps per fill, applied once on entry and once on exit. No funding, no extra spread.",
         "coverage": coverage,
         "rows": rows,
     }

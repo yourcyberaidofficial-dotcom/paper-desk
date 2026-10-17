@@ -1,7 +1,8 @@
 from ops.deepboard import _metrics
 
-
-def test_sum_and_compound_differ():
-    m = _metrics([{"net": 0.1, "side": "long"}, {"net": -0.1, "side": "short"}])
-    assert abs(m["sum_unit_return"]) < 1e-12
-    assert m["compounded_unit_equity"] < 1
+def test_positive_sum_can_lose_compounded_equity():
+    trades = [{"net": 0.50, "side": "long"}, {"net": -0.40, "side": "short"}]
+    m = _metrics(trades)
+    assert abs(m["sum_unit_return"] - 0.10) < 1e-12
+    assert abs(m["compounded_unit_equity"] - 0.90) < 1e-12
+    assert m["max_drawdown"] > 0
