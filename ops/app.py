@@ -260,7 +260,23 @@ def markets():
     })
 
 
+@app.get("/api/gold/signal")
+def gold_signal():
+    try:
+        with urllib.request.urlopen("https://xaus.com/api/v1/history", timeout=15) as response:
+            data = json.loads(response.read().decode())
+        points = data.get("points") or []
+        bars = [{"high": p["h"], "low": p["l"], "close": p["c"]} for p in points]
+        from ops.e1 import e1_side
+        side = e1_side(bars)
+        last = points[-1] if points else {}
+        return jsonify({"symbol": "XAUUSD", "interval": "1d", "strategy": "E1-donchian-20", "result": side, "source_date": last.get("d"), "close": last.get("c"), "validated": False, "note": "Evaluated on daily gold history. Not a paper order."})
+    except Exception as exc:
+        return jsonify({"error": type(exc).__name__}), 502
+
+
 @app.get("/api/gold/candles")
+
 def gold_candles():
     try:
         with urllib.request.urlopen("https://xaus.com/api/v1/history", timeout=15) as response:
@@ -356,7 +372,7 @@ DASHBOARD = """<!doctype html>
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Aureon Trading Lab</title>
 <style>
-:root{--bg:#0b0e14;--panel:#141922;--line:#242b38;--text:#f2f5fa;--muted:#8b95a7;--accent:#8fb0ff;--ok:#2fce8b;--bad:#ef5b6a;--warn:#e0b15a}
+:root{--bg:#07090d;--panel:#121821;--line:#243041;--text:#f5f7fb;--muted:#93a0b5;--accent:#9db7ff;--ok:#35d39a;--bad:#ff6b78;--warn:#f0c36a}
 *{box-sizing:border-box}
 body{margin:0;font-family:Inter,system-ui,-apple-system,Segoe UI,sans-serif;background:var(--bg);color:var(--text)}
 .shell{display:grid;grid-template-columns:240px 1fr;min-height:100vh}
@@ -372,7 +388,8 @@ h1{margin:0;font-size:1.35rem}
 .grid3{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px}
 .price{font-size:1.6rem;margin:6px 0}
 @media(max-width:900px){.grid3{grid-template-columns:1fr}}
-.card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:14px}
+.card{background:linear-gradient(180deg,#151c27,#10161f);border:1px solid var(--line);border-radius:14px;padding:16px;box-shadow:0 8px 24px rgba(0,0,0,.25)}
+.gold{border-color:#6b5420}
 .muted{color:var(--muted);font-size:.84rem}
 .row{display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--line)}
 .long{color:var(--ok)} .short{color:var(--bad)} .wait{color:var(--warn)}
@@ -460,7 +477,8 @@ async function overview(){
   const cards = await Promise.all(m.markets.map(async item => {
     if (item.id === "GOLD") {
       const g = item.data || {};
-      return `<article class="card"><h2>GOLD <span class="muted">XAUUSD</span></h2><p class="price">${g.price || "unavailable"}</p><p class="muted">${g.source || ""} · spot USD/oz · fresh=${g.fresh}</p><p class="muted">Strategy evaluation needs candle history. Spot only is not a Donchian signal.</p></article>`;
+      const sig = await fetch("/api/gold/signal").then(r=>r.json()).catch(()=>({}));
+      return `<article class="card gold"><h2>GOLD <span class="muted">XAUUSD</span></h2><p class="price">${g.price || "unavailable"}</p><div class="row"><span>E1 daily</span><span class="${(sig.result||"").includes("LONG")?"long":(sig.result||"").includes("SHORT")?"short":"wait"}">${sig.result || "unavailable"}</span></div><p class="muted">Source ${sig.source_date || ""} · close ${sig.close || ""} · not a paper order</p></article>`;
     }
     if (item.status !== "configured") {
       return `<article class="card"><h2>GOLD</h2><p class="wait">NOT_CONFIGURED</p></article>`;
