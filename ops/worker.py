@@ -7,6 +7,7 @@ from pathlib import Path
 from ops.market import fetch_last_closed, fetch_klines
 from ops.notify import send_alert
 from ops.e1 import e1_side
+from ops.experimental import ExperimentalBook
 
 DEFAULT_PREFS = {
     "assets": ["BTCUSDT", "ETHUSDT"],
@@ -19,9 +20,10 @@ DEFAULT_PREFS = {
 
 
 class Worker:
-    def __init__(self, ledger, prefs_path: Path):
+    def __init__(self, ledger, prefs_path: Path, experimental_path=None):
         self.ledger = ledger
         self.prefs_path = Path(prefs_path)
+        self.book = ExperimentalBook(experimental_path or self.prefs_path.parent / "experimental.jsonl")
         self.last_beat_ms = 0
         self.last_result = None
 
@@ -86,7 +88,7 @@ class Worker:
             }
             experimental = None
             if prefs.get("experimental_alerts") and fresh:
-                candles = fetch_klines(symbol, prefs["interval"], limit=21, now_ms=now_ms).get("candles") or []
+                candles = fetch_klines(symbol, prefs["interval"], limit=22, now_ms=now_ms).get("candles") or []
                 bars = [{"high": c["h"], "low": c["l"], "close": c["c"]} for c in candles]
                 side = e1_side(bars) if len(bars) >= 21 else "WAIT"
                 experimental = {
@@ -127,6 +129,18 @@ class Worker:
                     "read_proof": False,
                 })
             record["notification"] = notified
+            if experimental and experimental["result"] in {"LONG_BIAS", "SHORT_BIAS"} and self.book.open_position() is None:
+                self.book.append({
+                    "id": f"paper:{key}",
+                    "type": "paper_open",
+                    "asset": symbol,
+                    "side": experimental["result"],
+                    "rule": "E1-donchian-20",
+                    "classification": "experimental_unvalidated",
+                    "entry_reference": experimental.get("reference"),
+                    "candle_ts_ms": close_time,
+                    "label": "EXPERIMENTAL PAPER — NOT VALIDATED",
+                })
             out.append(record)
         self.last_result = out[-1] if out else self.last_result
         return out

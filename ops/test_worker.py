@@ -53,7 +53,7 @@ def test_prefs_cap(tmp_path):
 def test_experimental_opt_in(tmp_path, monkeypatch):
     monkeypatch.setattr("ops.worker.fetch_last_closed", lambda symbol, interval, now_ms=None: _bar(symbol, 3000))
     candles = [{"h": 10, "l": 9, "c": 9.5} for _ in range(20)] + [{"h": 12, "l": 11, "c": 11}]
-    monkeypatch.setattr("ops.worker.fetch_klines", lambda symbol, interval, limit=21, now_ms=None: {"candles": candles})
+    monkeypatch.setattr("ops.worker.fetch_klines", lambda symbol, interval, limit=22, now_ms=None: {"candles": candles})
     ledger = Ledger(tmp_path / "ledger.jsonl")
     prefs = tmp_path / "prefs.json"
     prefs.write_text('{"assets":["BTCUSDT"],"experimental_alerts":true,"alerts_enabled":false}')
@@ -67,7 +67,7 @@ def test_experimental_opt_in(tmp_path, monkeypatch):
 
 def test_wait_does_not_notify(tmp_path, monkeypatch):
     monkeypatch.setattr("ops.worker.fetch_last_closed", lambda symbol, interval, now_ms=None: _bar(symbol, 4000))
-    monkeypatch.setattr("ops.worker.fetch_klines", lambda symbol, interval, limit=21, now_ms=None: {"candles": [{"h": 10, "l": 9, "c": 9.5} for _ in range(21)]})
+    monkeypatch.setattr("ops.worker.fetch_klines", lambda symbol, interval, limit=22, now_ms=None: {"candles": [{"h": 10, "l": 9, "c": 9.5} for _ in range(21)]})
     ledger = Ledger(tmp_path / "ledger.jsonl")
     prefs = tmp_path / "prefs.json"
     prefs.write_text('{"assets":["BTCUSDT"],"experimental_alerts":true,"alerts_enabled":true}')
@@ -82,7 +82,7 @@ def test_wait_does_not_notify(tmp_path, monkeypatch):
 def test_trigger_notifies(tmp_path, monkeypatch):
     monkeypatch.setattr("ops.worker.fetch_last_closed", lambda symbol, interval, now_ms=None: _bar(symbol, 5000))
     candles = [{"h": 10, "l": 9, "c": 9.5} for _ in range(20)] + [{"h": 12, "l": 11, "c": 11}]
-    monkeypatch.setattr("ops.worker.fetch_klines", lambda symbol, interval, limit=21, now_ms=None: {"candles": candles})
+    monkeypatch.setattr("ops.worker.fetch_klines", lambda symbol, interval, limit=22, now_ms=None: {"candles": candles})
     ledger = Ledger(tmp_path / "ledger.jsonl")
     prefs = tmp_path / "prefs.json"
     prefs.write_text('{"assets":["BTCUSDT"],"experimental_alerts":true,"alerts_enabled":true}')
