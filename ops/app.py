@@ -10,7 +10,7 @@ from ops.auth import RateLimit, api_token, require_token
 from ops.engine import PaperEngine
 from ops.ledger import Ledger
 from ops.signals import research_states
-from ops.replay import replay, yesterday_ms
+from ops.replay import replay, yesterday_ms, period
 from ops.market import snapshot as market_snapshot, fetch_klines
 from ops.notify import send_alert
 from ops.strategy import WaitStrategy
@@ -178,6 +178,18 @@ def evaluations():
     return jsonify({"rows": rows[-limit:], "total": len(rows)})
 
 
+@app.get("/api/period")
+def period_api():
+    symbol = request.args.get("symbol", "BTCUSDT")
+    interval = request.args.get("interval", "15m")
+    at = request.args.get("at")
+    at_ms = yesterday_ms() if not at or at == "yesterday" else int(at)
+    try:
+        return jsonify(period(symbol, interval, at_ms))
+    except Exception as exc:
+        return jsonify({"error": type(exc).__name__}), 502
+
+
 @app.get("/api/replay")
 def replay_api():
     symbol = request.args.get("symbol", "BTCUSDT")
@@ -301,7 +313,11 @@ canvas{width:100%;height:180px;background:#0f121a;border-radius:8px}
   <section class="card">
     <h2>Historical replay</h2>
     <p class="warnbox">Hypothetical simulation. Not a trade. Decision uses only closed bars.</p>
-    <button id="replaybtn" type="button">Replay yesterday BTC 15m</button>
+    <input id="replayat" placeholder="yesterday or epoch ms">
+    <select id="replaysym"><option>BTCUSDT</option><option>ETHUSDT</option></select>
+    <select id="replaytf"><option>15m</option><option>1h</option><option>4h</option><option>1d</option></select>
+    <button id="replaybtn" type="button">Replay candle</button>
+    <button id="periodbtn" type="button">Period ledger</button>
     <pre id="replaybox">Select replay.</pre>
   </section>
   <section class="card">
@@ -404,11 +420,16 @@ document.querySelectorAll("nav button").forEach(b => b.onclick = () => {
 });
 document.querySelectorAll("[data-sym]").forEach(b => b.onclick = () => { SYM = b.dataset.sym; document.querySelectorAll("[data-sym]").forEach(x=>x.classList.remove("active")); b.classList.add("active"); loadChart(); });
 document.querySelectorAll("[data-tf]").forEach(b => b.onclick = () => { TF = b.dataset.tf; document.querySelectorAll("[data-tf]").forEach(x=>x.classList.remove("active")); b.classList.add("active"); loadChart(); });
+function replayQuery(){
+  return "symbol="+document.getElementById("replaysym").value+"&interval="+document.getElementById("replaytf").value+"&at="+(document.getElementById("replayat").value||"yesterday");
+}
 document.getElementById("replaybtn").onclick = () => {
   document.getElementById("replaybox").textContent = "loading";
-  fetch("/api/replay?symbol=BTCUSDT&interval=15m&at=yesterday").then(r=>r.json()).then(d=>{
-    document.getElementById("replaybox").textContent = JSON.stringify(d, null, 2);
-  }).catch(()=>{ document.getElementById("replaybox").textContent = "Replay unavailable"; });
+  fetch("/api/replay?"+replayQuery()).then(r=>r.json()).then(d=>{ document.getElementById("replaybox").textContent = JSON.stringify(d, null, 2); });
+};
+document.getElementById("periodbtn").onclick = () => {
+  document.getElementById("replaybox").textContent = "loading";
+  fetch("/api/period?"+replayQuery()).then(r=>r.json()).then(d=>{ document.getElementById("replaybox").textContent = JSON.stringify(d, null, 2); });
 };
 fetch("/api/research-signals?symbol=BTCUSDT&interval=15m").then(r=>r.json()).then(d=>{
   document.getElementById("researchstates").textContent = d.states.map(s => s.strategy+" "+s.direction+" validated="+s.validated).join("\n");

@@ -5,7 +5,7 @@ import time
 import urllib.parse
 import urllib.request
 
-from ops.signals import research_states
+from ops.rules import rule_states
 
 BASE_COST = 11 / 10000
 
@@ -44,7 +44,7 @@ def replay(symbol, interval, at_ms):
         return {"error": "insufficient_history", "symbol": symbol, "interval": interval}
     decision = bars[-1]
     known = bars[:-1]
-    states = research_states(known + [decision])
+    states = rule_states(known + [decision])
     future = _klines(symbol, interval, at_ms + 20 * 15 * 60 * 1000, limit=25)
     after = [b for b in future if b["open_time_ms"] > decision["open_time_ms"]][:8]
     outcomes = []
@@ -98,3 +98,40 @@ def _outcome(state, decision, after):
 
 def yesterday_ms():
     return int(time.time() * 1000) - 24 * 60 * 60 * 1000
+
+
+def period(symbol, interval, end_ms, bars=200):
+    data = _klines(symbol, interval, end_ms, limit=min(bars, 500))
+    trades = []
+    i = 22
+    while i < len(data) - 9:
+        window = data[: i + 1]
+        states = rule_states(window)
+        decision = window[-1]
+        after = data[i + 1 : i + 9]
+        for state in states:
+            out = _outcome(state, decision, after)
+            if out["action"] == "hypothetical_entry":
+                out["decision_close_time_ms"] = decision["close_time_ms"]
+                trades.append(out)
+                break
+        i += 8
+    nets = [t["net"] for t in trades]
+    eq = peak = mdd = 0
+    for n in nets:
+        eq += n
+        peak = max(peak, eq)
+        mdd = max(mdd, peak - eq)
+    wins = [n for n in nets if n > 0]
+    return {
+        "symbol": symbol,
+        "interval": interval,
+        "label": "HYPOTHETICAL PERIOD — NOT VALIDATED",
+        "trades": trades[-30:],
+        "trade_count": len(trades),
+        "net": sum(nets),
+        "expectancy": (sum(nets) / len(nets)) if nets else 0,
+        "win_rate": (len(wins) / len(nets)) if nets else 0,
+        "max_drawdown": mdd,
+        "validated": False,
+    }
