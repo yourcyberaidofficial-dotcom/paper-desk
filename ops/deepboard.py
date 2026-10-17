@@ -55,7 +55,7 @@ def deep_board():
     rows = []
     coverage = []
     for symbol in ("BTCUSDT", "ETHUSDT"):
-        for interval in ("4h", "1d"):
+        for interval in ("15m", "1h", "4h", "1d"):
             bars = fetch_history(symbol, interval, years=3)
             if not bars:
                 continue
@@ -74,6 +74,8 @@ def deep_board():
                 rows.append({"symbol": symbol, "interval": interval, "strategy": name, "base": base, "stress": stress, "validated": False})
     return {
         "label": "DEEP RESEARCH BOARD — NOT VALIDATED",
+        "gold": {"status": "NOT_CONFIGURED", "instrument": None, "reason": "No verified XAUUSD provider is configured."},
+        "costs": {"base_bps_per_fill": 11, "stress_bps_per_fill": 15, "fills_per_trade": 2, "funding": "not modeled", "extra_spread": "not modeled"},
         "accounting": "sum_unit_return = sum(net_i). compounded_unit_equity = product(1+net_i), start 1. A positive sum can still finish below 1 because losses compound. Not dollars. Base 11 bps per fill, stress 15 bps per fill, applied once on entry and once on exit. No funding, no extra spread.",
         "coverage": coverage,
         "rows": rows,
