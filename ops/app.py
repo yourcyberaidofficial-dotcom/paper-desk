@@ -403,9 +403,16 @@ async function signals(){
   const rows = await Promise.all(["BTCUSDT","ETHUSDT"].map(s=>fetch("/api/research-signals?symbol="+s+"&interval=15m").then(r=>r.json())));
   view.innerHTML = rows.map(d => `<article class="card"><h2>${d.symbol} ${d.interval}</h2><p class="muted">fresh=${d.fresh}</p>${d.states.map(s => `<div class="row"><span>${s.strategy}</span><span class="${s.direction.includes("LONG")?"long":s.direction.includes("SHORT")?"short":"wait"}">${s.direction}</span></div>`).join("")}<p><a href="/trading">Open in terminal</a></p></article>`).join("") + `<article class="card"><h2>Backtest</h2><button id="backtest">Run research backtest</button><p class="muted">Loads the existing leaderboard. Not validated.</p><pre id="backtestout">waiting</pre></article>`;
 document.getElementById("backtest").onclick = async () => {
-  document.getElementById("backtestout").textContent = "loading";
-  const d = await fetch("/api/leaderboard").then(r=>r.json());
-  document.getElementById("backtestout").textContent = JSON.stringify(d, null, 2);
+  const box = document.getElementById("backtestout");
+  box.textContent = "loading research board";
+  const ctl = new AbortController();
+  const t = setTimeout(() => ctl.abort(), 20000);
+  try {
+    const d = await fetch("/api/leaderboard", {signal: ctl.signal}).then(r=>r.json());
+    box.textContent = JSON.stringify(d, null, 2);
+  } catch (e) {
+    box.textContent = "Backtest request did not finish. Research board is still NOT VALIDATED.";
+  } finally { clearTimeout(t); }
 };
 }
 async function load(){
