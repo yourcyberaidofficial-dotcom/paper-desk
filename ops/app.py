@@ -11,6 +11,7 @@ from ops.engine import PaperEngine
 from ops.ledger import Ledger
 from ops.signals import research_states
 from ops.replay import replay, yesterday_ms, period
+from ops.leaderboard import leaderboard
 from ops.market import snapshot as market_snapshot, fetch_klines
 from ops.notify import send_alert
 from ops.strategy import WaitStrategy
@@ -178,6 +179,14 @@ def evaluations():
     return jsonify({"rows": rows[-limit:], "total": len(rows)})
 
 
+@app.get("/api/leaderboard")
+def leaderboard_api():
+    try:
+        return jsonify(leaderboard())
+    except Exception as exc:
+        return jsonify({"error": type(exc).__name__}), 502
+
+
 @app.get("/api/period")
 def period_api():
     symbol = request.args.get("symbol", "BTCUSDT")
@@ -318,6 +327,7 @@ canvas{width:100%;height:180px;background:#0f121a;border-radius:8px}
     <select id="replaytf"><option>15m</option><option>1h</option><option>4h</option><option>1d</option></select>
     <button id="replaybtn" type="button">Replay candle</button>
     <button id="periodbtn" type="button">Period ledger</button>
+    <button id="boardbtn" type="button">Leaderboard</button>
     <pre id="replaybox">Select replay.</pre>
   </section>
   <section class="card">
@@ -430,6 +440,10 @@ document.getElementById("replaybtn").onclick = () => {
 document.getElementById("periodbtn").onclick = () => {
   document.getElementById("replaybox").textContent = "loading";
   fetch("/api/period?"+replayQuery()).then(r=>r.json()).then(d=>{ document.getElementById("replaybox").textContent = JSON.stringify(d, null, 2); });
+};
+document.getElementById("boardbtn").onclick = () => {
+  document.getElementById("replaybox").textContent = "loading leaderboard";
+  fetch("/api/leaderboard").then(r=>r.json()).then(d=>{ document.getElementById("replaybox").textContent = JSON.stringify(d, null, 2); });
 };
 fetch("/api/research-signals?symbol=BTCUSDT&interval=15m").then(r=>r.json()).then(d=>{
   document.getElementById("researchstates").textContent = d.states.map(s => s.strategy+" "+s.direction+" validated="+s.validated).join("\n");
