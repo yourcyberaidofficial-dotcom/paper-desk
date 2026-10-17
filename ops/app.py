@@ -234,7 +234,22 @@ def paper_status():
     })
 
 
+@app.get("/api/markets")
+def markets():
+    snap = market_snapshot()
+    return jsonify({
+        "markets": [
+            {"id": "BTC", "symbol": "BTCUSDT", "status": "configured", "data": snap.get("BTCUSDT")},
+            {"id": "ETH", "symbol": "ETHUSDT", "status": "configured", "data": snap.get("ETHUSDT")},
+            {"id": "GOLD", "symbol": None, "status": "NOT_CONFIGURED", "reason": "No verified XAUUSD feed is configured. Gold is visible but unavailable."},
+        ],
+        "broker": False,
+        "production": "WAIT_DEFAULT",
+    })
+
+
 @app.get("/api/research-signals")
+
 def research_signals():
     symbol = request.args.get("symbol", "BTCUSDT")
     interval = request.args.get("interval", "15m")
@@ -328,6 +343,9 @@ main{padding:18px}
 header{display:flex;justify-content:space-between;align-items:center;margin-bottom:14px}
 h1{margin:0;font-size:1.35rem}
 .grid{display:grid;grid-template-columns:minmax(0,2.2fr) minmax(280px,1fr);gap:14px}
+.grid3{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px}
+.price{font-size:1.6rem;margin:6px 0}
+@media(max-width:900px){.grid3{grid-template-columns:1fr}}
 .card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:14px}
 .muted{color:var(--muted);font-size:.84rem}
 .row{display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--line)}
@@ -399,6 +417,19 @@ async function terminal(){
   document.getElementById("tf").onchange = load;
   load();
 }
+
+async function overview(){
+  const m = await fetch("/api/markets").then(r=>r.json());
+  const cards = await Promise.all(m.markets.map(async item => {
+    if (item.status !== "configured") {
+      return `<article class="card"><h2>GOLD</h2><p class="wait">NOT_CONFIGURED</p><p class="muted">${item.reason}</p></article>`;
+    }
+    const s = await fetch(`/api/research-signals?symbol=${item.symbol}&interval=15m`).then(r=>r.json());
+    const price = item.data && item.data.close != null ? item.data.close : "unavailable";
+    return `<article class="card"><h2>${item.id} <span class="muted">${item.symbol}</span></h2><p class="price">${price}</p><p class="muted">fresh=${item.data && item.data.fresh}</p>${(s.states||[]).map(st => `<div class="row"><span>${st.strategy}</span><span class="${st.direction.includes("LONG")?"long":st.direction.includes("SHORT")?"short":"wait"}">${st.direction}</span></div>`).join("")}<p><a href="/trading">Open terminal</a></p></article>`;
+  }));
+  view.innerHTML = `<div class="grid3">${cards.join("")}</div><p class="muted">Production ${m.production}. Broker ${m.broker ? "on" : "off"}.</p>`;
+}
 async function signals(){
   const rows = await Promise.all(["BTCUSDT","ETHUSDT"].map(s=>fetch("/api/research-signals?symbol="+s+"&interval=15m").then(r=>r.json())));
   view.innerHTML = rows.map(d => `<article class="card"><h2>${d.symbol} ${d.interval}</h2><p class="muted">fresh=${d.fresh}</p>${d.states.map(s => `<div class="row"><span>${s.strategy}</span><span class="${s.direction.includes("LONG")?"long":s.direction.includes("SHORT")?"short":"wait"}">${s.direction}</span></div>`).join("")}<p><a href="/trading">Open in terminal</a></p></article>`).join("") + `<article class="card"><h2>Backtest</h2><button id="backtest">Run research backtest</button><p class="muted">Loads the existing leaderboard. Not validated.</p><pre id="backtestout">waiting</pre></article>`;
@@ -417,7 +448,8 @@ document.getElementById("backtest").onclick = async () => {
 }
 async function load(){
   if (path === "/trading") return terminal();
-  if (path === "/signals" || path === "/") return signals();
+  if (path === "/") return overview();
+  if (path === "/signals") return signals();
   if (path === "/portfolio" || path === "/activity") {
     const p = await fetch("/api/paper-status").then(r=>r.json());
     view.innerHTML = `<article class="card"><h2>${titles[path]}</h2><pre>${JSON.stringify(p,null,2)}</pre></article>`;
