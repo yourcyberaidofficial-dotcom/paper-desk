@@ -274,29 +274,58 @@ def triad():
     return jsonify(out)
 
 
-@app.post("/api/users")
-def create_user():
-    from ops.users import create
-    name = (request.json or {}).get("name") or "desk"
-    user = create(str(name))
-    return jsonify({"id": user["id"], "name": user["name"]})
+@app.post("/api/register")
+def register():
+    from ops.users import register as create_user
+    body = request.json or {}
+    user = create_user(str(body.get("name") or ""), str(body.get("password") or ""))
+    if not user:
+        return jsonify({"error": "invalid or duplicate"}), 400
+    return jsonify(user)
 
 
-@app.get("/api/users/<user_id>")
-def get_user(user_id):
+@app.post("/api/login")
+def user_login():
+    from ops.users import login as check_login
+    body = request.json or {}
+    user = check_login(str(body.get("name") or ""), str(body.get("password") or ""))
+    if not user:
+        return jsonify({"error": "invalid"}), 401
+    session["user_id"] = user["id"]
+    session["user_exp"] = time.time() + 60 * 60 * 12
+    return jsonify({"ok": True, "id": user["id"]})
+
+
+@app.post("/api/logout")
+def user_logout():
+    session.pop("user_id", None)
+    session.pop("user_exp", None)
+    return jsonify({"ok": True})
+
+
+@app.get("/api/me")
+def me():
     from ops.users import get
+    user_id = session.get("user_id")
+    exp = session.get("user_exp")
+    if not user_id or not exp or time.time() > exp:
+        return jsonify({"error": "unauthorized"}), 401
     user = get(user_id)
     if not user:
         return jsonify({"error": "not_found"}), 404
     return jsonify({"id": user["id"], "name": user["name"], "telegram_linked": bool(user.get("telegram"))})
 
 
+@app.get("/api/users/<user_id>")
+def get_user(user_id):
+    return jsonify({"error": "use /api/me"}), 404
+
+
 @app.post("/api/users/<user_id>/telegram")
 def link_telegram(user_id):
     from ops.users import link_telegram
-    token = request.headers.get("X-API-Token", "")
-    if token != api_token():
-        return jsonify({"error": "unauthorized"}), 401
+    if session.get("user_id") != user_id:
+        return jsonify({"error": "forbidden"}), 403
     chat_id = (request.json or {}).get("chat_id")
     if not chat_id:
         return jsonify({"error": "chat_id required"}), 400
