@@ -264,8 +264,10 @@ def markets():
 def triad():
     from ops.awuru_triad import triad as align
     symbol = request.args.get("symbol", "BTCUSDT")
-    states = states_for(symbol, "15m")
-    by = {s["strategy"]: s["direction"] for s in states["states"]}
+    data = fetch_klines(symbol, "15m", limit=50)
+    bars = [{"high": c["h"], "low": c["l"], "close": c["c"]} for c in data.get("candles") or []]
+    states = research_states(bars) if bars else []
+    by = {s["strategy"]: s["direction"] for s in states}
     out = align(by.get("E1-donchian-20", "WAIT"), by.get("SMA20-state", "WAIT"), by.get("RSI14-state", "WAIT"), True)
     out["symbol"] = symbol
     out["note"] = "Adapted from Awuru triad. Not a validated edge."
