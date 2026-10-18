@@ -692,7 +692,26 @@ async function load(){
     view.innerHTML = `<article class="card"><h2>System</h2><div class="row"><span>Market data</span><span>${h.market_data}</span></div><div class="row"><span>Strategy</span><span>${h.strategy_status}</span></div><div class="row"><span>Broker</span><span>${h.broker}</span></div></article>`;
     return;
   }
+  if (path === "/settings") return settings();
   view.innerHTML = `<article class="card"><h2>${titles[path]||"Aureon"}</h2><p>Connected to the live desk. No fabricated metrics.</p></article>`;
+}
+async function settings(){
+  const me = await fetch("/api/me").then(r => r.ok ? r.json() : null);
+  if (me) {
+    view.innerHTML = `<article class="card"><h2>Signed in</h2><p>${me.name}</p><button id="out">Sign out</button></article>`;
+    document.getElementById("out").onclick = async () => { await fetch("/api/logout", {method:"POST"}); location.reload(); };
+    return;
+  }
+  view.innerHTML = `<article class="card"><h2>Create account</h2><input id="rn" placeholder="name"><input id="rp" type="password" placeholder="password (8+)"><button id="reg">Register</button></article><article class="card"><h2>Sign in</h2><input id="ln" placeholder="name"><input id="lp" type="password" placeholder="password"><button id="in">Sign in</button><p id="msg" class="muted"></p></article>`;
+  document.getElementById("reg").onclick = async () => {
+    const r = await fetch("/api/register", {method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({name: document.getElementById("rn").value, password: document.getElementById("rp").value})});
+    document.getElementById("msg").textContent = r.ok ? "Account created. Sign in." : "Registration failed.";
+  };
+  document.getElementById("in").onclick = async () => {
+    const r = await fetch("/api/login", {method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({name: document.getElementById("ln").value, password: document.getElementById("lp").value})});
+    if (r.ok) location.reload();
+    else document.getElementById("msg").textContent = "Sign in failed.";
+  };
 }
 load();
 </script>
