@@ -295,14 +295,17 @@ def api_council():
         with urllib.request.urlopen("https://xaus.com/api/v1/history", timeout=15) as response:
             points = json.loads(response.read().decode()).get("points") or []
         bars = [{"high": p["h"], "low": p["l"], "close": p["c"]} for p in points]
-        side = e1_side(bars)
+        states = research_states(bars) if len(bars) >= 21 else []
+        by = {s["strategy"]: s["direction"] for s in states}
         last = points[-1] if points else {}
         out.append({
             "symbol": "XAUUSD",
             "timeframe": "1d",
             "fresh": True,
+            "history": len(bars),
+            "states": states,
             "limitation": "Daily history only. Intraday gold candles are not available.",
-            "council": council(side, "WAIT", "WAIT", True, last.get("d")),
+            "council": council(by.get("E1-donchian-20", "WAIT"), by.get("SMA20-state", "WAIT"), by.get("RSI14-state", "WAIT"), True, last.get("d")),
         })
     except Exception as exc:
         out.append({"symbol": "XAUUSD", "timeframe": "1d", "fresh": False, "error": type(exc).__name__})
