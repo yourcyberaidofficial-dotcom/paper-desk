@@ -277,16 +277,35 @@ def triad():
 @app.get("/api/council")
 def api_council():
     from ops.council import council
+    from ops.e1 import e1_side
     out = []
     for symbol in ("BTCUSDT", "ETHUSDT"):
         data = fetch_klines(symbol, "15m", limit=50)
         bars = [{"high": c["h"], "low": c["l"], "close": c["c"]} for c in data.get("candles") or []]
         states = research_states(bars) if bars else []
         by = {s["strategy"]: s["direction"] for s in states}
+        candle = (data.get("candles") or [{}])[-1].get("t")
         out.append({
             "symbol": symbol,
-            "council": council(by.get("E1-donchian-20", "WAIT"), by.get("SMA20-state", "WAIT"), by.get("RSI14-state", "WAIT"), True),
+            "timeframe": "15m",
+            "fresh": True,
+            "council": council(by.get("E1-donchian-20", "WAIT"), by.get("SMA20-state", "WAIT"), by.get("RSI14-state", "WAIT"), True, candle),
         })
+    try:
+        with urllib.request.urlopen("https://xaus.com/api/v1/history", timeout=15) as response:
+            points = json.loads(response.read().decode()).get("points") or []
+        bars = [{"high": p["h"], "low": p["l"], "close": p["c"]} for p in points]
+        side = e1_side(bars)
+        last = points[-1] if points else {}
+        out.append({
+            "symbol": "XAUUSD",
+            "timeframe": "1d",
+            "fresh": True,
+            "limitation": "Daily history only. Intraday gold candles are not available.",
+            "council": council(side, "WAIT", "WAIT", True, last.get("d")),
+        })
+    except Exception as exc:
+        out.append({"symbol": "XAUUSD", "timeframe": "1d", "fresh": False, "error": type(exc).__name__})
     return jsonify({"markets": out, "source": "awuru-goal-signal-engine council idea, simplified"})
 
 
@@ -541,7 +560,7 @@ async function overview(){
     return `<article class="card"><div class="muted">${item.symbol}</div><div class="price">${price}</div><canvas id="spark-${item.symbol}"></canvas><div class="row"><span>Awuru triad</span><span class="${cls(triad.decision||"")}">${label(triad.decision||"WAIT")}</span></div><div class="muted">${triad.reason||""}</div>${(s.states||[]).map(st => `<div class="row"><span>${st.strategy}</span><span class="${cls(st.direction)}">${label(st.direction)}</span></div>`).join("")}</article>`;
   }));
   const council = await fetch("/api/council").then(r=>r.json()).catch(()=>({markets:[]}));
-  const councilHtml = (council.markets||[]).map(m => `<div class="row"><span>${m.symbol}</span><span>${label(m.council.state)}</span><span class="muted">${m.council.reason}</span></div>`).join("");
+  const councilHtml = (council.markets||[]).map(m => m.council ? `<div class="row"><span>${m.symbol} ${m.timeframe||""}</span><span>${label(m.council.state)}</span></div><div class="muted">${m.council.reason} ${m.council.next_condition||""} ${m.limitation||""}</div>` : `<div class="row"><span>${m.symbol}</span><span>unavailable</span></div>`).join("");
   view.innerHTML = `<div class="markets">${cards.join("")}</div><article class="card"><h2>Strategy council</h2>${councilHtml}<p class="muted">Adapted from Awuru. Not a validated signal.</p></article><div class="workspace"><article class="card"><h2>Chart</h2><select id="sym"><option>BTCUSDT</option><option>ETHUSDT</option><option>XAUUSD</option></select> <select id="tf"><option>15m</option><option>1h</option><option>4h</option><option>1d</option></select><canvas id="chart"></canvas></article><article class="card"><h2>Live signals</h2><div id="feed">loading</div><p><a href="/signals">View all signals</a></p></article></div>`;
   async function load(){
     const sym = document.getElementById("sym").value, tf = document.getElementById("tf").value;
