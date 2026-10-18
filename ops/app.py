@@ -260,6 +260,18 @@ def markets():
     })
 
 
+@app.get("/api/triad")
+def triad():
+    from ops.awuru_triad import triad as align
+    symbol = request.args.get("symbol", "BTCUSDT")
+    states = states_for(symbol, "15m")
+    by = {s["strategy"]: s["direction"] for s in states["states"]}
+    out = align(by.get("E1-donchian-20", "WAIT"), by.get("SMA20-state", "WAIT"), by.get("RSI14-state", "WAIT"), True)
+    out["symbol"] = symbol
+    out["note"] = "Adapted from Awuru triad. Not a validated edge."
+    return jsonify(out)
+
+
 @app.get("/api/signal-history")
 def signal_history():
     from ops.assurance import score_e1
@@ -507,7 +519,8 @@ async function overview(){
     }
     const s = await fetch(`/api/research-signals?symbol=${item.symbol}&interval=15m`).then(r=>r.json());
     const price = item.data && item.data.close != null ? Number(item.data.close).toLocaleString() : "unavailable";
-    return `<article class="card"><div class="muted">${item.symbol}</div><div class="price">${price}</div><canvas id="spark-${item.symbol}"></canvas>${(s.states||[]).map(st => `<div class="row"><span>${st.strategy}</span><span class="${cls(st.direction)}">${label(st.direction)}</span></div>`).join("")}</article>`;
+    const triad = await fetch(`/api/triad?symbol=${item.symbol}`).then(r=>r.json()).catch(()=>({}));
+    return `<article class="card"><div class="muted">${item.symbol}</div><div class="price">${price}</div><canvas id="spark-${item.symbol}"></canvas><div class="row"><span>Awuru triad</span><span class="${cls(triad.decision||"")}">${label(triad.decision||"WAIT")}</span></div><div class="muted">${triad.reason||""}</div>${(s.states||[]).map(st => `<div class="row"><span>${st.strategy}</span><span class="${cls(st.direction)}">${label(st.direction)}</span></div>`).join("")}</article>`;
   }));
   view.innerHTML = `<div class="markets">${cards.join("")}</div><div class="workspace"><article class="card"><h2>Chart</h2><select id="sym"><option>BTCUSDT</option><option>ETHUSDT</option><option>XAUUSD</option></select> <select id="tf"><option>15m</option><option>1h</option><option>4h</option><option>1d</option></select><canvas id="chart"></canvas></article><article class="card"><h2>Live signals</h2><div id="feed">loading</div><p><a href="/signals">View all signals</a></p></article></div>`;
   async function load(){
