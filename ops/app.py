@@ -279,8 +279,10 @@ def api_council():
     from ops.council import council
     out = []
     for symbol in ("BTCUSDT", "ETHUSDT"):
-        states = research_signals(symbol, "15m")
-        by = {s["strategy"]: s["direction"] for s in states.get("states", [])}
+        data = fetch_klines(symbol, "15m", limit=50)
+        bars = [{"high": c["h"], "low": c["l"], "close": c["c"]} for c in data.get("candles") or []]
+        states = research_states(bars) if bars else []
+        by = {s["strategy"]: s["direction"] for s in states}
         out.append({
             "symbol": symbol,
             "council": council(by.get("E1-donchian-20", "WAIT"), by.get("SMA20-state", "WAIT"), by.get("RSI14-state", "WAIT"), True),
