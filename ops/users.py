@@ -65,3 +65,17 @@ def link_telegram(user_id: str, chat_id: str) -> dict | None:
     user["telegram"] = {"chat_id": str(chat_id), "linked_at": time.time()}
     path.write_text(json.dumps(user))
     return get(user_id)
+
+
+def update_prefs(user_id: str, prefs: dict) -> dict | None:
+    path = _path(user_id)
+    if not path.exists():
+        return None
+    user = json.loads(path.read_text())
+    markets = [m for m in prefs.get("markets", []) if m in {"BTCUSDT", "ETHUSDT", "XAUUSD"}]
+    user["prefs"] = {
+        "markets": markets or ["BTCUSDT"],
+        "timeframes": {"BTCUSDT": "15m", "ETHUSDT": "15m", "XAUUSD": "1d"},
+    }
+    path.write_text(json.dumps(user))
+    return get(user_id)

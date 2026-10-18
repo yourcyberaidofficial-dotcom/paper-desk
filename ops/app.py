@@ -303,6 +303,19 @@ def user_logout():
     return jsonify({"ok": True})
 
 
+@app.post("/api/prefs")
+def save_prefs():
+    from ops.users import update_prefs
+    user_id = session.get("user_id")
+    exp = session.get("user_exp")
+    if not user_id or not exp or time.time() > exp:
+        return jsonify({"error": "unauthorized"}), 401
+    user = update_prefs(user_id, request.json or {})
+    if not user:
+        return jsonify({"error": "not_found"}), 404
+    return jsonify({"ok": True, "prefs": user.get("prefs")})
+
+
 @app.get("/api/me")
 def me():
     from ops.users import get
@@ -313,7 +326,7 @@ def me():
     user = get(user_id)
     if not user:
         return jsonify({"error": "not_found"}), 404
-    return jsonify({"id": user["id"], "name": user["name"], "telegram_linked": bool(user.get("telegram"))})
+    return jsonify({"id": user["id"], "name": user["name"], "telegram_linked": bool(user.get("telegram")), "prefs": user.get("prefs")})
 
 
 @app.get("/api/users/<user_id>")
@@ -698,7 +711,17 @@ async function load(){
 async function settings(){
   const me = await fetch("/api/me").then(r => r.ok ? r.json() : null);
   if (me) {
-    view.innerHTML = `<article class="card"><h2>Signed in</h2><p>${me.name}</p><button id="out">Sign out</button></article>`;
+    const prefs = me.prefs || {markets:["BTCUSDT","ETHUSDT","XAUUSD"]};
+    const has = (m) => (prefs.markets||[]).includes(m) ? "checked" : "";
+    view.innerHTML = `<article class="card"><h2>Signed in</h2><p>${me.name}</p><label><input type="checkbox" id="btc" ${has("BTCUSDT")}> BTC 15m</label><label><input type="checkbox" id="eth" ${has("ETHUSDT")}> ETH 15m</label><label><input type="checkbox" id="gold" ${has("XAUUSD")}> GOLD 1d</label><button id="save">Save</button><p id="saved" class="muted"></p><button id="out">Sign out</button></article>`;
+    document.getElementById("save").onclick = async () => {
+      const markets = [];
+      if (document.getElementById("btc").checked) markets.push("BTCUSDT");
+      if (document.getElementById("eth").checked) markets.push("ETHUSDT");
+      if (document.getElementById("gold").checked) markets.push("XAUUSD");
+      const r = await fetch("/api/prefs", {method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({markets})});
+      document.getElementById("saved").textContent = r.ok ? "Saved." : "Save failed.";
+    };
     document.getElementById("out").onclick = async () => { await fetch("/api/logout", {method:"POST"}); location.reload(); };
     return;
   }
