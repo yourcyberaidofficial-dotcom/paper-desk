@@ -264,7 +264,7 @@ def markets():
 def signal_history():
     from ops.assurance import score_e1
     rows = []
-    for row in reversed(paper_ledger.read()):
+    for row in reversed(ledger.read()):
         if row.get("type") != "evaluation":
             continue
         exp = row.get("experimental") or {}
@@ -285,7 +285,7 @@ def signal_history():
 
 @app.get("/api/notify-history")
 def notify_history():
-    rows = [r for r in reversed(paper_ledger.read()) if r.get("type") == "notify"]
+    rows = [r for r in reversed(ledger.read()) if r.get("type") == "notify"]
     return jsonify({"deliveries": rows[:30], "note": "Accepted by Telegram is not proof the user read it."})
 
 
