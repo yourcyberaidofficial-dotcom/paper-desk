@@ -274,6 +274,38 @@ def triad():
     return jsonify(out)
 
 
+@app.post("/api/users")
+def create_user():
+    from ops.users import create
+    name = (request.json or {}).get("name") or "desk"
+    user = create(str(name))
+    return jsonify({"id": user["id"], "name": user["name"]})
+
+
+@app.get("/api/users/<user_id>")
+def get_user(user_id):
+    from ops.users import get
+    user = get(user_id)
+    if not user:
+        return jsonify({"error": "not_found"}), 404
+    return jsonify({"id": user["id"], "name": user["name"], "telegram_linked": bool(user.get("telegram"))})
+
+
+@app.post("/api/users/<user_id>/telegram")
+def link_telegram(user_id):
+    from ops.users import link_telegram
+    token = request.headers.get("X-API-Token", "")
+    if token != api_token():
+        return jsonify({"error": "unauthorized"}), 401
+    chat_id = (request.json or {}).get("chat_id")
+    if not chat_id:
+        return jsonify({"error": "chat_id required"}), 400
+    user = link_telegram(user_id, chat_id)
+    if not user:
+        return jsonify({"error": "not_found"}), 404
+    return jsonify({"id": user["id"], "telegram_linked": True})
+
+
 @app.get("/api/council")
 def api_council():
     from ops.council import council
