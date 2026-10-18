@@ -1,21 +1,21 @@
-"""Simplified Awuru-style strategy council for Aureon.
+"""Awuru-style council for Aureon. WAIT when votes disagree or data is incomplete."""
 
-Uses existing E1, SMA20, and RSI14 outputs. Does not invent indicators.
-WAIT is the default when votes disagree.
-"""
-
-VERSION = "awuru-council-20261018"
+VERSION = "awuru-council-20261018b"
 
 
-def _vote(name: str, direction: str, weight: float) -> dict:
-    return {"name": name, "direction": direction, "weight": weight}
+def _kind(direction: str) -> str:
+    if direction in {"LONG_BIAS", "SHORT_BIAS"}:
+        return "directional"
+    if direction == "WAIT":
+        return "neutral"
+    return "unavailable"
 
 
-def council(e1: str, sma: str, rsi: str, fresh: bool) -> dict:
+def council(e1: str, sma: str, rsi: str, fresh: bool, candle: str | None = None) -> dict:
     votes = [
-        _vote("E1 Donchian-20", e1, 1.2),
-        _vote("SMA20 observation", sma, 1.0),
-        _vote("RSI14 observation", rsi, 0.9),
+        {"name": "E1 Donchian-20", "direction": e1, "weight": 1.2, "rule": "Close outside prior 20-bar high/low", "kind": _kind(e1)},
+        {"name": "SMA20 observation", "direction": sma, "weight": 1.0, "rule": "Close vs prior SMA20", "kind": _kind(sma)},
+        {"name": "RSI14 observation", "direction": rsi, "weight": 0.9, "rule": "RSI above/below 50", "kind": _kind(rsi)},
     ]
     buy = sum(v["weight"] for v in votes if "LONG" in v["direction"])
     sell = sum(v["weight"] for v in votes if "SHORT" in v["direction"])
@@ -23,21 +23,28 @@ def council(e1: str, sma: str, rsi: str, fresh: bool) -> dict:
     total = buy + sell + wait + 1e-9
     if not fresh:
         state, score = "WAIT", 0.0
-        reason = "Stale data. Council blocks directional release."
+        reason = "Stale or missing data. Council blocks directional release."
+        next_condition = "Fresh completed candle required."
     elif buy > sell * 1.18 and buy > wait * 0.75:
         state, score = "LONG_BIAS", round(buy / total, 3)
         reason = "Council agrees on bullish bias."
+        next_condition = "Agreement would break if E1 or SMA turns against the long."
     elif sell > buy * 1.18 and sell > wait * 0.75:
         state, score = "SHORT_BIAS", round(sell / total, 3)
         reason = "Council agrees on bearish bias."
+        next_condition = "Agreement would break if E1 or SMA turns against the short."
     else:
         state, score = "WAIT", round(wait / total, 3)
-        reason = "Votes disagree or are weak. WAIT protects capital."
+        sides = sorted({v["direction"] for v in votes})
+        reason = f"Disagreement: {', '.join(sides)}. WAIT protects capital."
+        next_condition = "WAIT clears only if E1 and SMA agree and RSI does not contradict."
     return {
         "version": VERSION,
         "state": state,
         "score": score,
         "reason": reason,
+        "next_condition": next_condition,
+        "candle": candle,
         "votes": votes,
         "note": "Council is research context, not a validated trade signal.",
     }
