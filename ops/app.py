@@ -624,8 +624,11 @@ function draw(candles){
   });
 }
 async function overview(){
+  const me = await fetch("/api/me").then(r => r.ok ? r.json() : null);
+  const selected = me && me.prefs && me.prefs.markets ? me.prefs.markets : null;
   const m = await fetch("/api/markets").then(r=>r.json());
-  const cards = await Promise.all(m.markets.map(async item => {
+  const markets = selected ? m.markets.filter(item => selected.includes(item.symbol) || (item.id === "GOLD" && selected.includes("XAUUSD"))) : m.markets;
+  const cards = await Promise.all(markets.map(async item => {
     if (item.id === "GOLD") {
       const g = item.data || {};
       const sig = await fetch("/api/gold/signal").then(r=>r.json()).catch(()=>({}));
@@ -638,7 +641,7 @@ async function overview(){
   }));
   const council = await fetch("/api/council").then(r=>r.json()).catch(()=>({markets:[]}));
   const councilHtml = (council.markets||[]).map(m => m.council ? `<div class="row"><span>${m.symbol} ${m.timeframe||""}</span><span>${label(m.council.state)}</span></div><div class="muted">${m.council.reason} ${m.council.next_condition||""} ${m.limitation||""}</div>` : `<div class="row"><span>${m.symbol}</span><span>unavailable</span></div>`).join("");
-  view.innerHTML = `<div class="markets">${cards.join("")}</div><article class="card"><h2>Strategy council</h2>${councilHtml}<p class="muted">Adapted from Awuru. Not a validated signal.</p></article><div class="workspace"><article class="card"><h2>Chart</h2><select id="sym"><option>BTCUSDT</option><option>ETHUSDT</option><option>XAUUSD</option></select> <select id="tf"><option>15m</option><option>1h</option><option>4h</option><option>1d</option></select><canvas id="chart"></canvas></article><article class="card"><h2>Live signals</h2><div id="feed">loading</div><p><a href="/signals">View all signals</a></p></article></div>`;
+  view.innerHTML = `${selected ? `<p class="muted">Showing your selected markets. <a href="/settings">Change settings</a></p>` : ""}<div class="markets">${cards.join("")}</div><article class="card"><h2>Strategy council</h2>${councilHtml}<p class="muted">Adapted from Awuru. Not a validated signal.</p></article><div class="workspace"><article class="card"><h2>Chart</h2><select id="sym"><option>BTCUSDT</option><option>ETHUSDT</option><option>XAUUSD</option></select> <select id="tf"><option>15m</option><option>1h</option><option>4h</option><option>1d</option></select><canvas id="chart"></canvas></article><article class="card"><h2>Live signals</h2><div id="feed">loading</div><p><a href="/signals">View all signals</a></p></article></div>`;
   async function load(){
     const sym = document.getElementById("sym").value, tf = document.getElementById("tf").value;
     if (sym === "XAUUSD") {
