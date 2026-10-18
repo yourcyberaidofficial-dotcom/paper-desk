@@ -260,6 +260,35 @@ def markets():
     })
 
 
+@app.get("/api/signal-history")
+def signal_history():
+    from ops.assurance import score_e1
+    rows = []
+    for row in reversed(paper_ledger.read()):
+        if row.get("type") != "evaluation":
+            continue
+        exp = row.get("experimental") or {}
+        result = exp.get("result") or row.get("result")
+        scored = score_e1(result, bool(row.get("fresh")), 21)
+        rows.append({
+            "asset": row.get("asset"),
+            "timeframe": row.get("timeframe"),
+            "result": result,
+            "candle_ts_ms": row.get("candle_ts_ms"),
+            "fresh": row.get("fresh"),
+            "assurance": scored,
+        })
+        if len(rows) >= 40:
+            break
+    return jsonify({"signals": rows, "note": "Assurance is not a win probability."})
+
+
+@app.get("/api/notify-history")
+def notify_history():
+    rows = [r for r in reversed(paper_ledger.read()) if r.get("type") == "notify"]
+    return jsonify({"deliveries": rows[:30], "note": "Accepted by Telegram is not proof the user read it."})
+
+
 @app.get("/api/gold/signal")
 def gold_signal():
     try:
@@ -507,6 +536,14 @@ async function overview(){
   document.getElementById("feed").innerHTML = rows.map(d => d.states.map(s => `<div class="row"><span>${d.symbol} ${s.strategy}</span><span class="${cls(s.direction)}">${s.direction}</span></div>`).join("")).join("");
 }
 async function signals(){
+  const hist = await fetch("/api/signal-history").then(r=>r.json()).catch(()=>({signals:[]}));
+  const notes = await fetch("/api/notify-history").then(r=>r.json()).catch(()=>({deliveries:[]}));
+  const color = lvl => lvl==="high"?"#43D9A0":lvl==="medium"?"#F5BE4F":lvl==="watch"?"#C4A1FF":"#8ea0b8";
+  const rows = (hist.signals||[]).slice(0,20).map(s => `<div class="row"><span>${s.asset} ${s.timeframe}</span><span>${label(s.result||"")}</span><span style="color:${color(s.assurance&&s.assurance.level)}">${(s.assurance&&s.assurance.level)||"none"}</span></div>`).join("");
+  const dels = (notes.deliveries||[]).slice(0,10).map(d => `<div class="row"><span>${d.asset}</span><span>${d.status||""}</span><span>${d.telegram_message_id||""}</span></div>`).join("");
+  view.innerHTML = `<article class="card"><h2>Signal history</h2>${rows||"<p>No evaluations.</p>"}<p class="muted">Assurance is not a win probability.</p></article><article class="card"><h2>Telegram deliveries</h2>${dels||"<p>None.</p>"}<p class="muted">Accepted by Telegram is not proof you read it.</p></article>`;
+}
+async function signalsLegacy(){
   const rows = await Promise.all(["BTCUSDT","ETHUSDT"].map(s=>fetch("/api/research-signals?symbol="+s+"&interval=15m").then(r=>r.json())));
   const gold = await fetch("/api/gold/signal").then(r=>r.json()).catch(()=>({}));
   view.innerHTML = rows.map(d => `<article class="card"><h2>${d.symbol}</h2>${d.states.map(s => `<div class="row"><span>${s.strategy}</span><span class="${cls(s.direction)}">${s.direction}</span></div>`).join("")}</article>`).join("") + `<article class="card"><h2>XAUUSD</h2><div class="row"><span>E1 daily</span><span class="${cls(gold.result||"")}">${label(gold.result||"unavailable")}</span></div><div class="muted">Source ${gold.source_date||""}</div></article><article class="card"><h2>Research backtest</h2><button id="backtest">Run research backtest</button><pre id="backtestout">waiting</pre></article>`;
