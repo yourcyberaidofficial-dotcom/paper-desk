@@ -274,6 +274,20 @@ def triad():
     return jsonify(out)
 
 
+@app.get("/api/council")
+def api_council():
+    from ops.council import council
+    out = []
+    for symbol in ("BTCUSDT", "ETHUSDT"):
+        states = research_signals(symbol, "15m")
+        by = {s["strategy"]: s["direction"] for s in states.get("states", [])}
+        out.append({
+            "symbol": symbol,
+            "council": council(by.get("E1-donchian-20", "WAIT"), by.get("SMA20-state", "WAIT"), by.get("RSI14-state", "WAIT"), True),
+        })
+    return jsonify({"markets": out, "source": "awuru-goal-signal-engine council idea, simplified"})
+
+
 @app.get("/api/signal-history")
 def signal_history():
     from ops.assurance import score_e1
@@ -524,7 +538,9 @@ async function overview(){
     const triad = await fetch(`/api/triad?symbol=${item.symbol}`).then(r=>r.json()).catch(()=>({}));
     return `<article class="card"><div class="muted">${item.symbol}</div><div class="price">${price}</div><canvas id="spark-${item.symbol}"></canvas><div class="row"><span>Awuru triad</span><span class="${cls(triad.decision||"")}">${label(triad.decision||"WAIT")}</span></div><div class="muted">${triad.reason||""}</div>${(s.states||[]).map(st => `<div class="row"><span>${st.strategy}</span><span class="${cls(st.direction)}">${label(st.direction)}</span></div>`).join("")}</article>`;
   }));
-  view.innerHTML = `<div class="markets">${cards.join("")}</div><div class="workspace"><article class="card"><h2>Chart</h2><select id="sym"><option>BTCUSDT</option><option>ETHUSDT</option><option>XAUUSD</option></select> <select id="tf"><option>15m</option><option>1h</option><option>4h</option><option>1d</option></select><canvas id="chart"></canvas></article><article class="card"><h2>Live signals</h2><div id="feed">loading</div><p><a href="/signals">View all signals</a></p></article></div>`;
+  const council = await fetch("/api/council").then(r=>r.json()).catch(()=>({markets:[]}));
+  const councilHtml = (council.markets||[]).map(m => `<div class="row"><span>${m.symbol}</span><span>${label(m.council.state)}</span><span class="muted">${m.council.reason}</span></div>`).join("");
+  view.innerHTML = `<div class="markets">${cards.join("")}</div><article class="card"><h2>Strategy council</h2>${councilHtml}<p class="muted">Adapted from Awuru. Not a validated signal.</p></article><div class="workspace"><article class="card"><h2>Chart</h2><select id="sym"><option>BTCUSDT</option><option>ETHUSDT</option><option>XAUUSD</option></select> <select id="tf"><option>15m</option><option>1h</option><option>4h</option><option>1d</option></select><canvas id="chart"></canvas></article><article class="card"><h2>Live signals</h2><div id="feed">loading</div><p><a href="/signals">View all signals</a></p></article></div>`;
   async function load(){
     const sym = document.getElementById("sym").value, tf = document.getElementById("tf").value;
     if (sym === "XAUUSD") {
