@@ -237,12 +237,21 @@ def paper_status():
 
 
 def _gold():
+    from ops.gold_cache import load, save
     try:
         with urllib.request.urlopen("https://xaus.com/api/v1/spot", timeout=10) as response:
             spot = json.loads(response.read().decode())
         price = spot.get("spot_usd_oz")
-        return {"symbol": "XAUUSD", "source": "xaus.com", "kind": "spot", "price": price, "fresh": price is not None, "note": "Gold spot USD/oz. Not a crypto exchange candle."}
+        if price is not None:
+            payload = {"symbol": "XAUUSD", "source": "xaus.com", "kind": "spot", "price": price, "fresh": True, "note": "Gold spot USD/oz. Not a crypto exchange candle."}
+            save({"spot": payload})
+            return payload
     except Exception as exc:
+        cached = (load() or {}).get("spot")
+        if cached:
+            cached["fresh"] = False
+            cached["note"] = "Provider limited. Showing last known price."
+            return cached
         return {"symbol": "XAUUSD", "source": "xaus.com", "status": "error", "error": type(exc).__name__, "fresh": False}
 
 
