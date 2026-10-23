@@ -452,6 +452,30 @@ def gold_candles():
         return jsonify({"error": type(exc).__name__}), 502
 
 
+@app.get("/api/research-lab")
+def research_lab():
+    return jsonify({
+        "promoted_count": 0,
+        "production": "WAIT_DEFAULT",
+        "gates": [
+            {"name": "Minimum trade count", "status": "FAIL", "evidence": "Sample sizes were insufficient or not met for promotion."},
+            {"name": "Positive net expectancy after costs", "status": "FAIL", "evidence": "E1 and E2 negative after fees. G1-H4 totals small and unvalidated."},
+            {"name": "Stress-cost resilience", "status": "FAIL", "evidence": "Stress costs worsened results."},
+            {"name": "Robustness across periods", "status": "NOT_EVALUATED", "evidence": "SPA/White/DSR/PBO not computed for G1-H4-r2."},
+            {"name": "No look-ahead", "status": "PASS", "evidence": "Prior bars only. Decision candle excluded."},
+        ],
+        "experiments": [
+            {"id": "G0-H1", "name": "Trend continuation", "decision": "FAILED", "reason": "Negative net expectancy under costs."},
+            {"id": "G0-H2", "name": "Volatility expansion", "decision": "FAILED", "reason": "Negative net expectancy under costs."},
+            {"id": "G0-H3", "name": "Range fade", "decision": "FAILED", "reason": "Negative net expectancy under costs."},
+            {"id": "G1-H4-r2", "name": "Trend continuation (corrected)", "decision": "NO_PROMOTION", "reason": "Positive point estimates but SPA/White/DSR/PBO not computed. ETH 20 rejected."},
+            {"id": "E1-donchian-20", "name": "Donchian 20 breakout", "decision": "REJECTED", "reason": "Negative expectancy after costs on BTC and ETH."},
+            {"id": "E2", "name": "E2 candidate", "decision": "REJECTED", "reason": "Negative expectancy after costs. Profit factor below 1."},
+        ],
+        "note": "No strategy has passed promotion gates. Experimental observations are not validated signals.",
+    })
+
+
 @app.get("/api/research-signals")
 
 
@@ -651,7 +675,13 @@ async function overview(){
   const council = await fetch("/api/council").then(r=>r.json()).catch(()=>({markets:[]}));
   const councilHtml = (council.markets||[]).map(m => m.council ? `<div class="row"><span>${m.symbol} ${m.timeframe||""}</span><span>${label(m.council.state)}</span></div><div class="muted">${m.council.reason} ${m.council.next_condition||""} ${m.limitation||""}</div>` : `<div class="row"><span>${m.symbol}</span><span>unavailable</span></div>`).join("");
   view.innerHTML = `${selected ? `<p class="muted">Showing your selected markets. <a href="/settings">Change settings</a></p>` : ""}<div class="markets">${cards.join("")}</div><article class="card"><h2>Strategy council</h2>${councilHtml}<p class="muted">Adapted from Awuru. Not a validated signal.</p></article><div class="workspace"><article class="card"><h2>Chart</h2><select id="sym"><option>BTCUSDT</option><option>ETHUSDT</option><option>XAUUSD</option></select> <select id="tf"><option>15m</option><option>1h</option><option>4h</option><option>1d</option></select><canvas id="chart"></canvas></article><article class="card"><h2>Live signals</h2><div id="feed">loading</div><p><a href="/signals">View all signals</a></p></article></div>`;
-  async function load(){
+  async function researchLab(){
+  const d = await fetch("/api/research-lab").then(r=>r.json());
+  const gates = (d.gates||[]).map(g => `<div class="row"><span>${g.name}</span><span class="${cls(g.status)}">${g.status}</span></div><div class="muted">${g.evidence}</div>`).join("");
+  const rows = (d.experiments||[]).map(e => `<div class="row"><span>${e.id}</span><span class="${cls(e.decision)}">${e.decision}</span></div><div class="muted">${e.name}. ${e.reason}</div>`).join("");
+  view.innerHTML = `<article class="card"><h2>Promotion gates</h2><p>Promoted strategies: ${d.promoted_count}. Production: ${d.production}.</p>${gates}</article><article class="card"><h2>Experiment archive</h2>${rows}<p class="muted">${d.note}</p></article>`;
+}
+async function load(){
     const sym = document.getElementById("sym").value, tf = document.getElementById("tf").value;
     if (sym === "XAUUSD") {
       const bars = await fetch("/api/gold/candles").then(r=>r.json());
@@ -708,6 +738,7 @@ async function load(){
     view.innerHTML = `<article class="card"><h2>${titles[path]}</h2><p>${open}</p><p class="muted">${p.label||""}</p></article>`;
     return;
   }
+  if (path === "/research") return researchLab();
   if (path === "/strategies") {
     view.innerHTML = `<article class="card"><h2>E1 Donchian-20</h2><p>Breakout on the prior 20 bars. Entry is the next open. Exit is the opposite band or 20 bars in the current worker.</p><p class="muted">BTC and ETH 15m. Gold daily.</p></article><article class="card"><h2>SMA20 and RSI14</h2><p>Research observations only. They do not create paper orders.</p></article>`;
     return;
