@@ -312,6 +312,41 @@ def user_logout():
     return jsonify({"ok": True})
 
 
+@app.post("/api/profile")
+def save_profile():
+    from ops.users import update_profile
+    user_id = session.get("user_id")
+    if not user_id:
+        return jsonify({"error": "unauthorized"}), 401
+    user = update_profile(user_id, request.json or {})
+    if not user:
+        return jsonify({"error": "not_found"}), 404
+    return jsonify({"ok": True, "profile": user.get("profile")})
+
+
+@app.post("/api/telegram/link")
+def telegram_link():
+    from ops.users import start_telegram_link
+    user_id = session.get("user_id")
+    if not user_id:
+        return jsonify({"error": "unauthorized"}), 401
+    body = request.json or {}
+    result = start_telegram_link(user_id, str(body.get("telegram_id") or ""))
+    if not result:
+        return jsonify({"error": "not_found"}), 404
+    return jsonify(result)
+
+
+@app.post("/api/telegram/confirm")
+def telegram_confirm():
+    from ops.users import confirm_telegram_link
+    body = request.json or {}
+    result = confirm_telegram_link(str(body.get("token") or ""), str(body.get("telegram_id") or ""))
+    if not result or result.get("error"):
+        return jsonify(result or {"error": "failed"}), 400
+    return jsonify(result)
+
+
 @app.post("/api/prefs")
 def save_prefs():
     from ops.users import update_prefs
@@ -322,7 +357,7 @@ def save_prefs():
     user = update_prefs(user_id, request.json or {})
     if not user:
         return jsonify({"error": "not_found"}), 404
-    return jsonify({"ok": True, "prefs": user.get("prefs")})
+    return jsonify({"ok": True, "prefs": user.get("prefs"), "profile": user.get("profile"), "telegram_verified": bool((user.get("telegram") or {}).get("verified"))})
 
 
 @app.get("/api/me")
@@ -756,7 +791,9 @@ async function settings(){
   if (me) {
     const prefs = me.prefs || {markets:["BTCUSDT","ETHUSDT","XAUUSD"]};
     const has = (m) => (prefs.markets||[]).includes(m) ? "checked" : "";
-    view.innerHTML = `<article class="card"><h2>Signed in</h2><p>${me.name}</p><label><input type="checkbox" id="btc" ${has("BTCUSDT")}> BTC 15m</label><label><input type="checkbox" id="eth" ${has("ETHUSDT")}> ETH 15m</label><label><input type="checkbox" id="gold" ${has("XAUUSD")}> GOLD 1d</label><button id="save">Save</button><p id="saved" class="muted"></p><button id="out">Sign out</button></article>`;
+    const profile = me.profile || {};
+    view.innerHTML = `<article class="card"><h2>Signed in</h2><p>${me.name}</p><label><input type="checkbox" id="btc" ${has("BTCUSDT")}> BTC 15m</label><label><input type="checkbox" id="eth" ${has("ETHUSDT")}> ETH 15m</label><label><input type="checkbox" id="gold" ${has("XAUUSD")}> GOLD 1d</label><button id="save">Save markets</button><p id="saved" class="muted"></p></article><article class="card"><h2>Profile</h2><label>Mode <select id="mode"><option value="research">Research</option><option value="paper">Paper</option><option value="decision">Decision support</option></select></label><label>Capital <input id="capital" type="number" value="${profile.capital||""}"></label><label>Max risk % <input id="risk" type="number" value="${profile.max_risk_pct||1}"></label><label><input type="checkbox" id="exp" ${profile.experimental_alerts?"checked":""}> Experimental alerts</label><button id="savep">Save profile</button><p id="savedp" class="muted"></p></article><article class="card"><h2>Telegram</h2><p>${me.telegram_verified?"Verified":"Not verified"}</p><input id="tgid" placeholder="Telegram numeric ID"><button id="tglink">Generate verification link</button><p id="tglinkout" class="muted"></p><button id="out">Sign out</button></article>`;
+    document.getElementById("mode").value = profile.mode || "research";
     document.getElementById("save").onclick = async () => {
       const markets = [];
       if (document.getElementById("btc").checked) markets.push("BTCUSDT");
@@ -764,6 +801,16 @@ async function settings(){
       if (document.getElementById("gold").checked) markets.push("XAUUSD");
       const r = await fetch("/api/prefs", {method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({markets})});
       document.getElementById("saved").textContent = r.ok ? "Saved." : "Save failed.";
+    };
+    document.getElementById("savep").onclick = async () => {
+      const body = {mode: document.getElementById("mode").value, capital: document.getElementById("capital").value, max_risk_pct: document.getElementById("risk").value, experimental_alerts: document.getElementById("exp").checked};
+      const r = await fetch("/api/profile", {method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify(body)});
+      document.getElementById("savedp").textContent = r.ok ? "Profile saved." : "Save failed.";
+    };
+    document.getElementById("tglink").onclick = async () => {
+      const r = await fetch("/api/telegram/link", {method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({telegram_id: document.getElementById("tgid").value})});
+      const d = await r.json();
+      document.getElementById("tglinkout").textContent = r.ok ? "Open bot and send /start " + d.token : "Link failed.";
     };
     document.getElementById("out").onclick = async () => { await fetch("/api/logout", {method:"POST"}); location.reload(); };
     return;
