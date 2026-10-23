@@ -11,6 +11,7 @@ services:
       - "127.0.0.1:8080:8080"
     volumes:
       - desk-data:/app/data/paper
+      - desk-users:/app/data/users
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/health')"]
       interval: 30s
@@ -18,3 +19,4 @@ services:
       retries: 3
 volumes:
   desk-data:
+  desk-users:
