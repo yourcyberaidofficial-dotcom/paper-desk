@@ -596,6 +596,21 @@ threading.Thread(target=_loop, daemon=True).start()
 
 
 @app.get("/")
+def landing():
+    if _session_ok():
+        return redirect("/overview")
+    return make_response(LANDING)
+
+
+@app.get("/login")
+@app.get("/register")
+def auth_pages():
+    if _session_ok():
+        return redirect("/overview")
+    return make_response(LANDING)
+
+
+@app.get("/overview")
 @app.get("/signals")
 @app.get("/trading")
 @app.get("/strategies")
@@ -607,11 +622,58 @@ threading.Thread(target=_loop, daemon=True).start()
 @app.get("/system")
 @app.get("/settings")
 def index():
-    authed = _session_ok()
+    if not _session_ok():
+        return redirect("/")
+    authed = True
     failed = request.args.get("login") == "failed"
-    page = DASHBOARD.replace("{{AUTHED}}", "1" if authed else "0").replace("{{FAILED}}", "1" if failed else "0").replace("{{CSRF}}", _csrf())
+    page = DASHBOARD.replace("{{AUTHED}}", "1").replace("{{FAILED}}", "1" if failed else "0").replace("{{CSRF}}", _csrf())
     return make_response(page)
 
+
+LANDING = """<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Aureon Trading Lab</title>
+<style>
+body{margin:0;font-family:system-ui;background:#0b1220;color:#e8eef7}
+header{display:flex;justify-content:space-between;align-items:center;padding:16px 24px;border-bottom:1px solid #1e293b}
+.brand{font-weight:700}
+.muted{color:#94a3b8;font-size:12px}
+nav a{color:#e8eef7;margin-left:16px;text-decoration:none}
+.hero{max-width:920px;margin:48px auto;padding:0 24px}
+h1{font-size:40px;line-height:1.1;margin:0 0 12px}
+.actions{display:flex;gap:12px;margin:20px 0}
+button,.btn{background:#0f766e;color:white;border:0;padding:10px 16px;border-radius:8px;text-decoration:none}
+.ghost{background:transparent;border:1px solid #334155;color:#e8eef7}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px;margin-top:24px}
+.card{background:#111827;border:1px solid #1e293b;border-radius:12px;padding:16px}
+footer{padding:24px;color:#94a3b8;text-align:center}
+</style>
+</head>
+<body>
+<header>
+  <div><div class="brand">Aureon Trading Lab</div><div class="muted">Brought to you by Cyber Aid</div></div>
+  <nav><a href="#platform">Platform</a><a href="#risk">Research & Risk</a><a href="/login" class="ghost">Sign in</a><a href="/register" class="btn">Create account</a></nav>
+</header>
+<section class="hero">
+  <p class="muted">Paper trading and research</p>
+  <h1>See the market clearly. Research with discipline.</h1>
+  <p>Explore market context, review research signals, and investigate strategy evidence in a single workspace designed to keep risk and uncertainty in view.</p>
+  <div class="actions"><a class="btn" href="/register">Create your account</a><a class="btn ghost" href="/login">Sign in</a></div>
+  <article class="card"><p class="muted">Workspace preview — not live trading data</p><p>Production remains WAIT_DEFAULT. No strategy has passed promotion gates. Broker execution is disabled.</p></article>
+  <div class="grid" id="platform">
+    <article class="card"><h3>Market workspace</h3><p>Supported instruments and timeframes with source and freshness.</p></article>
+    <article class="card"><h3>Research signals</h3><p>Decision states and explanations. Experimental work is labeled.</p></article>
+    <article class="card"><h3>Strategy research</h3><p>Research runs and promotion decisions. None are promoted.</p></article>
+    <article class="card"><h3>Risk-aware workflow</h3><p>Configured risk parameters and the limits of research decisions.</p></article>
+  </div>
+  <article class="card" id="risk"><h3>Research and risk</h3><p>The platform operates in paper-trading and research mode. Broker execution is disabled. A WAIT outcome is legitimate. There is no guarantee of profitable results.</p></article>
+</section>
+<footer>Aureon Trading Lab · Brought to you by Cyber Aid · Paper only</footer>
+</body>
+</html>"""
 
 DASHBOARD = """<!doctype html>
 <html lang="en">
@@ -650,7 +712,7 @@ select,button{background:#152033;color:var(--text);border:1px solid var(--line);
   <button id="menu" aria-label="Open navigation" aria-expanded="false">☰ Menu</button>
   <aside id="nav">
     <div class="brand">Aureon Trading Lab</div>
-    <a href="/" data-path="/">Overview</a>
+    <a href="/overview" data-path="/overview">Overview</a>
     <a href="/trading" data-path="/trading">Trading Terminal</a>
     <a href="/signals" data-path="/signals">Live Signals</a>
     <a href="/strategies" data-path="/strategies">Strategies</a>
@@ -677,7 +739,7 @@ const menu = document.getElementById("menu");
 const nav = document.getElementById("nav");
 menu.onclick = () => { const open = nav.classList.toggle("open"); menu.setAttribute("aria-expanded", open); };
 document.querySelectorAll("#nav a").forEach(a => a.onclick = () => nav.classList.remove("open"));
-const path = location.pathname;
+const path = location.pathname === "/" ? "/overview" : location.pathname;
 document.querySelectorAll("aside a").forEach(a => { if (a.dataset.path === path) a.classList.add("active"); });
 const titles = {"/":"Overview","/signals":"Live Signals","/trading":"Trading Terminal","/strategies":"Strategies","/portfolio":"Portfolio","/risk":"Risk Management","/activity":"Orders & Trade History","/system":"System Status","/settings":"Account & Settings","/research":"Backtesting & Research"};
 document.getElementById("title").textContent = titles[path] || "Aureon";
