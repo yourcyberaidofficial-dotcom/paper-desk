@@ -146,3 +146,32 @@ def confirm_telegram_link(token: str, telegram_id: str) -> dict | None:
         path.write_text(json.dumps(user))
         return {"ok": True, "user_id": user["id"]}
     return {"error": "not_found"}
+
+
+def process_start_command(token: str, telegram_id: str, chat_id: str) -> dict:
+    root = Path(os.environ.get("AUREON_DATA", "data")) / "users"
+    for path in root.glob("*.json"):
+        user = json.loads(path.read_text())
+        pending = user.get("telegram_pending") or {}
+        if pending.get("token") != token:
+            continue
+        if time.time() > pending.get("expires", 0):
+            return {"error": "expired"}
+        if str(pending.get("claimed_id")) != str(telegram_id):
+            return {"error": "id_mismatch"}
+        user["telegram"] = {"id": str(telegram_id), "chat_id": str(chat_id), "verified": True}
+        user.pop("telegram_pending", None)
+        path.write_text(json.dumps(user))
+        return {"ok": True, "user_id": user["id"]}
+    return {"error": "not_found"}
+
+
+def unlink_telegram(user_id: str) -> bool:
+    path = _path(user_id)
+    if not path.exists():
+        return False
+    user = json.loads(path.read_text())
+    user.pop("telegram", None)
+    user.pop("telegram_pending", None)
+    path.write_text(json.dumps(user))
+    return True
