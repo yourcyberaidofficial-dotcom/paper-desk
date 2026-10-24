@@ -13,7 +13,7 @@ from ops.engine import PaperEngine
 from ops.ledger import Ledger
 from ops.signals import research_states
 from ops.paper_candidates import candidates
-from ops.experimental import ExperimentalBook
+from ops.experimental import ExperimentalBook, present_book
 from pathlib import Path
 from ops.replay import replay, yesterday_ms, period
 from ops.leaderboard import leaderboard
@@ -264,11 +264,15 @@ def paper_status():
             continue
         try:
             book = ExperimentalBook(path)
+            rows = book.read()
+            shown = present_book(rows, book.open_position())
             return jsonify({
-                "open": book.open_position(),
-                "rows": book.read()[-10:],
+                "open": shown["open"],
+                "rows": shown["trades"][-10:],
+                "observations": shown["observations"][-8:],
                 "label": "EXPERIMENTAL PAPER — NOT VALIDATED",
                 "broker": False,
+                "note": "A directional research observation is not a holding or an order.",
             })
         except Exception as exc:
             return jsonify({"open": None, "rows": [], "label": "EXPERIMENTAL PAPER — NOT VALIDATED", "broker": False, "error": type(exc).__name__})
@@ -785,6 +789,9 @@ input{{background:#0b1220;color:#e8eef7;border:1px solid #334155;border-radius:8
 button{{background:#0f766e;color:white;border:0;padding:10px 16px;border-radius:8px;cursor:pointer}}
 button:disabled{{opacity:.6}}
 .err{{color:#fda4af;min-height:1.2em}}
+.pw{{display:flex;gap:8px;align-items:center}}
+.pw input{{flex:1}}
+.pw button{{background:#152033;border:1px solid #334155}}
 </style>
 </head>
 <body>
@@ -796,7 +803,7 @@ button:disabled{{opacity:.6}}
   <h1>{title}</h1>
   <form id="form" novalidate>
     <label>Name <input id="name" name="name" autocomplete="username" required></label>
-    <label>Password <input id="password" name="password" type="password" autocomplete="{"new-password" if kind == "register" else "current-password"}" minlength="8" required></label>
+    <label>Password <span class="pw"><input id="password" name="password" type="password" autocomplete="{"new-password" if kind == "register" else "current-password"}" minlength="8" required><button id="peek" type="button">Show</button></span></label>
     <button id="submit" type="submit">{button}</button>
     <p id="msg" class="err" role="alert"></p>
     <p>{alt}</p>
@@ -807,6 +814,12 @@ button:disabled{{opacity:.6}}
 const form = document.getElementById("form");
 const btn = document.getElementById("submit");
 const msg = document.getElementById("msg");
+document.getElementById("peek").onclick = () => {{
+  const input = document.getElementById("password");
+  const showing = input.type === "text";
+  input.type = showing ? "password" : "text";
+  document.getElementById("peek").textContent = showing ? "Show" : "Hide";
+}};
 form.onsubmit = async (event) => {{
   event.preventDefault();
   const name = document.getElementById("name").value.trim();
@@ -869,7 +882,7 @@ h1{font-size:clamp(36px,5vw,58px);line-height:1.05;margin:8px 0 12px;letter-spac
 .grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px}
 .card{background:#101826;border:1px solid #1d2a3d;border-radius:14px;padding:16px}
 .card h3{margin:0 0 8px}
-footer{padding:28px;color:#8ea0b8;text-align:center;border-top:1px solid #1d2a3d}
+footer a{color:#99f6e4}
 @media(max-width:800px){header{flex-wrap:wrap;gap:10px}.hero,.grid{grid-template-columns:1fr}nav{width:100%}}
 </style>
 </head>
@@ -910,7 +923,7 @@ footer{padding:28px;color:#8ea0b8;text-align:center;border-top:1px solid #1d2a3d
   </div>
   <article class="card" id="risk"><h3>Research and risk</h3><p>The platform operates in paper-trading and research mode. Broker execution is disabled. No strategy has passed promotion gates. There is no guarantee of profitable results. Account balances keep the currency you choose. Aureon does not convert them.</p></article>
 </section>
-<footer>Aureon Trading Lab · Brought to you by Cyber Aid · Paper only · Broker disabled</footer>
+<footer>Aureon Trading Lab · Brought to you by Cyber Aid · Paper only · Broker disabled<br><a href="/register">Create account</a> · <a href="/login">Sign in</a> · <a href="#styles">Signal styles</a> · <a href="#risk">Research and risk</a></footer>
 </body>
 </html>"""
 
@@ -940,7 +953,10 @@ header{display:flex;justify-content:space-between;align-items:center;margin-bott
 .row{display:flex;justify-content:space-between;gap:8px;padding:6px 0;border-bottom:1px solid rgba(255,255,255,.04)}
 .long{color:var(--ok)} .short{color:var(--bad)} .wait{color:var(--warn)}
 .workspace{display:grid;grid-template-columns:minmax(0,2fr) minmax(280px,1fr);gap:12px}
-canvas{width:100%;height:360px;background:#0a101a;border-radius:10px}
+canvas{width:100%;height:320px;background:#0a101a;border-radius:10px;display:block}
+canvas.spark{height:46px;background:transparent;border-radius:0}
+a{color:#9ae6d5}
+#view a{text-underline-offset:2px}
 select,button{background:#152033;color:var(--text);border:1px solid var(--line);border-radius:8px;padding:8px 10px}
 .fieldrow{display:flex;gap:12px;flex-wrap:wrap;margin-bottom:10px}
 .fieldrow label,.field{display:grid;gap:6px;font-size:.85rem;color:var(--muted)}
@@ -995,6 +1011,7 @@ const path = location.pathname === "/" ? "/overview" : location.pathname;
 document.querySelectorAll("aside a").forEach(a => { if (a.dataset.path === path) a.classList.add("active"); });
 const titles = {"/":"Overview","/signals":"Live Signals","/trading":"Trading Terminal","/strategies":"Strategies","/portfolio":"Portfolio","/risk":"Risk Management","/activity":"Orders & Trade History","/system":"System Status","/settings":"Account & Settings","/research":"Backtesting & Research","/onboarding":"Account setup"};
 document.getElementById("title").textContent = titles[path] || "Aureon";
+document.title = (titles[path] || "Aureon") + " · Aureon Trading Lab";
 const view = document.getElementById("view");
 function cls(d){ return d.includes("LONG")?"long":d.includes("SHORT")?"short":"wait"; }
 function label(d){ if (d==="SHORT_BIAS") return "Bearish observation"; if (d==="LONG_BIAS") return "Bullish observation"; if (d==="WAIT") return "No entry yet"; return d; }
@@ -1015,24 +1032,34 @@ function draw(candles){
   const c = document.getElementById("chart");
   if (!c || !candles.length) return;
   const ctx = c.getContext("2d");
-  const w = c.width = c.clientWidth * 2, h = c.height = 720;
+  const w = c.width = Math.max(320, c.clientWidth * 2), h = c.height = 720;
   ctx.clearRect(0,0,w,h);
   const slice = candles.slice(-90);
   const hi = Math.max(...slice.map(x=>x.h)), lo = Math.min(...slice.map(x=>x.l));
-  const bw = w / slice.length;
+  const left = 12, right = 132, top = 18, bottom = 42;
+  const bw = (w - left - right) / slice.length;
+  const y = p => top + ((hi - p) / (hi - lo || 1)) * (h - top - bottom);
   slice.forEach((bar,i)=>{
-    const x = i*bw + bw/2;
-    const y = p => h - ((p-lo)/(hi-lo||1))*h;
+    const x = left + i*bw + bw/2;
     ctx.strokeStyle = bar.c >= bar.o ? "#2fce8b" : "#ff5d6c";
     ctx.beginPath(); ctx.moveTo(x,y(bar.h)); ctx.lineTo(x,y(bar.l)); ctx.stroke();
     ctx.fillStyle = ctx.strokeStyle;
-    const top = Math.min(y(bar.o), y(bar.c)), bot = Math.max(y(bar.o), y(bar.c));
-    ctx.fillRect(x-bw*0.22, top, bw*0.44, Math.max(2, bot-top));
+    const topY = Math.min(y(bar.o), y(bar.c)), botY = Math.max(y(bar.o), y(bar.c));
+    ctx.fillRect(x-bw*0.22, topY, bw*0.44, Math.max(2, botY-topY));
   });
   ctx.fillStyle = "#8ea0b8";
   ctx.font = "22px sans-serif";
-  ctx.fillText(String(Math.round(hi * 100) / 100), 12, 32);
-  ctx.fillText(String(Math.round(lo * 100) / 100), 12, h - 16);
+  ctx.textAlign = "left";
+  ctx.fillText(hi.toFixed(2), w - right + 10, y(hi) + 8);
+  ctx.fillText(((hi + lo) / 2).toFixed(2), w - right + 10, y((hi + lo) / 2));
+  ctx.fillText(lo.toFixed(2), w - right + 10, Math.min(h - bottom, y(lo)));
+  const stamp = (bar) => {
+    if (!bar || bar.t == null) return "";
+    const d = new Date(bar.t);
+    return Number.isNaN(d.getTime()) ? String(bar.t).slice(0, 16) : d.toISOString().slice(5, 16).replace("T", " ");
+  };
+  ctx.fillText(stamp(slice[0]), left, h - 12);
+  ctx.fillText(stamp(slice[slice.length - 1]), Math.max(left, w - right - 150), h - 12);
 }
 function money(amount, code){
   if (amount === null || amount === undefined || amount === "") return "Not set";
@@ -1047,7 +1074,13 @@ async function overview(){
   const profile = (me && me.profile) || {};
   const balance = money(profile.capital, profile.currency || "");
   const styleName = profile.signal_style_name || "Not selected";
-  const accountCard = `<article class="card"><h2>Account</h2><div class="row"><span>Signal style</span><span>${styleName}</span></div><div class="row"><span>Paper capital</span><span>${balance}</span></div><div class="row"><span>Production</span><span>WAIT_DEFAULT</span></div><p class="muted">Research eligibility is not a trade. Broker execution is disabled. No strategy is promoted. ${profile.currency ? "Amounts use " + profile.currency + ". Quotes stay in their market currency." : "Choose a base currency before treating the balance as money."}</p><p><a href="/settings">Account settings</a> · <a href="/research">Research laboratory</a></p></article>`;
+  const who = me && me.name ? me.name : "Account";
+  const steps = [];
+  if (!profile.signal_style) steps.push("Choose a signal style.");
+  if (!profile.currency) steps.push("Set a base currency. Amounts are not converted.");
+  if (!(me && me.telegram_verified)) steps.push("Telegram is not verified. Alerts stay off until you link a chat.");
+  const stepHtml = steps.length ? `<article class="card"><h2>Next steps</h2><ul>${steps.map(s => `<li>${s}</li>`).join("")}</ul><p><a href="/settings">Open settings</a></p></article>` : "";
+  const accountCard = `<article class="card"><h2>${who}</h2><div class="row"><span>Signal style</span><span>${styleName}</span></div><div class="row"><span>Configured paper capital</span><span>${balance}</span></div><div class="row"><span>Production</span><span>WAIT_DEFAULT</span></div><p class="muted">Research eligibility is not a trade. Broker execution is disabled. No strategy is promoted. ${profile.currency ? "Amounts use " + profile.currency + ". Quotes stay in their market currency." : "Choose a base currency before treating the balance as money."}</p><p><a href="/settings">Account settings</a> · <a href="/research">Research laboratory</a></p></article>${stepHtml}`;
   view.innerHTML = accountCard + `<p class="muted" id="mload">Loading markets…</p>`;
   const selected = me && me.prefs && me.prefs.markets ? me.prefs.markets : null;
   const m = await fetch("/api/markets").then(r=>r.json()).catch(()=>({markets:[]}));
@@ -1056,11 +1089,11 @@ async function overview(){
     if (item.id === "GOLD") {
       const g = item.data || {};
       const price = g.price != null ? Number(g.price).toLocaleString(undefined,{maximumFractionDigits:2}) : "unavailable";
-      return `<article class="card" id="card-XAUUSD"><div class="muted">XAUUSD · Gold · USD/oz</div><div class="price">${price}</div><canvas id="spark-gold"></canvas><div id="detail-XAUUSD" class="muted">${g.fresh===false?"Price is not fresh. ":" "}Research state loading.</div></article>`;
+      return `<article class="card" id="card-XAUUSD"><div class="muted">XAUUSD · Gold · USD/oz</div><div class="price">${price}</div><canvas id="spark-gold" class="spark"></canvas><div id="detail-XAUUSD" class="muted">${g.fresh===false?"Price is not fresh. ":" "}Research state loading.</div></article>`;
     }
     const price = item.data && item.data.close != null ? Number(item.data.close).toLocaleString() : "unavailable";
     const fresh = item.data && item.data.fresh === false ? "Feed is not fresh. " : "";
-    return `<article class="card" id="card-${item.symbol}"><div class="muted">${item.symbol}</div><div class="price">${price}</div><canvas id="spark-${item.symbol}"></canvas><div id="detail-${item.symbol}" class="muted">${fresh}Research state loading.</div></article>`;
+    return `<article class="card" id="card-${item.symbol}"><div class="muted">${item.symbol}</div><div class="price">${price}</div><canvas id="spark-${item.symbol}" class="spark"></canvas><div id="detail-${item.symbol}" class="muted">${fresh}Research state loading.</div></article>`;
   });
   view.innerHTML = `${accountCard}${selected ? `<p class="muted">Showing your selected markets. <a href="/settings">Change settings</a></p>` : ""}<div class="markets">${cards.join("") || "<p>No markets selected.</p>"}</div><div class="workspace"><article class="card"><h2>Chart</h2><select id="sym"><option>BTCUSDT</option><option>ETHUSDT</option><option>XAUUSD</option></select> <select id="tf"><option>15m</option><option>1h</option><option>4h</option><option>1d</option></select><canvas id="chart"></canvas><p class="muted" id="chartnote">Loading closed candles.</p></article><article class="card"><h2>Profile eligibility</h2><div id="elig">loading</div><p class="muted">Eligibility uses the saved signal style. It is not an order.</p></article></div><article class="card" id="councilcard"><h2>Strategy council</h2><p class="muted">Loading the combined research summary. This is not the account signal style.</p></article>`;
   async function loadChart(){
@@ -1131,7 +1164,7 @@ async function signals(){
       detail = (s.states||[]).map(st => `<div class="row"><span>${st.strategy}</span><span class="${cls(st.direction)}">${label(st.direction)}</span></div>`).join("");
       detail += `<div class="muted">${s.fresh===false?"Feed is not fresh. ":""}${s.label||"Research observation."} Timeframe 15m.</div>`;
     }
-    return `<article class="card"><h2>${symbol}</h2><div class="row"><span>Profile</span><span>${profile.signal_style_name||"Not selected"}</span></div><div class="row"><span>Eligibility</span><span class="${cls(elig.decision||"WAIT")}">${label(elig.decision||"WAIT")}</span></div><div class="muted">${elig.reason||""}</div>${detail}<div class="muted">Production ${elig.production||"WAIT_DEFAULT"}. Not an order.</div></article>`;
+    return `<article class="card" data-symbol="${symbol}"><h2>${symbol}</h2><div class="row"><span>Profile</span><span>${profile.signal_style_name||"Not selected"}</span></div><div class="row"><span>Eligibility</span><span class="${cls(elig.decision||"WAIT")}">${label(elig.decision||"WAIT")}</span></div><div class="muted">${elig.reason||""}</div>${detail}<div class="muted">Production ${elig.production||"WAIT_DEFAULT"}. Not an order.</div></article>`;
   }));
   const hist = await fetch("/api/signal-history").then(r=>r.json()).catch(()=>({signals:[]}));
   const seen = new Map();
@@ -1142,7 +1175,12 @@ async function signals(){
     seen.set(key, cur);
   }
   const rows = [...seen.values()].slice(0, 8).map(({row, n}) => `<div class="row"><span>${row.asset||""} ${row.timeframe||""}</span><span>${label(row.result||"")}</span><span>${n} stored ${n===1?"evaluation":"evaluations"}</span></div>`);
-  view.innerHTML = `<p class="muted">Decisions use the saved profile ${profile.signal_style_name||"(none selected)"}. Repeated unchanged evaluations are collapsed.</p>${cards.join("")}<article class="card"><h2>Earlier evaluations</h2>${rows.join("")||"<p>No stored evaluations.</p>"}<p class="muted">Research evaluations are not trades. Identical results are counted instead of repeated row by row.</p></article>`;
+  view.innerHTML = `<label class="field">Market filter <select id="sigfilter"><option value="">All selected markets</option>${markets.map(s => `<option value="${s}">${s}</option>`).join("")}</select></label><p class="muted">Decisions use the saved profile ${profile.signal_style_name||"(none selected)"}. Repeated unchanged evaluations are collapsed.</p>${cards.join("")}<article class="card"><h2>Earlier evaluations</h2>${rows.join("")||"<p>No stored evaluations.</p>"}<p class="muted">Research evaluations are not trades. Identical results are counted instead of repeated row by row.</p></article>`;
+  const filter = document.getElementById("sigfilter");
+  filter.onchange = () => {
+    const chosen = filter.value;
+    document.querySelectorAll("#view article[data-symbol]").forEach(el => { el.hidden = Boolean(chosen) && el.dataset.symbol !== chosen; });
+  };
 }
 async function terminal(){
   view.innerHTML = `<article class="card"><h2>Market workspace</h2><div class="fieldrow"><label>Market <select id="sym"><option>BTCUSDT</option><option>ETHUSDT</option><option>XAUUSD</option></select></label><label>Timeframe <select id="tf"><option>15m</option><option>1h</option><option>4h</option><option>1d</option></select></label></div><canvas id="chart"></canvas><p class="muted" id="chartnote">Loading closed candles…</p><div id="termmeta"></div></article>`;
@@ -1215,20 +1253,23 @@ async function load(){
   view.innerHTML = `<article class="card"><h2>${titles[path]||"Aureon"}</h2><p>This page has no separate data source yet.</p></article>`;
 }
 async function paperPages(){
-  const p = await fetch("/api/paper-status").then(r=>r.json()).catch(()=>({open:null, rows:[], label:""}));
+  const p = await fetch("/api/paper-status").then(r=>r.json()).catch(()=>({open:null, rows:[], observations:[], label:""}));
   const me = await fetch("/api/me").then(r=>r.ok?r.json():null);
   const code = me && me.profile && me.profile.currency;
-  const rows = (p.rows||[]).filter(r => r.type === "paper_open" || r.type === "paper_close");
+  const bias = new Set(["LONG_BIAS","SHORT_BIAS","WAIT","NEUTRAL"]);
+  const trades = (p.rows||[]).filter(r => r.side && !bias.has(r.side));
+  const open = p.open && p.open.side && !bias.has(p.open.side) ? p.open : null;
+  const observations = p.observations || [];
+  const obsNote = observations.length ? `<p class="muted">${observations.length} experimental research observation${observations.length===1?"":"s"} are in the book. ${label(observations[observations.length-1].side||"")} is not a holding and not an order.</p>` : "";
   if (path === "/portfolio") {
-    const open = p.open;
     const body = open
-      ? `<div class="row"><span>Experimental paper position</span><span>${open.asset} ${open.side}</span></div><div class="row"><span>Entry</span><span>${open.entry_price}</span></div><p class="muted">This is a recorded paper position, not a signal observation. ${p.label||""}</p>`
-      : `<p>No open paper position.</p><p class="muted">A bullish or bearish research state is not a holding. Nothing is shown here until a paper order is recorded.</p>`;
-    view.innerHTML = `<article class="card"><h2>Portfolio</h2><div class="row"><span>Paper capital</span><span>${money(me && me.profile && me.profile.capital, code||"")}</span></div>${body}</article>`;
+      ? `<div class="row"><span>Paper position</span><span>${open.asset} ${open.side}</span></div><div class="row"><span>Entry</span><span>${open.entry_price}</span></div><p class="muted">Recorded paper order. ${p.label||""}</p>`
+      : `<p>No open paper position.</p><p class="muted">A bullish or bearish research state is not a holding. Nothing is shown as a position until an order side is recorded.</p>${obsNote}`;
+    view.innerHTML = `<article class="card"><h2>Portfolio</h2><div class="row"><span>Configured paper capital</span><span>${money(me && me.profile && me.profile.capital, code||"")}</span></div>${body}</article>`;
     return;
   }
-  const list = rows.map(r => `<div class="row"><span>${r.type}</span><span>${r.asset||""} ${r.side||""}</span></div>`).join("");
-  view.innerHTML = `<article class="card"><h2>Orders and trade history</h2>${list || "<p>No recorded paper orders.</p>"}<p class="muted">Signal evaluations are not listed as trades. ${p.label||""}</p></article>`;
+  const list = trades.map(r => `<div class="row"><span>${r.type}</span><span>${r.asset||""} ${r.side||""}</span></div>`).join("");
+  view.innerHTML = `<article class="card"><h2>Orders and trade history</h2>${list || "<p>No recorded paper orders.</p>"}<p class="muted">Signal evaluations and directional observations are not listed as trades. ${p.label||""}</p>${obsNote}</article>`;
 }
 async function riskPage(){
   const me = await fetch("/api/me").then(r=>r.ok?r.json():null);

@@ -1,15 +1,13 @@
 # Implementation status
 
-Verified against production commit 275a985ee5db83b7e4cedcd195c0580c3aede202.
+Observed on https://aureontradelab.tech at 2026-10-24 19:03 UTC. The running process had been up for about 9.4 hours. `/health` was `WAIT_DEFAULT`, `broker: false`, `paper_only: true`, market data fresh. The live HTML matches the three-style product on main `cd62b27`. This file's later portfolio change is source-only until that commit is deployed.
 
 | Area | Status | Evidence |
 |---|---|---|
-| Research lab | VERIFIED | /research shows gates and archive. Promoted count 0. |
-| Durable accounts | VERIFIED | durableA logged in after container recreate. |
-| Market preferences | PARTIAL | API saves prefs. Persistence not retested after volume change. |
-| Gold price | PARTIAL | Cached last known price. Provider limited. |
-| Council | VERIFIED | Overview shows WAIT with disagreement reason. |
-| Telegram linking | MISSING | No deep-link flow. |
-| Daily digest | MISSING | No scheduler. |
-| Risk settings | MISSING | Placeholder page. |
-| Broker | DISABLED | health.broker is false. |
+| Public landing | LIVE | Anonymous page names Apex, Orion, and Aegis. No private nav. |
+| Register and login | LIVE | Distinct forms. Browser created two accounts and kept a session across reload. |
+| Style, currency, capital | LIVE | Aegis + NGN 250000 saved. Apex switch set risk 2.5% without changing NGN or capital. Second account stayed USD 40. |
+| Eligibility | LIVE | Apex on fresh BTC with E1 WAIT returned WAIT. Production WAIT_DEFAULT, validated false, broker false. |
+| Portfolio honesty | FAIL on live, fixed in source | Live portfolio showed `BTCUSDT SHORT_BIAS` as an experimental paper position. `present_book` now keeps bias rows out of holdings. Not deployed. |
+| Telegram / digest | NOT VERIFIED | Worker notification is configured. No authorized per-user chat was used for a delivery test. |
+| Broker | DISABLED | `health.broker` is false. |
