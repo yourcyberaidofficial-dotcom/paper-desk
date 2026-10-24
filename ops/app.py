@@ -878,3 +878,22 @@ def digest():
     text_body = "Aureon daily: no qualifying setup. Production remains WAIT_DEFAULT. Gold data is provider-limited."
     result = send_alert(text_body, chat_id=tg.get("chat_id"))
     return jsonify({"ok": True, "delivery": result})
+
+
+import threading
+
+def _digest_loop():
+    while True:
+        try:
+            from ops.users import list_users
+            from ops.notify import send_alert
+            for user in list_users():
+                profile = user.get("profile") or {}
+                tg = user.get("telegram") or {}
+                if profile.get("daily_report") and tg.get("verified") and tg.get("chat_id"):
+                    send_alert("Aureon daily: no qualifying setup. Production remains WAIT_DEFAULT.", chat_id=tg.get("chat_id"))
+        except Exception:
+            pass
+        time.sleep(86400)
+
+threading.Thread(target=_digest_loop, daemon=True).start()
