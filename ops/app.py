@@ -860,3 +860,21 @@ load();
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=8080)
+
+
+@app.post("/api/digest")
+def digest():
+    user_id = session.get("user_id")
+    if not user_id:
+        return jsonify({"error": "unauthorized"}), 401
+    from ops.users import get
+    from ops.notify import send_alert
+    user = get(user_id)
+    if not user:
+        return jsonify({"error": "not_found"}), 404
+    tg = user.get("telegram") or {}
+    if not tg.get("verified"):
+        return jsonify({"error": "not_verified"}), 400
+    text_body = "Aureon daily: no qualifying setup. Production remains WAIT_DEFAULT. Gold data is provider-limited."
+    result = send_alert(text_body, chat_id=tg.get("chat_id"))
+    return jsonify({"ok": True, "delivery": result})
