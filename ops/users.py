@@ -175,3 +175,10 @@ def unlink_telegram(user_id: str) -> bool:
     user.pop("telegram_pending", None)
     path.write_text(json.dumps(user))
     return True
+
+
+def list_users() -> list[dict]:
+    root = Path(os.environ.get("AUREON_DATA", "data")) / "users"
+    if not root.exists():
+        return []
+    return [json.loads(path.read_text()) for path in root.glob("*.json")]
