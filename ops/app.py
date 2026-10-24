@@ -59,7 +59,7 @@ def _gate():
 
 ALLOWED_NEXT = {
     "/overview", "/signals", "/trading", "/strategies", "/indicators",
-    "/research", "/portfolio", "/risk", "/activity", "/system", "/settings",
+    "/research", "/portfolio", "/risk", "/activity", "/system", "/settings", "/onboarding",
 }
 
 
@@ -255,13 +255,24 @@ def replay_api():
 
 @app.get("/api/paper-status")
 def paper_status():
-    book = ExperimentalBook(Path("/app/data/paper/experimental.jsonl"))
-    return jsonify({
-        "open": book.open_position(),
-        "rows": book.read()[-10:],
-        "label": "EXPERIMENTAL PAPER — NOT VALIDATED",
-        "broker": False,
-    })
+    candidates = [
+        Path("/app/data/paper/experimental.jsonl"),
+        Path(os.environ.get("AUREON_DATA", "data")) / "paper" / "experimental.jsonl",
+    ]
+    for path in candidates:
+        if not path.exists():
+            continue
+        try:
+            book = ExperimentalBook(path)
+            return jsonify({
+                "open": book.open_position(),
+                "rows": book.read()[-10:],
+                "label": "EXPERIMENTAL PAPER — NOT VALIDATED",
+                "broker": False,
+            })
+        except Exception as exc:
+            return jsonify({"open": None, "rows": [], "label": "EXPERIMENTAL PAPER — NOT VALIDATED", "broker": False, "error": type(exc).__name__})
+    return jsonify({"open": None, "rows": [], "label": "EXPERIMENTAL PAPER — NOT VALIDATED", "broker": False})
 
 
 def _gold():
@@ -431,6 +442,81 @@ def me():
         "prefs": user.get("prefs"),
         "profile": user.get("profile") or {},
     })
+
+
+@app.get("/api/profiles")
+def profiles_api():
+    from ops.profiles import CURRENCIES, catalog
+    return jsonify({
+        "source": "awuru-goal-signal-engine accounts_personas.py",
+        "excluded": "Titan Structured is a later fourth persona and is not one of the original three.",
+        "note": "Profiles change research eligibility and risk posture only. Production remains WAIT_DEFAULT. No currency conversion is performed.",
+        "profiles": catalog(),
+        "currencies": list(CURRENCIES),
+        "conversion": False,
+    })
+
+
+def _research_votes(symbol):
+    e1 = sma = rsi = "WAIT"
+    fresh = False
+    try:
+        if symbol == "XAUUSD":
+            from ops.gold_cache import load
+            cached = load() or {}
+            candles = (cached.get("candles") or cached.get("daily") or [])
+            if len(candles) < 21:
+                with urllib.request.urlopen("https://xaus.com/api/v1/history", timeout=15) as response:
+                    points = json.loads(response.read().decode()).get("points") or []
+                candles = [{"high": p.get("h"), "low": p.get("l"), "close": p.get("c")} for p in points]
+            fresh = len(candles) >= 21
+        else:
+            data = fetch_klines(symbol, "15m", limit=80)
+            candles = data.get("candles") or []
+            snap = market_snapshot().get(symbol) or {}
+            fresh = bool(candles) and bool(snap.get("fresh"))
+        norm = []
+        for bar in candles:
+            norm.append({
+                "high": bar.get("high", bar.get("h")),
+                "low": bar.get("low", bar.get("l")),
+                "close": bar.get("close", bar.get("c")),
+            })
+        if norm and all(v is not None for b in norm for v in b.values()):
+            states = research_states(norm)
+            by = {s["strategy"]: s["direction"] for s in states}
+            e1 = by.get("E1-donchian-20", "WAIT")
+            sma = by.get("SMA20-state", "WAIT")
+            rsi = by.get("RSI14-state", "WAIT")
+        else:
+            fresh = False
+    except Exception:
+        fresh = False
+    return e1, sma, rsi, fresh
+
+
+@app.get("/api/eligibility")
+def eligibility_api():
+    if not _user_ok():
+        return jsonify({"error": "unauthorized"}), 401
+    from ops.profiles import evaluate
+    from ops.users import get
+    user = get(session["user_id"]) or {}
+    profile = user.get("profile") or {}
+    symbol = request.args.get("symbol", "BTCUSDT")
+    if symbol not in {"BTCUSDT", "ETHUSDT", "XAUUSD"}:
+        return jsonify({"error": "symbol_not_allowed"}), 400
+    e1, sma, rsi, fresh = _research_votes(symbol)
+    out = evaluate(profile.get("signal_style"), e1, sma, rsi, fresh, symbol)
+    out["account"] = {
+        "signal_style": profile.get("signal_style"),
+        "signal_style_name": profile.get("signal_style_name"),
+        "max_risk_pct": profile.get("max_risk_pct"),
+        "currency": profile.get("currency"),
+        "capital": profile.get("capital"),
+        "experimental_alerts": profile.get("experimental_alerts", False),
+    }
+    return jsonify(out)
 
 
 @app.get("/api/users/<user_id>")
@@ -647,7 +733,8 @@ def login_page():
 
 @app.get("/register")
 def register_page():
-    nxt = _safe_next(request.args.get("next"))
+    raw = request.args.get("next")
+    nxt = _safe_next(raw) if raw else "/onboarding"
     if _gate():
         return redirect(nxt)
     return make_response(_auth_page("register", nxt))
@@ -664,6 +751,7 @@ def register_page():
 @app.get("/activity")
 @app.get("/system")
 @app.get("/settings")
+@app.get("/onboarding")
 def index():
     if not _gate():
         return redirect("/login?next=" + _safe_next(request.path))
@@ -763,41 +851,66 @@ LANDING = """<!doctype html>
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Aureon Trading Lab</title>
 <style>
-body{margin:0;font-family:system-ui;background:#0b1220;color:#e8eef7}
-header{display:flex;justify-content:space-between;align-items:center;padding:16px 24px;border-bottom:1px solid #1e293b}
-.brand{font-weight:700}
-.muted{color:#94a3b8;font-size:12px}
-nav a{color:#e8eef7;margin-left:16px;text-decoration:none}
-.hero{max-width:920px;margin:48px auto;padding:0 24px}
-h1{font-size:40px;line-height:1.1;margin:0 0 12px}
-.actions{display:flex;gap:12px;margin:20px 0}
-button,.btn{background:#0f766e;color:white;border:0;padding:10px 16px;border-radius:8px;text-decoration:none}
-.ghost{background:transparent;border:1px solid #334155;color:#e8eef7}
-.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px;margin-top:24px}
-.card{background:#111827;border:1px solid #1e293b;border-radius:12px;padding:16px}
-footer{padding:24px;color:#94a3b8;text-align:center}
+body{margin:0;font-family:Inter,system-ui,sans-serif;background:#070b12;color:#eef3fb}
+header{display:flex;justify-content:space-between;align-items:center;padding:18px 28px;border-bottom:1px solid #1d2a3d;position:sticky;top:0;background:#070b12ee}
+.brand{font-weight:700;font-size:1.05rem}
+.muted{color:#8ea0b8}
+nav{display:flex;gap:8px;align-items:center}
+nav a{color:#eef3fb;text-decoration:none;padding:8px 12px;border-radius:8px}
+.hero{max-width:1080px;margin:0 auto;padding:64px 24px 24px;display:grid;grid-template-columns:1.2fr .8fr;gap:28px;align-items:center}
+h1{font-size:clamp(36px,5vw,58px);line-height:1.05;margin:8px 0 12px;letter-spacing:-.03em}
+.lede{font-size:1.05rem;color:#c5d2e4;max-width:40rem}
+.actions{display:flex;gap:12px;margin:22px 0;flex-wrap:wrap}
+.btn{background:#0f766e;color:white;border:0;padding:12px 18px;border-radius:10px;text-decoration:none;font-weight:600}
+.ghost{background:transparent;border:1px solid #334155;color:#eef3fb}
+.preview{background:linear-gradient(180deg,#121c2c,#0c1422);border:1px solid #1d2a3d;border-radius:16px;padding:18px}
+.preview .row{display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid #1d2a3d;font-size:.92rem}
+.wrap{max-width:1080px;margin:0 auto;padding:8px 24px 48px}
+.grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px}
+.card{background:#101826;border:1px solid #1d2a3d;border-radius:14px;padding:16px}
+.card h3{margin:0 0 8px}
+footer{padding:28px;color:#8ea0b8;text-align:center;border-top:1px solid #1d2a3d}
+@media(max-width:800px){header{flex-wrap:wrap;gap:10px}.hero,.grid{grid-template-columns:1fr}nav{width:100%}}
 </style>
 </head>
 <body>
 <header>
   <div><div class="brand">Aureon Trading Lab</div><div class="muted">Brought to you by Cyber Aid</div></div>
-  <nav><a href="#platform">Platform</a><a href="#risk">Research & Risk</a><a href="/login" class="ghost">Sign in</a><a href="/register" class="btn">Create account</a></nav>
+  <nav><a href="#styles">Signal styles</a><a href="#risk">Research & risk</a><a href="/login" class="ghost">Sign in</a><a href="/register" class="btn">Create account</a></nav>
 </header>
 <section class="hero">
-  <p class="muted">Paper trading and research</p>
-  <h1>See the market clearly. Research with discipline.</h1>
-  <p>Explore market context, review research signals, and investigate strategy evidence in a single workspace designed to keep risk and uncertainty in view.</p>
-  <div class="actions"><a class="btn" href="/register">Create your account</a><a class="btn ghost" href="/login">Sign in</a></div>
-  <article class="card"><p class="muted">Workspace preview — not live trading data</p><p>Production remains WAIT_DEFAULT. No strategy has passed promotion gates. Broker execution is disabled.</p></article>
-  <div class="grid" id="platform">
-    <article class="card"><h3>Market workspace</h3><p>Supported instruments and timeframes with source and freshness.</p></article>
-    <article class="card"><h3>Research signals</h3><p>Decision states and explanations. Experimental work is labeled.</p></article>
-    <article class="card"><h3>Strategy research</h3><p>Research runs and promotion decisions. None are promoted.</p></article>
-    <article class="card"><h3>Risk-aware workflow</h3><p>Configured risk parameters and the limits of research decisions.</p></article>
+  <div>
+    <p class="muted">Paper trading and research</p>
+    <h1>See the market clearly. Research with discipline.</h1>
+    <p class="lede">One account for BTC, ETH, and gold observation. Choose a signal posture, set a real base currency, and read research states without pretending they are trades.</p>
+    <div class="actions"><a class="btn" href="/register">Create your account</a><a class="btn ghost" href="/login">Sign in</a></div>
   </div>
-  <article class="card" id="risk"><h3>Research and risk</h3><p>The platform operates in paper-trading and research mode. Broker execution is disabled. A WAIT outcome is legitimate. There is no guarantee of profitable results.</p></article>
+  <aside class="preview" aria-label="Product preview">
+    <p class="muted">Illustrative desk layout. Not a live quote and not a performance claim.</p>
+    <div class="row"><span>Production</span><strong>WAIT_DEFAULT</strong></div>
+    <div class="row"><span>Broker</span><strong>Disabled</strong></div>
+    <div class="row"><span>Account currency</span><strong>Set by you</strong></div>
+    <div class="row"><span>Paper position</span><strong>Only if recorded</strong></div>
+  </aside>
 </section>
-<footer>Aureon Trading Lab · Brought to you by Cyber Aid · Paper only</footer>
+<section class="wrap" id="styles">
+  <h2>Three signal styles, one login</h2>
+  <p class="muted">Recovered from Awuru's account personas. They change confirmation strictness and risk caps. They do not promote a strategy.</p>
+  <div class="grid">
+    <article class="card"><h3>Apex Momentum</h3><p>Aggressive. BTC and ETH may follow an E1 observation alone. Gold still requires agreement. Risk cap 2.5% per trade.</p></article>
+    <article class="card"><h3>Orion Precision</h3><p>Balanced. E1 plus a confirming research state, and no opposing vote. Risk cap 1.5% per trade.</p></article>
+    <article class="card"><h3>Aegis Shield</h3><p>Defensive. All three research states must agree, or the result is WAIT. Risk cap 0.8% per trade.</p></article>
+  </div>
+</section>
+<section class="wrap" id="platform">
+  <div class="grid">
+    <article class="card"><h3>Market workspace</h3><p>BTC and ETH from Binance closed candles. Gold only when a real XAUUSD source returns data.</p></article>
+    <article class="card"><h3>Research signals</h3><p>E1, SMA20, and RSI14 stay labeled as research. A WAIT result is kept visible.</p></article>
+    <article class="card"><h3>Paper records</h3><p>Portfolio and history show recorded paper orders only. A directional bias is not a holding.</p></article>
+  </div>
+  <article class="card" id="risk"><h3>Research and risk</h3><p>The platform operates in paper-trading and research mode. Broker execution is disabled. No strategy has passed promotion gates. There is no guarantee of profitable results. Account balances keep the currency you choose. Aureon does not convert them.</p></article>
+</section>
+<footer>Aureon Trading Lab · Brought to you by Cyber Aid · Paper only · Broker disabled</footer>
 </body>
 </html>"""
 
@@ -829,6 +942,15 @@ header{display:flex;justify-content:space-between;align-items:center;margin-bott
 .workspace{display:grid;grid-template-columns:minmax(0,2fr) minmax(280px,1fr);gap:12px}
 canvas{width:100%;height:360px;background:#0a101a;border-radius:10px}
 select,button{background:#152033;color:var(--text);border:1px solid var(--line);border-radius:8px;padding:8px 10px}
+.fieldrow{display:flex;gap:12px;flex-wrap:wrap;margin-bottom:10px}
+.fieldrow label,.field{display:grid;gap:6px;font-size:.85rem;color:var(--muted)}
+.field{margin:12px 0;max-width:320px}
+.styles label,.checks label{display:flex;gap:10px;align-items:flex-start;margin:8px 0;line-height:1.45}
+.styles label{background:#0b1220;border:1px solid var(--line);border-radius:10px;padding:10px 12px}
+#view input,#view select{background:#0b1220;color:var(--text);border:1px solid var(--line);border-radius:8px;padding:8px 10px}
+#view .field input,#view .field select{width:100%;max-width:320px}
+#view article+article{margin-top:12px}
+main h1{margin:0;font-size:1.55rem}
 #menu{display:none;background:#152033;color:#fff;border:1px solid var(--line);border-radius:8px;padding:8px 12px;margin:10px}
 @media(max-width:900px){.shell{grid-template-columns:1fr}#menu{display:inline-block}aside{display:none;position:fixed;inset:0 auto 0 0;width:240px;z-index:20}aside.open{display:block}.markets,.workspace{grid-template-columns:1fr}}
 </style>
@@ -855,7 +977,7 @@ select,button{background:#152033;color:var(--text);border:1px solid var(--line);
         <h1 id="title">Overview</h1>
         <div class="muted">Live market desk. Paper only. Broker off.</div>
       </div>
-      <div class="pills"><span class="pill">Engine online</span><span class="pill">Paper only</span><span class="pill">Broker off</span><button id="signout" type="button">Sign out</button></div>
+      <div class="pills"><span class="pill">WAIT_DEFAULT</span><span class="pill">Paper only</span><span class="pill">Broker off</span><button id="signout" type="button">Sign out</button></div>
     </header>
     <section id="view"></section>
   </main>
@@ -871,7 +993,7 @@ document.getElementById("signout").onclick = async () => {
 };
 const path = location.pathname === "/" ? "/overview" : location.pathname;
 document.querySelectorAll("aside a").forEach(a => { if (a.dataset.path === path) a.classList.add("active"); });
-const titles = {"/":"Overview","/signals":"Live Signals","/trading":"Trading Terminal","/strategies":"Strategies","/portfolio":"Portfolio","/risk":"Risk Management","/activity":"Orders & Trade History","/system":"System Status","/settings":"Account & Settings","/research":"Backtesting & Research"};
+const titles = {"/":"Overview","/signals":"Live Signals","/trading":"Trading Terminal","/strategies":"Strategies","/portfolio":"Portfolio","/risk":"Risk Management","/activity":"Orders & Trade History","/system":"System Status","/settings":"Account & Settings","/research":"Backtesting & Research","/onboarding":"Account setup"};
 document.getElementById("title").textContent = titles[path] || "Aureon";
 const view = document.getElementById("view");
 function cls(d){ return d.includes("LONG")?"long":d.includes("SHORT")?"short":"wait"; }
@@ -907,58 +1029,153 @@ function draw(candles){
     const top = Math.min(y(bar.o), y(bar.c)), bot = Math.max(y(bar.o), y(bar.c));
     ctx.fillRect(x-bw*0.22, top, bw*0.44, Math.max(2, bot-top));
   });
+  ctx.fillStyle = "#8ea0b8";
+  ctx.font = "22px sans-serif";
+  ctx.fillText(String(Math.round(hi * 100) / 100), 12, 32);
+  ctx.fillText(String(Math.round(lo * 100) / 100), 12, h - 16);
+}
+function money(amount, code){
+  if (amount === null || amount === undefined || amount === "") return "Not set";
+  const n = Number(amount);
+  if (!Number.isFinite(n)) return "Not set";
+  if (!code) return n.toLocaleString(undefined, {maximumFractionDigits: 2}) + " — currency not set";
+  try { return new Intl.NumberFormat(undefined, {style:"currency", currency: code}).format(n); }
+  catch (e) { return n.toLocaleString(undefined, {maximumFractionDigits: 2}) + " " + code; }
 }
 async function overview(){
   const me = await fetch("/api/me").then(r => r.ok ? r.json() : null);
+  const profile = (me && me.profile) || {};
+  const balance = money(profile.capital, profile.currency || "");
+  const styleName = profile.signal_style_name || "Not selected";
+  const accountCard = `<article class="card"><h2>Account</h2><div class="row"><span>Signal style</span><span>${styleName}</span></div><div class="row"><span>Paper capital</span><span>${balance}</span></div><div class="row"><span>Production</span><span>WAIT_DEFAULT</span></div><p class="muted">Research eligibility is not a trade. Broker execution is disabled. No strategy is promoted. ${profile.currency ? "Amounts use " + profile.currency + ". Quotes stay in their market currency." : "Choose a base currency before treating the balance as money."}</p><p><a href="/settings">Account settings</a> · <a href="/research">Research laboratory</a></p></article>`;
+  view.innerHTML = accountCard + `<p class="muted" id="mload">Loading markets…</p>`;
   const selected = me && me.prefs && me.prefs.markets ? me.prefs.markets : null;
-  const m = await fetch("/api/markets").then(r=>r.json());
-  const markets = selected ? m.markets.filter(item => selected.includes(item.symbol) || (item.id === "GOLD" && selected.includes("XAUUSD"))) : m.markets;
-  const cards = await Promise.all(markets.map(async item => {
+  const m = await fetch("/api/markets").then(r=>r.json()).catch(()=>({markets:[]}));
+  const markets = selected ? (m.markets||[]).filter(item => selected.includes(item.symbol) || (item.id === "GOLD" && selected.includes("XAUUSD"))) : (m.markets||[]);
+  const cards = markets.map(item => {
     if (item.id === "GOLD") {
       const g = item.data || {};
-      const sig = await fetch("/api/gold/signal").then(r=>r.json()).catch(()=>({}));
-      return `<article class="card"><div class="muted">XAUUSD · Gold</div><div class="price">${Number(g.price||0).toLocaleString(undefined,{maximumFractionDigits:2})}</div><canvas id="spark-gold"></canvas><div class="row"><span>E1 daily</span><span class="${cls(sig.result||"")}">${label(sig.result||"unavailable")}</span></div><div class="muted">No entry yet on the latest daily bar. Source ${sig.source_date||""}</div></article>`;
+      const price = g.price != null ? Number(g.price).toLocaleString(undefined,{maximumFractionDigits:2}) : "unavailable";
+      return `<article class="card" id="card-XAUUSD"><div class="muted">XAUUSD · Gold · USD/oz</div><div class="price">${price}</div><canvas id="spark-gold"></canvas><div id="detail-XAUUSD" class="muted">${g.fresh===false?"Price is not fresh. ":" "}Research state loading.</div></article>`;
     }
-    const s = await fetch(`/api/research-signals?symbol=${item.symbol}&interval=15m`).then(r=>r.json());
     const price = item.data && item.data.close != null ? Number(item.data.close).toLocaleString() : "unavailable";
-    const triad = await fetch(`/api/triad?symbol=${item.symbol}`).then(r=>r.json()).catch(()=>({}));
-    return `<article class="card"><div class="muted">${item.symbol}</div><div class="price">${price}</div><canvas id="spark-${item.symbol}"></canvas><div class="row"><span>Awuru triad</span><span class="${cls(triad.decision||"")}">${label(triad.decision||"WAIT")}</span></div><div class="muted">${triad.reason||""}</div>${(s.states||[]).map(st => `<div class="row"><span>${st.strategy}</span><span class="${cls(st.direction)}">${label(st.direction)}</span></div>`).join("")}</article>`;
-  }));
-  const council = await fetch("/api/council").then(r=>r.json()).catch(()=>({markets:[]}));
-  const councilHtml = (council.markets||[]).map(m => m.council ? `<div class="row"><span>${m.symbol} ${m.timeframe||""}</span><span>${label(m.council.state)}</span></div><div class="muted">${m.council.reason} ${m.council.next_condition||""} ${m.limitation||""}</div>` : `<div class="row"><span>${m.symbol}</span><span>unavailable</span></div>`).join("");
-  view.innerHTML = `<article class="card"><h2>Welcome</h2><p>Aureon Trading Lab is a research and paper-trading desk for BTC, ETH and gold. It is brought to you by Cyber Aid.</p><p class="muted">Current status: production remains WAIT_DEFAULT. No strategy has passed promotion gates. Broker execution is disabled.</p><p><a href="/research">Research laboratory</a> · <a href="/settings">Account</a></p></article>${selected ? `<p class="muted">Showing your selected markets. <a href="/settings">Change settings</a></p>` : ""}<div class="markets">${cards.join("")}</div><article class="card"><h2>Strategy council</h2>${councilHtml}<p class="muted">Adapted from Awuru. Not a validated signal.</p></article><div class="workspace"><article class="card"><h2>Chart</h2><select id="sym"><option>BTCUSDT</option><option>ETHUSDT</option><option>XAUUSD</option></select> <select id="tf"><option>15m</option><option>1h</option><option>4h</option><option>1d</option></select><canvas id="chart"></canvas></article><article class="card"><h2>Live signals</h2><div id="feed">loading</div><p><a href="/signals">View all signals</a></p></article></div>`;
-async function load(){
+    const fresh = item.data && item.data.fresh === false ? "Feed is not fresh. " : "";
+    return `<article class="card" id="card-${item.symbol}"><div class="muted">${item.symbol}</div><div class="price">${price}</div><canvas id="spark-${item.symbol}"></canvas><div id="detail-${item.symbol}" class="muted">${fresh}Research state loading.</div></article>`;
+  });
+  view.innerHTML = `${accountCard}${selected ? `<p class="muted">Showing your selected markets. <a href="/settings">Change settings</a></p>` : ""}<div class="markets">${cards.join("") || "<p>No markets selected.</p>"}</div><div class="workspace"><article class="card"><h2>Chart</h2><select id="sym"><option>BTCUSDT</option><option>ETHUSDT</option><option>XAUUSD</option></select> <select id="tf"><option>15m</option><option>1h</option><option>4h</option><option>1d</option></select><canvas id="chart"></canvas><p class="muted" id="chartnote">Loading closed candles.</p></article><article class="card"><h2>Profile eligibility</h2><div id="elig">loading</div><p class="muted">Eligibility uses the saved signal style. It is not an order.</p></article></div><article class="card" id="councilcard"><h2>Strategy council</h2><p class="muted">Loading the combined research summary. This is not the account signal style.</p></article>`;
+  async function loadChart(){
     const sym = document.getElementById("sym").value, tf = document.getElementById("tf").value;
+    const note = document.getElementById("chartnote");
     if (sym === "XAUUSD") {
       const bars = await fetch("/api/gold/candles").then(r=>r.json());
-      draw((bars.candles||[]).map(c => ({o:c.o,h:c.h,l:c.l,c:c.c})));
+      const candles = (bars.candles||[]).map(c => ({o:+c.o,h:+c.h,l:+c.l,c:+c.c}));
+      if (!candles.length) { if (note) note.textContent = bars.error ? "Chart unavailable: " + bars.error : "No gold candles returned."; return; }
+      draw(candles);
+      if (note) note.textContent = "xaus.com daily history · USD per ounce";
       return;
     }
     const bars = await fetch(`/api/klines?symbol=${sym}&interval=${tf}`).then(r=>r.json());
+    if (!bars.candles || !bars.candles.length) {
+      if (note) note.textContent = bars.error ? "Chart unavailable: " + bars.error : "No closed candles returned.";
+      return;
+    }
     draw(bars.candles||[]);
+    if (note) note.textContent = (bars.source || "market") + " · " + tf + " · closed candles only · quote currency is the market's own";
   }
-  document.getElementById("sym").onchange = load;
-  document.getElementById("tf").onchange = load;
-  load();
-  for (const item of m.markets) {
+  document.getElementById("sym").onchange = loadChart;
+  document.getElementById("tf").onchange = loadChart;
+  loadChart();
+  const symbols = selected && selected.length ? selected : ["BTCUSDT","ETHUSDT"];
+  const eligPromise = Promise.all(symbols.filter(s => ["BTCUSDT","ETHUSDT","XAUUSD"].includes(s)).map(s => fetch("/api/eligibility?symbol="+s).then(r=>r.json()).then(d => ({...d, symbol:s})).catch(()=>({symbol:s, decision:"WAIT", reason:"Eligibility unavailable"}))));
+  eligPromise.then(elig => {
+    const box = document.getElementById("elig");
+    if (box) box.innerHTML = elig.map(d => `<div class="row"><span>${d.symbol}</span><span class="${cls(d.decision||"WAIT")}">${label(d.decision||"WAIT")}</span></div><div class="muted">${d.reason||""}</div>`).join("") || "<p>No markets selected.</p>";
+  });
+  for (const item of markets) {
+    const symbol = item.id === "GOLD" ? "XAUUSD" : item.symbol;
     if (item.id === "GOLD") {
-      const g = await fetch("/api/gold/candles").then(r=>r.json());
-      spark("spark-gold", (g.candles||[]).map(c=>({c:c.c})));
+      fetch("/api/gold/signal").then(r=>r.json()).then(sig => {
+        const box = document.getElementById("detail-XAUUSD");
+        if (box) box.innerHTML = `<div class="row"><span>E1 daily</span><span class="${cls(sig.result||"")}">${label(sig.result||"unavailable")}</span></div><div class="muted">Source ${sig.source_date||"not available"}. Not a paper order.</div>`;
+      }).catch(()=>{});
+      fetch("/api/gold/candles").then(r=>r.json()).then(g => spark("spark-gold", (g.candles||[]).map(c=>({c:+c.c})))).catch(()=>{});
     } else {
-      const bars = await fetch(`/api/klines?symbol=${item.symbol}&interval=15m`).then(r=>r.json());
-      spark("spark-"+item.symbol, bars.candles||[]);
+      fetch(`/api/research-signals?symbol=${symbol}&interval=15m`).then(r=>r.json()).then(s => {
+        const box = document.getElementById("detail-"+symbol);
+        if (!box) return;
+        box.innerHTML = (s.states||[]).map(st => `<div class="row"><span>${st.strategy}</span><span class="${cls(st.direction)}">${label(st.direction)}</span></div>`).join("") + `<div class="muted">${s.label||""}</div>`;
+      }).catch(()=>{});
+      fetch(`/api/klines?symbol=${symbol}&interval=15m`).then(r=>r.json()).then(bars => spark("spark-"+symbol, bars.candles||[])).catch(()=>{});
     }
   }
-  const rows = await Promise.all(["BTCUSDT","ETHUSDT"].map(s => fetch("/api/research-signals?symbol="+s+"&interval=15m").then(r=>r.json())));
-  document.getElementById("feed").innerHTML = rows.map(d => d.states.map(s => `<div class="row"><span>${d.symbol} ${s.strategy}</span><span class="${cls(s.direction)}">${s.direction}</span></div>`).join("")).join("");
+  fetch("/api/council").then(r=>r.json()).then(council => {
+    const box = document.getElementById("councilcard");
+    if (!box) return;
+    const html = (council.markets||[]).map(row => row.council ? `<div class="row"><span>${row.symbol} ${row.timeframe||""}</span><span>${label(row.council.state)}</span></div><div class="muted">${row.council.reason||""} ${row.limitation||""}</div>` : `<div class="row"><span>${row.symbol}</span><span>unavailable</span></div>`).join("");
+    box.innerHTML = `<h2>Strategy council</h2>${html}<p class="muted">Combined research summary. Not the account signal style, and not a validated signal.</p>`;
+  }).catch(()=>{});
 }
 async function signals(){
+  view.innerHTML = `<p class="muted">Loading current research states…</p>`;
+  const me = await fetch("/api/me").then(r => r.ok ? r.json() : null).catch(()=>null);
+  const profile = (me && me.profile) || {};
+  const markets = (me && me.prefs && me.prefs.markets && me.prefs.markets.length) ? me.prefs.markets : ["BTCUSDT","ETHUSDT"];
+  const cards = await Promise.all(markets.map(async symbol => {
+    const elig = await fetch("/api/eligibility?symbol="+encodeURIComponent(symbol)).then(r=>r.json()).catch(()=>({decision:"WAIT", reason:"Eligibility unavailable"}));
+    let detail = "";
+    if (symbol === "XAUUSD") {
+      const gold = await fetch("/api/gold/signal").then(r=>r.json()).catch(()=>({}));
+      detail = `<div class="muted">Gold E1 daily ${label(gold.result||"unavailable")}. Source ${gold.source_date||"not available"}. Daily history only. Quote is USD/oz.</div>`;
+    } else {
+      const s = await fetch("/api/research-signals?symbol="+symbol+"&interval=15m").then(r=>r.json()).catch(()=>({states:[]}));
+      detail = (s.states||[]).map(st => `<div class="row"><span>${st.strategy}</span><span class="${cls(st.direction)}">${label(st.direction)}</span></div>`).join("");
+      detail += `<div class="muted">${s.fresh===false?"Feed is not fresh. ":""}${s.label||"Research observation."} Timeframe 15m.</div>`;
+    }
+    return `<article class="card"><h2>${symbol}</h2><div class="row"><span>Profile</span><span>${profile.signal_style_name||"Not selected"}</span></div><div class="row"><span>Eligibility</span><span class="${cls(elig.decision||"WAIT")}">${label(elig.decision||"WAIT")}</span></div><div class="muted">${elig.reason||""}</div>${detail}<div class="muted">Production ${elig.production||"WAIT_DEFAULT"}. Not an order.</div></article>`;
+  }));
   const hist = await fetch("/api/signal-history").then(r=>r.json()).catch(()=>({signals:[]}));
-  const notes = await fetch("/api/notify-history").then(r=>r.json()).catch(()=>({deliveries:[]}));
-  const color = lvl => lvl==="high"?"#43D9A0":lvl==="medium"?"#F5BE4F":lvl==="watch"?"#C4A1FF":"#8ea0b8";
-  const rows = (hist.signals||[]).slice(0,20).map(s => `<div class="row"><span>${s.asset} ${s.timeframe}</span><span>${label(s.result||"")}</span><span style="color:${color(s.assurance&&s.assurance.level)}">${(s.assurance&&s.assurance.level)||"none"}</span></div>`).join("");
-  const dels = (notes.deliveries||[]).slice(0,10).map(d => `<div class="row"><span>${d.asset}</span><span>${d.status||""}</span><span>${d.telegram_message_id||""}</span></div>`).join("");
-  view.innerHTML = `<article class="card"><h2>Signal history</h2>${rows||"<p>No evaluations.</p>"}<p class="muted">Assurance is not a win probability.</p></article><article class="card"><h2>Telegram deliveries</h2>${dels||"<p>None.</p>"}<p class="muted">Accepted by Telegram is not proof you read it.</p></article>`;
+  const seen = new Map();
+  for (const s of (hist.signals||[])) {
+    const key = [s.asset, s.timeframe, s.result].join("|");
+    const cur = seen.get(key) || {row:s, n:0};
+    cur.n += 1;
+    seen.set(key, cur);
+  }
+  const rows = [...seen.values()].slice(0, 8).map(({row, n}) => `<div class="row"><span>${row.asset||""} ${row.timeframe||""}</span><span>${label(row.result||"")}</span><span>${n} stored ${n===1?"evaluation":"evaluations"}</span></div>`);
+  view.innerHTML = `<p class="muted">Decisions use the saved profile ${profile.signal_style_name||"(none selected)"}. Repeated unchanged evaluations are collapsed.</p>${cards.join("")}<article class="card"><h2>Earlier evaluations</h2>${rows.join("")||"<p>No stored evaluations.</p>"}<p class="muted">Research evaluations are not trades. Identical results are counted instead of repeated row by row.</p></article>`;
+}
+async function terminal(){
+  view.innerHTML = `<article class="card"><h2>Market workspace</h2><div class="fieldrow"><label>Market <select id="sym"><option>BTCUSDT</option><option>ETHUSDT</option><option>XAUUSD</option></select></label><label>Timeframe <select id="tf"><option>15m</option><option>1h</option><option>4h</option><option>1d</option></select></label></div><canvas id="chart"></canvas><p class="muted" id="chartnote">Loading closed candles…</p><div id="termmeta"></div></article>`;
+  async function loadChart(){
+    const sym = document.getElementById("sym").value;
+    const tf = document.getElementById("tf").value;
+    const note = document.getElementById("chartnote");
+    const meta = document.getElementById("termmeta");
+    note.textContent = "Loading closed candles…";
+    meta.innerHTML = "";
+    try {
+      if (sym === "XAUUSD") {
+        const bars = await fetch("/api/gold/candles").then(r=>r.json());
+        const candles = (bars.candles||[]).map(c => ({o:+c.o,h:+c.h,l:+c.l,c:+c.c}));
+        if (!candles.length) { note.textContent = bars.error ? "Gold chart unavailable: " + bars.error : "No gold candles returned."; return; }
+        draw(candles);
+        note.textContent = "xaus.com daily history · USD per ounce · open is not supplied, so it is drawn as the close";
+      } else {
+        const bars = await fetch(`/api/klines?symbol=${sym}&interval=${tf}`).then(r=>r.json());
+        if (!bars.candles || !bars.candles.length) { note.textContent = bars.error ? "Chart unavailable: " + bars.error : "No closed candles returned."; return; }
+        draw(bars.candles);
+        const last = bars.candles[bars.candles.length-1];
+        note.textContent = (bars.source || "market") + " · " + tf + " · last close " + last.c + (last.t ? " · " + new Date(last.t).toISOString() : "") + " · quote currency is the market's own";
+      }
+      const elig = await fetch("/api/eligibility?symbol="+encodeURIComponent(sym)).then(r=>r.ok?r.json():{decision:"WAIT", reason:"Eligibility unavailable"});
+      meta.innerHTML = `<div class="row"><span>Profile eligibility</span><span class="${cls(elig.decision||"WAIT")}">${label(elig.decision||"WAIT")}</span></div><div class="muted">${elig.name?elig.name+". ":""}${elig.reason||""} Not a trade.</div>`;
+    } catch (err) {
+      note.textContent = "Market data request failed.";
+    }
+  }
+  document.getElementById("sym").onchange = loadChart;
+  document.getElementById("tf").onchange = loadChart;
+  await loadChart();
 }
 async function signalsLegacy(){
   const rows = await Promise.all(["BTCUSDT","ETHUSDT"].map(s=>fetch("/api/research-signals?symbol="+s+"&interval=15m").then(r=>r.json())));
@@ -974,7 +1191,6 @@ async function signalsLegacy(){
     finally { clearTimeout(t); }
   };
 }
-async function terminal(){ await overview(); }
 async function researchLab(){
   const d = await fetch("/api/research-lab").then(r=>r.json());
   const gates = (d.gates||[]).map(g => `<div class="row"><span>${g.name}</span><span class="${cls(g.status)}">${g.status}</span></div><div class="muted">${g.evidence}</div>`).join("");
@@ -982,66 +1198,91 @@ async function researchLab(){
   view.innerHTML = `<article class="card"><h2>Promotion gates</h2><p>Promoted strategies: ${d.promoted_count}. Production: ${d.production}.</p>${gates}</article><article class="card"><h2>Experiment archive</h2>${rows}<p class="muted">${d.note}</p></article>`;
 }
 async function load(){
-  if (path === "/" || path === "/trading") return overview();
+  if (path === "/trading") return terminal();
+  if (path === "/" || path === "/overview") return overview();
   if (path === "/signals") return signals();
-  if (path === "/portfolio" || path === "/activity") {
-    const p = await fetch("/api/paper-status").then(r=>r.json());
-    const open = p.open ? `${p.open.asset} ${p.open.side} at ${p.open.entry_price}` : "No open paper position";
-    view.innerHTML = `<article class="card"><h2>${titles[path]}</h2><p>${open}</p><p class="muted">${p.label||""}</p></article>`;
-    return;
-  }
+  if (path === "/onboarding" || path === "/settings") return settings();
+  if (path === "/portfolio" || path === "/activity") return paperPages();
   if (path === "/research") return researchLab();
   if (path === "/strategies") {
-    view.innerHTML = `<article class="card"><h2>E1 Donchian-20</h2><p>Breakout on the prior 20 bars. Entry is the next open. Exit is the opposite band or 20 bars in the current worker.</p><p class="muted">BTC and ETH 15m. Gold daily.</p></article><article class="card"><h2>SMA20 and RSI14</h2><p>Research observations only. They do not create paper orders.</p></article>`;
+    const catalog = await fetch("/api/profiles").then(r=>r.json());
+    const styles = (catalog.profiles||[]).map(p => `<article class="card"><h2>${p.name}</h2><p>${p.role}. ${p.purpose}</p><p class="muted">${p.confirmation} Risk cap ${p.risk_per_trade_percent}% per trade. Minimum reward/risk ${p.min_rr}. At most ${p.max_trades_per_day} trades a day in the Awuru account defaults. Not a promoted strategy.</p></article>`).join("");
+    view.innerHTML = `<article class="card"><h2>E1 Donchian-20</h2><p>Breakout on the prior 20 completed bars. Research observation. Entry and exit rules exist, but the strategy failed development after costs and is not promoted.</p><p class="muted">BTC and ETH 15m. Gold daily when candles exist.</p></article><article class="card"><h2>SMA20 and RSI14</h2><p>Research observations only. They do not create paper orders.</p></article>${styles}<p class="muted">${catalog.note||""} ${catalog.excluded||""}</p>`;
     return;
   }
-  if (path === "/system") {
-    const h = await fetch("/health").then(r=>r.json());
-    view.innerHTML = `<article class="card"><h2>System</h2><div class="row"><span>Market data</span><span>${h.market_data}</span></div><div class="row"><span>Strategy</span><span>${h.strategy_status}</span></div><div class="row"><span>Broker</span><span>${h.broker}</span></div></article>`;
+  if (path === "/risk") return riskPage();
+  if (path === "/system") return systemPage();
+  view.innerHTML = `<article class="card"><h2>${titles[path]||"Aureon"}</h2><p>This page has no separate data source yet.</p></article>`;
+}
+async function paperPages(){
+  const p = await fetch("/api/paper-status").then(r=>r.json()).catch(()=>({open:null, rows:[], label:""}));
+  const me = await fetch("/api/me").then(r=>r.ok?r.json():null);
+  const code = me && me.profile && me.profile.currency;
+  const rows = (p.rows||[]).filter(r => r.type === "paper_open" || r.type === "paper_close");
+  if (path === "/portfolio") {
+    const open = p.open;
+    const body = open
+      ? `<div class="row"><span>Experimental paper position</span><span>${open.asset} ${open.side}</span></div><div class="row"><span>Entry</span><span>${open.entry_price}</span></div><p class="muted">This is a recorded paper position, not a signal observation. ${p.label||""}</p>`
+      : `<p>No open paper position.</p><p class="muted">A bullish or bearish research state is not a holding. Nothing is shown here until a paper order is recorded.</p>`;
+    view.innerHTML = `<article class="card"><h2>Portfolio</h2><div class="row"><span>Paper capital</span><span>${money(me && me.profile && me.profile.capital, code||"")}</span></div>${body}</article>`;
     return;
   }
-  if (path === "/settings") return settings();
-  view.innerHTML = `<article class="card"><h2>${titles[path]||"Aureon"}</h2><p>Connected to the live desk. No fabricated metrics.</p></article>`;
+  const list = rows.map(r => `<div class="row"><span>${r.type}</span><span>${r.asset||""} ${r.side||""}</span></div>`).join("");
+  view.innerHTML = `<article class="card"><h2>Orders and trade history</h2>${list || "<p>No recorded paper orders.</p>"}<p class="muted">Signal evaluations are not listed as trades. ${p.label||""}</p></article>`;
+}
+async function riskPage(){
+  const me = await fetch("/api/me").then(r=>r.ok?r.json():null);
+  const profile = (me && me.profile) || {};
+  view.innerHTML = `<article class="card"><h2>Risk</h2><div class="row"><span>Active style</span><span>${profile.signal_style_name||"Not selected"}</span></div><div class="row"><span>Risk posture</span><span>${profile.risk_mode||"unset"}</span></div><div class="row"><span>Max risk per trade</span><span>${profile.max_risk_pct==null?"Not set":profile.max_risk_pct+"%"}</span></div><div class="row"><span>Max daily loss</span><span>${profile.max_daily_loss_percent==null?"Not set":profile.max_daily_loss_percent+"%"}</span></div><div class="row"><span>Max open risk</span><span>${profile.max_open_risk_percent==null?"Not set":profile.max_open_risk_percent+"%"}</span></div><div class="row"><span>Minimum reward/risk</span><span>${profile.min_rr==null?"Not set":profile.min_rr}</span></div><p class="muted">These caps come from the selected Awuru account style. They do not guarantee protection from losses. Production remains WAIT_DEFAULT, so the desk is not placing risk-sized orders from this page.</p></article>`;
+}
+async function systemPage(){
+  const h = await fetch("/health").then(r=>r.json());
+  const row = (name, value) => `<div class="row"><span>${name}</span><span>${value}</span></div>`;
+  view.innerHTML = `<article class="card"><h2>System</h2>${row("Process", h.process||"unknown")}${row("Market data", h.market_data||"unknown")}${row("Notifications", h.notification||"unknown")}${row("Ledger", h.ledger||"unknown")}${row("Strategy", h.strategy_status||"unknown")}${row("Broker", String(h.broker))}${row("Worker heartbeat", h.worker && h.worker.last_beat_ms ? new Date(h.worker.last_beat_ms).toISOString() : "unknown")}</article><p class="muted">States come from /health. A missing field stays unknown rather than being marked online.</p>`;
 }
 async function settings(){
   const me = await fetch("/api/me").then(r => r.ok ? r.json() : null);
-  if (me) {
-    const prefs = me.prefs || {markets:["BTCUSDT","ETHUSDT","XAUUSD"]};
-    const has = (m) => (prefs.markets||[]).includes(m) ? "checked" : "";
-    const profile = me.profile || {};
-    view.innerHTML = `<article class="card"><h2>Signed in</h2><p>${me.name}</p><label><input type="checkbox" id="btc" ${has("BTCUSDT")}> BTC 15m</label><label><input type="checkbox" id="eth" ${has("ETHUSDT")}> ETH 15m</label><label><input type="checkbox" id="gold" ${has("XAUUSD")}> GOLD 1d</label><button id="save">Save markets</button><p id="saved" class="muted"></p></article><article class="card"><h2>Profile</h2><label>Mode <select id="mode"><option value="research">Research</option><option value="paper">Paper</option><option value="decision">Decision support</option></select></label><label>Capital <input id="capital" type="number" value="${profile.capital||""}"></label><label>Max risk % <input id="risk" type="number" value="${profile.max_risk_pct||1}"></label><label><input type="checkbox" id="exp" ${profile.experimental_alerts?"checked":""}> Experimental alerts</label><button id="savep">Save profile</button><p id="savedp" class="muted"></p></article><article class="card"><h2>Telegram</h2><p>${me.telegram_verified?"Verified":"Not verified"}</p><input id="tgid" placeholder="Telegram numeric ID"><button id="tglink">Generate verification link</button><p id="tglinkout" class="muted"></p><button id="out">Sign out</button></article>`;
-    document.getElementById("mode").value = profile.mode || "research";
-    document.getElementById("save").onclick = async () => {
-      const markets = [];
-      if (document.getElementById("btc").checked) markets.push("BTCUSDT");
-      if (document.getElementById("eth").checked) markets.push("ETHUSDT");
-      if (document.getElementById("gold").checked) markets.push("XAUUSD");
-      const r = await fetch("/api/prefs", {method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({markets})});
-      document.getElementById("saved").textContent = r.ok ? "Saved." : "Save failed.";
-    };
-    document.getElementById("savep").onclick = async () => {
-      const body = {mode: document.getElementById("mode").value, capital: document.getElementById("capital").value, max_risk_pct: document.getElementById("risk").value, experimental_alerts: document.getElementById("exp").checked};
-      const r = await fetch("/api/profile", {method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify(body)});
-      document.getElementById("savedp").textContent = r.ok ? "Profile saved." : "Save failed.";
-    };
-    document.getElementById("tglink").onclick = async () => {
-      const r = await fetch("/api/telegram/link", {method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({telegram_id: document.getElementById("tgid").value})});
-      const d = await r.json();
-      document.getElementById("tglinkout").textContent = r.ok ? "Open: https://t.me/AureonLabBot?start=" + d.token : "Link failed.";
-    };
-    document.getElementById("out").onclick = async () => { await fetch("/api/logout", {method:"POST", credentials:"same-origin"}); location.href = "/"; };
+  const catalog = await fetch("/api/profiles").then(r=>r.json());
+  if (!me) {
+    view.innerHTML = `<article class="card"><h2>Sign in required</h2><p><a href="/login">Sign in</a> or <a href="/register">create an account</a>.</p></article>`;
     return;
   }
-  view.innerHTML = `<article class="card"><h2>Create account</h2><input id="rn" placeholder="name"><input id="rp" type="password" placeholder="password (8+)"><button id="reg">Register</button></article><article class="card"><h2>Sign in</h2><input id="ln" placeholder="name"><input id="lp" type="password" placeholder="password"><button id="in">Sign in</button><p id="msg" class="muted"></p></article>`;
-  document.getElementById("reg").onclick = async () => {
-    const r = await fetch("/api/register", {method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({name: document.getElementById("rn").value, password: document.getElementById("rp").value})});
-    document.getElementById("msg").textContent = r.ok ? "Account created. Sign in." : "Registration failed.";
+  const prefs = me.prefs || {markets:["BTCUSDT","ETHUSDT","XAUUSD"]};
+  const has = (m) => (prefs.markets||[]).includes(m) ? "checked" : "";
+  const profile = me.profile || {};
+  const styles = (catalog.profiles||[]).map(p => `<label><input type="radio" name="style" value="${p.key}" ${profile.signal_style===p.key?"checked":""}> ${p.name} — ${p.risk_mode}. ${p.confirmation}</label>`).join("");
+  const currencies = (catalog.currencies||[]).map(c => `<option value="${c}" ${profile.currency===c?"selected":""}>${c}</option>`).join("");
+  view.innerHTML = `<article class="card"><h2>${path==="/onboarding"?"Choose a signal style":"Signal style"}</h2><p class="muted">${catalog.note||""}</p><div class="styles">${styles}</div></article><article class="card"><h2>Base currency and capital</h2><div class="field"><span>Currency</span><select id="currency"><option value="">Not set</option>${currencies}</select></div><div class="field"><span>Paper capital</span><input id="capital" type="number" min="0" step="any" value="${profile.capital??""}"></div><p class="muted">Saving a currency does not convert the stored amount. Market quotes stay in USDT or USD/oz.</p></article><article class="card"><h2>Markets</h2><div class="checks"><label><input type="checkbox" id="btc" ${has("BTCUSDT")}> BTCUSDT · 15m</label><label><input type="checkbox" id="eth" ${has("ETHUSDT")}> ETHUSDT · 15m</label><label><input type="checkbox" id="gold" ${has("XAUUSD")}> XAUUSD · 1d</label></div></article><article class="card"><h2>Notifications and risk</h2><div class="checks"><label><input type="checkbox" id="exp" ${profile.experimental_alerts?"checked":""}> Experimental alerts</label><label><input type="checkbox" id="digest" ${profile.daily_report!==false?"checked":""}> Daily digest</label></div><div class="field"><span>Max risk per trade %</span><input id="risk" type="number" step="0.1" min="0" value="${profile.max_risk_pct??""}"></div><p class="muted">Risk cannot be set above the active style cap. These caps do not guarantee protection from losses. Telegram is ${me.telegram_verified?"verified":"not verified"}.</p><div class="field"><span>Telegram numeric ID</span><input id="tgid" type="text" placeholder="Your Telegram user id"></div><button id="tglink" type="button">Generate verification link</button><p id="tglinkout" class="muted"></p></article><p><button id="saveall" type="button">Save</button> <button id="skip" type="button">Continue without optional alerts</button> <button id="out" type="button">Sign out</button></p><p id="savedp" class="muted"></p>`;
+  async function save(go){
+    const style = (document.querySelector("input[name=style]:checked") || {}).value;
+    const markets = [];
+    if (document.getElementById("btc").checked) markets.push("BTCUSDT");
+    if (document.getElementById("eth").checked) markets.push("ETHUSDT");
+    if (document.getElementById("gold").checked) markets.push("XAUUSD");
+    const body = {
+      signal_style: style,
+      currency: document.getElementById("currency").value,
+      capital: document.getElementById("capital").value,
+      max_risk_pct: document.getElementById("risk").value,
+      experimental_alerts: document.getElementById("exp").checked,
+      daily_report: document.getElementById("digest").checked
+    };
+    const pref = await fetch("/api/prefs", {method:"POST", headers:{"Content-Type":"application/json"}, credentials:"same-origin", body: JSON.stringify({markets})});
+    const prof = await fetch("/api/profile", {method:"POST", headers:{"Content-Type":"application/json"}, credentials:"same-origin", body: JSON.stringify(body)});
+    const data = await prof.json().catch(()=>({}));
+    document.getElementById("savedp").textContent = prof.ok && pref.ok ? "Saved. Active style and currency are stored on this account." : "Save failed.";
+    if (prof.ok && go) location.href = "/overview";
+    return data;
+  }
+  document.getElementById("saveall").onclick = () => save(path === "/onboarding");
+  document.getElementById("skip").onclick = () => { location.href = "/overview"; };
+  document.getElementById("tglink").onclick = async () => {
+    const r = await fetch("/api/telegram/link", {method:"POST", headers:{"Content-Type":"application/json"}, credentials:"same-origin", body: JSON.stringify({telegram_id: document.getElementById("tgid").value})});
+    const d = await r.json();
+    document.getElementById("tglinkout").textContent = r.ok ? "Open Telegram and start the bot with the token. The link is ready." : "Link failed.";
+    if (r.ok && d.token) document.getElementById("tglinkout").textContent = "Open: https://t.me/AureonLabBot?start=" + d.token;
   };
-  document.getElementById("in").onclick = async () => {
-    const r = await fetch("/api/login", {method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({name: document.getElementById("ln").value, password: document.getElementById("lp").value})});
-    if (r.ok) location.reload();
-    else document.getElementById("msg").textContent = "Sign in failed.";
-  };
+  document.getElementById("out").onclick = async () => { await fetch("/api/logout", {method:"POST", credentials:"same-origin"}); location.href = "/"; };
 }
 load();
 </script>
@@ -1054,38 +1295,84 @@ if __name__ == "__main__":
     app.run(host="0.0.0.0", port=8080)
 
 
+def _account_day(tzname):
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+    try:
+        zone = ZoneInfo(tzname or "Africa/Lagos")
+    except Exception:
+        zone = ZoneInfo("UTC")
+    return datetime.now(zone).date().isoformat()
+
+
+def _digest_text(user):
+    from ops.profiles import evaluate
+    profile = user.get("profile") or {}
+    markets = (user.get("prefs") or {}).get("markets") or ["BTCUSDT", "ETHUSDT"]
+    lines = [
+        f"Aureon daily · {profile.get('signal_style_name') or 'no signal style'}",
+        f"Base currency {profile.get('currency') or 'not set'}. Amounts are not converted.",
+    ]
+    directional = False
+    for symbol in markets:
+        if symbol not in {"BTCUSDT", "ETHUSDT", "XAUUSD"}:
+            continue
+        e1, sma, rsi, fresh = _research_votes(symbol)
+        decision = evaluate(profile.get("signal_style"), e1, sma, rsi, fresh, symbol)
+        if decision.get("decision") in {"LONG_BIAS", "SHORT_BIAS"}:
+            directional = True
+        lines.append(f"{symbol}: {decision.get('decision')} — {decision.get('reason')}")
+    if not directional:
+        lines.append("No qualifying directional eligibility.")
+    lines.append("Production remains WAIT_DEFAULT. This is not an order.")
+    return "\n".join(lines)
+
+
 @app.post("/api/digest")
 def digest():
     user_id = session.get("user_id")
     if not user_id:
         return jsonify({"error": "unauthorized"}), 401
-    from ops.users import get
-    from ops.notify import send_alert
+    from ops.users import get, record_digest
     user = get(user_id)
     if not user:
         return jsonify({"error": "not_found"}), 404
+    profile = user.get("profile") or {}
+    if not profile.get("daily_report", True):
+        return jsonify({"error": "opted_out"}), 400
     tg = user.get("telegram") or {}
-    if not tg.get("verified"):
+    if not tg.get("verified") or not tg.get("chat_id"):
         return jsonify({"error": "not_verified"}), 400
-    text_body = "Aureon daily: no qualifying setup. Production remains WAIT_DEFAULT. Gold data is provider-limited."
+    day = _account_day(profile.get("timezone"))
+    if profile.get("last_digest_day") == day:
+        return jsonify({"ok": True, "duplicate": True, "day": day})
+    text_body = _digest_text(user)
     result = send_alert(text_body, chat_id=tg.get("chat_id"))
-    return jsonify({"ok": True, "delivery": result})
+    if result.get("delivered"):
+        record_digest(user_id, day, "DELIVERED")
+    return jsonify({"ok": bool(result.get("delivered")), "delivery": result, "day": day})
 
-
-import threading
 
 def _digest_loop():
     while True:
         try:
-            from ops.users import list_users
-            from ops.notify import send_alert
+            from ops.users import list_users, record_digest
             for user in list_users():
                 profile = user.get("profile") or {}
                 tg = user.get("telegram") or {}
-                if profile.get("daily_report") and tg.get("verified") and tg.get("chat_id"):
-                    send_alert("Aureon daily: no qualifying setup. Production remains WAIT_DEFAULT.", chat_id=tg.get("chat_id"))
+                if not (profile.get("daily_report") and tg.get("verified") and tg.get("chat_id")):
+                    continue
+                day = _account_day(profile.get("timezone"))
+                if profile.get("last_digest_day") == day:
+                    continue
+                result = send_alert(_digest_text(user), chat_id=tg.get("chat_id"))
+                if result.get("delivered"):
+                    record_digest(user["id"], day, "DELIVERED")
+                else:
+                    record_digest(user["id"], day, result.get("status") or "FAILED")
         except Exception:
             pass
-        time.sleep(86400)
+        time.sleep(3600)
+
 
 threading.Thread(target=_digest_loop, daemon=True).start()
