@@ -4,6 +4,29 @@ import json
 from pathlib import Path
 
 
+BIAS_SIDES = {"LONG_BIAS", "SHORT_BIAS", "WAIT", "NEUTRAL"}
+
+
+def present_book(rows, open_row=None):
+    """Separate research observations from order-like rows.
+
+    The experimental book stores E1 directions as LONG_BIAS and SHORT_BIAS.
+    Those are not account holdings or completed trades.
+    """
+    observations = [
+        row for row in rows
+        if row.get("type") == "paper_signal" or row.get("side") in BIAS_SIDES
+    ]
+    trades = [
+        row for row in rows
+        if row.get("type") in {"paper_open", "paper_close"}
+        and row.get("side")
+        and row.get("side") not in BIAS_SIDES
+    ]
+    holding = open_row if open_row and open_row.get("side") not in BIAS_SIDES else None
+    return {"open": holding, "trades": trades, "observations": observations}
+
+
 class ExperimentalBook:
     def __init__(self, path: Path):
         self.path = Path(path)

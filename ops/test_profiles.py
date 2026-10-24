@@ -31,6 +31,18 @@ def test_agreement_and_conflict_and_stale():
     assert no_e1["decision"] == "WAIT"
 
 
+def test_wait_and_gold_do_not_invent_a_direction():
+    for style in ("apex_momentum", "orion_precision", "aegis_shield"):
+        assert evaluate(style, "WAIT", "LONG_BIAS", "SHORT_BIAS", True)["decision"] == "WAIT"
+        assert evaluate(style, "LONG_BIAS", "LONG_BIAS", "LONG_BIAS", False)["decision"] == "WAIT"
+    gold = evaluate("apex_momentum", "LONG_BIAS", "WAIT", "WAIT", True, "XAUUSD")
+    btc = evaluate("apex_momentum", "LONG_BIAS", "WAIT", "WAIT", True, "BTCUSDT")
+    assert gold["decision"] == "WAIT" and gold["eligible"] is False
+    assert btc["decision"] == "LONG_BIAS" and btc["eligible"] is True
+    conflict = evaluate("orion_precision", "LONG_BIAS", "SHORT_BIAS", "LONG_BIAS", True)
+    assert conflict["decision"] == "WAIT"
+
+
 def test_currency_is_not_assumed_and_profiles_are_isolated(monkeypatch=None):
     tmp = tempfile.mkdtemp()
     os.environ["AUREON_DATA"] = tmp
