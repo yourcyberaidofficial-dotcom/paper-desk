@@ -43,12 +43,36 @@ worker = Worker(ledger, LEDGER_PATH.parent / "prefs.json")
 
 SESSION_TTL = 12 * 3600
 
-def _session_ok():
+def _owner_ok():
     exp = session.get("exp")
-    if not session.get("ok") or not exp or time.time() > exp:
-        session.clear()
-        return False
-    return True
+    return bool(session.get("ok") and exp and time.time() <= exp)
+
+
+def _user_ok():
+    exp = session.get("user_exp")
+    return bool(session.get("user_id") and exp and time.time() <= exp)
+
+
+def _gate():
+    return _owner_ok() or _user_ok()
+
+
+ALLOWED_NEXT = {
+    "/overview", "/signals", "/trading", "/strategies", "/indicators",
+    "/research", "/portfolio", "/risk", "/activity", "/system", "/settings",
+}
+
+
+def _safe_next(value):
+    if value in ALLOWED_NEXT:
+        return value
+    return "/overview"
+
+
+def _start_user_session(user):
+    session["user_id"] = user["id"]
+    session["user_exp"] = time.time() + SESSION_TTL
+
 
 def _csrf():
     token = session.get("csrf")
@@ -65,8 +89,12 @@ def _limited():
 
 @app.before_request
 def _expire():
-    if session.get("ok") and not _session_ok():
-        session.clear()
+    if session.get("ok") and not _owner_ok():
+        session.pop("ok", None)
+        session.pop("exp", None)
+    if session.get("user_id") and not _user_ok():
+        session.pop("user_id", None)
+        session.pop("user_exp", None)
 
 @app.get("/health")
 def health():
@@ -290,7 +318,8 @@ def register():
     user = create_user(str(body.get("name") or ""), str(body.get("password") or ""))
     if not user:
         return jsonify({"error": "invalid or duplicate"}), 400
-    return jsonify(user)
+    _start_user_session(user)
+    return jsonify({"ok": True, "id": user["id"], "name": user["name"]})
 
 
 @app.post("/api/login")
@@ -300,15 +329,13 @@ def user_login():
     user = check_login(str(body.get("name") or ""), str(body.get("password") or ""))
     if not user:
         return jsonify({"error": "invalid"}), 401
-    session["user_id"] = user["id"]
-    session["user_exp"] = time.time() + 60 * 60 * 12
+    _start_user_session(user)
     return jsonify({"ok": True, "id": user["id"]})
 
 
 @app.post("/api/logout")
 def user_logout():
-    session.pop("user_id", None)
-    session.pop("user_exp", None)
+    session.clear()
     return jsonify({"ok": True})
 
 
@@ -395,7 +422,15 @@ def me():
     user = get(user_id)
     if not user:
         return jsonify({"error": "not_found"}), 404
-    return jsonify({"id": user["id"], "name": user["name"], "telegram_linked": bool(user.get("telegram")), "prefs": user.get("prefs")})
+    telegram = user.get("telegram") or {}
+    return jsonify({
+        "id": user["id"],
+        "name": user["name"],
+        "telegram_linked": bool(telegram),
+        "telegram_verified": bool(telegram.get("verified")),
+        "prefs": user.get("prefs"),
+        "profile": user.get("profile") or {},
+    })
 
 
 @app.get("/api/users/<user_id>")
@@ -597,17 +632,25 @@ threading.Thread(target=_loop, daemon=True).start()
 
 @app.get("/")
 def landing():
-    if _session_ok():
+    if _gate():
         return redirect("/overview")
     return make_response(LANDING)
 
 
 @app.get("/login")
+def login_page():
+    nxt = _safe_next(request.args.get("next"))
+    if _gate():
+        return redirect(nxt)
+    return make_response(_auth_page("login", nxt))
+
+
 @app.get("/register")
-def auth_pages():
-    if _session_ok():
-        return redirect("/overview")
-    return make_response(LANDING)
+def register_page():
+    nxt = _safe_next(request.args.get("next"))
+    if _gate():
+        return redirect(nxt)
+    return make_response(_auth_page("register", nxt))
 
 
 @app.get("/overview")
@@ -622,12 +665,95 @@ def auth_pages():
 @app.get("/system")
 @app.get("/settings")
 def index():
-    if not _session_ok():
-        return redirect("/")
-    authed = True
+    if not _gate():
+        return redirect("/login?next=" + _safe_next(request.path))
     failed = request.args.get("login") == "failed"
     page = DASHBOARD.replace("{{AUTHED}}", "1").replace("{{FAILED}}", "1" if failed else "0").replace("{{CSRF}}", _csrf())
     return make_response(page)
+
+
+def _auth_page(kind, nxt):
+    title = "Create account" if kind == "register" else "Sign in"
+    button = "Create account" if kind == "register" else "Sign in"
+    alt = '<a href="/login">Already have an account? Sign in</a>' if kind == "register" else '<a href="/register">Need an account? Create one</a>'
+    endpoint = "/api/register" if kind == "register" else "/api/login"
+    fail = "That name is taken or the details are invalid." if kind == "register" else "Name or password is incorrect."
+    return f"""<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>{title} · Aureon Trading Lab</title>
+<style>
+body{{margin:0;font-family:system-ui;background:#0b1220;color:#e8eef7}}
+header{{display:flex;justify-content:space-between;align-items:center;padding:16px 24px;border-bottom:1px solid #1e293b}}
+a{{color:#99f6e4;text-decoration:none}}
+.brand{{font-weight:700;color:#e8eef7}}
+.muted{{color:#94a3b8;font-size:12px}}
+main{{max-width:420px;margin:48px auto;padding:0 24px}}
+form{{background:#111827;border:1px solid #1e293b;border-radius:12px;padding:20px;display:grid;gap:12px}}
+label{{display:grid;gap:6px;font-size:14px}}
+input{{background:#0b1220;color:#e8eef7;border:1px solid #334155;border-radius:8px;padding:10px}}
+button{{background:#0f766e;color:white;border:0;padding:10px 16px;border-radius:8px;cursor:pointer}}
+button:disabled{{opacity:.6}}
+.err{{color:#fda4af;min-height:1.2em}}
+</style>
+</head>
+<body>
+<header>
+  <a class="brand" href="/">Aureon Trading Lab</a>
+  <div class="muted">Brought to you by Cyber Aid</div>
+</header>
+<main>
+  <h1>{title}</h1>
+  <form id="form" novalidate>
+    <label>Name <input id="name" name="name" autocomplete="username" required></label>
+    <label>Password <input id="password" name="password" type="password" autocomplete="{"new-password" if kind == "register" else "current-password"}" minlength="8" required></label>
+    <button id="submit" type="submit">{button}</button>
+    <p id="msg" class="err" role="alert"></p>
+    <p>{alt}</p>
+    <p><a href="/">Back to Aureon</a></p>
+  </form>
+</main>
+<script>
+const form = document.getElementById("form");
+const btn = document.getElementById("submit");
+const msg = document.getElementById("msg");
+form.onsubmit = async (event) => {{
+  event.preventDefault();
+  const name = document.getElementById("name").value.trim();
+  const password = document.getElementById("password").value;
+  msg.textContent = "";
+  if (!name || password.length < 8) {{
+    msg.textContent = "Name is required and the password must be at least 8 characters.";
+    return;
+  }}
+  btn.disabled = true;
+  const label = btn.textContent;
+  btn.textContent = "Please wait…";
+  try {{
+    const response = await fetch("{endpoint}", {{
+      method: "POST",
+      headers: {{"Content-Type": "application/json"}},
+      credentials: "same-origin",
+      body: JSON.stringify({{name, password}})
+    }});
+    if (!response.ok) {{
+      msg.textContent = "{fail}";
+      btn.disabled = false;
+      btn.textContent = label;
+      return;
+    }}
+    location.href = {json.dumps(nxt)};
+  }} catch (err) {{
+    msg.textContent = "The request failed. Try again.";
+    btn.disabled = false;
+    btn.textContent = label;
+  }}
+}};
+</script>
+</body>
+</html>"""
 
 
 LANDING = """<!doctype html>
@@ -729,7 +855,7 @@ select,button{background:#152033;color:var(--text);border:1px solid var(--line);
         <h1 id="title">Overview</h1>
         <div class="muted">Live market desk. Paper only. Broker off.</div>
       </div>
-      <div class="pills"><span class="pill">Engine online</span><span class="pill">Paper only</span><span class="pill">Broker off</span></div>
+      <div class="pills"><span class="pill">Engine online</span><span class="pill">Paper only</span><span class="pill">Broker off</span><button id="signout" type="button">Sign out</button></div>
     </header>
     <section id="view"></section>
   </main>
@@ -739,6 +865,10 @@ const menu = document.getElementById("menu");
 const nav = document.getElementById("nav");
 menu.onclick = () => { const open = nav.classList.toggle("open"); menu.setAttribute("aria-expanded", open); };
 document.querySelectorAll("#nav a").forEach(a => a.onclick = () => nav.classList.remove("open"));
+document.getElementById("signout").onclick = async () => {
+  await fetch("/api/logout", {method:"POST", credentials:"same-origin"});
+  location.href = "/";
+};
 const path = location.pathname === "/" ? "/overview" : location.pathname;
 document.querySelectorAll("aside a").forEach(a => { if (a.dataset.path === path) a.classList.add("active"); });
 const titles = {"/":"Overview","/signals":"Live Signals","/trading":"Trading Terminal","/strategies":"Strategies","/portfolio":"Portfolio","/risk":"Risk Management","/activity":"Orders & Trade History","/system":"System Status","/settings":"Account & Settings","/research":"Backtesting & Research"};
@@ -899,7 +1029,7 @@ async function settings(){
       const d = await r.json();
       document.getElementById("tglinkout").textContent = r.ok ? "Open: https://t.me/AureonLabBot?start=" + d.token : "Link failed.";
     };
-    document.getElementById("out").onclick = async () => { await fetch("/api/logout", {method:"POST"}); location.reload(); };
+    document.getElementById("out").onclick = async () => { await fetch("/api/logout", {method:"POST", credentials:"same-origin"}); location.href = "/"; };
     return;
   }
   view.innerHTML = `<article class="card"><h2>Create account</h2><input id="rn" placeholder="name"><input id="rp" type="password" placeholder="password (8+)"><button id="reg">Register</button></article><article class="card"><h2>Sign in</h2><input id="ln" placeholder="name"><input id="lp" type="password" placeholder="password"><button id="in">Sign in</button><p id="msg" class="muted"></p></article>`;
