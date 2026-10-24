@@ -1,11 +1,9 @@
-"""Awuru triad alignment adapted for Aureon.
+"""Older combined-desk helper. Not the account-style policy.
 
-Apex = momentum observation (SMA).
-Orion = breakout confirmation (E1).
-Aegis = defensive filter (RSI conflict or stale data).
-
-Agreement raises assurance. Conflict forces WAIT.
-Source: yourcyberaidofficial-dotcom/awuru-goal-signal-engine accounts_personas.py
+Account styles live in ops/profiles.py and come from Awuru's
+accounts_personas.py: Apex Momentum, Orion Precision, Aegis Shield.
+This function still collapses three research states into one WAIT-biased
+summary. It does not mean SMA is the Apex account.
 """
 
 VERSION = "awuru-triad-20261018"

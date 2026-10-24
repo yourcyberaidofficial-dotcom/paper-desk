@@ -85,28 +85,54 @@ import secrets
 import time
 
 def update_profile(user_id: str, profile: dict) -> dict | None:
+    from ops.profiles import CURRENCIES, get_profile, risk_cap
     path = _path(user_id)
     if not path.exists():
         return None
     user = json.loads(path.read_text())
     current = user.get("profile") or {}
     mode = profile.get("mode") if profile.get("mode") in {"research", "paper", "decision"} else current.get("mode", "research")
-    capital = profile.get("capital")
+    capital = profile.get("capital") if "capital" in profile else current.get("capital")
     try:
-        capital = float(capital) if capital is not None else current.get("capital")
+        capital = float(capital) if capital not in (None, "") else None
     except Exception:
         capital = current.get("capital")
-    risk = profile.get("max_risk_pct")
-    try:
-        risk = min(100.0, max(0.0, float(risk))) if risk is not None else current.get("max_risk_pct", 1.0)
-    except Exception:
-        risk = current.get("max_risk_pct", 1.0)
+    style = profile.get("signal_style", current.get("signal_style"))
+    if style is not None and not get_profile(style):
+        style = current.get("signal_style")
+    currency = profile.get("currency", current.get("currency"))
+    if currency not in (None, ""):
+        currency = str(currency).upper()[:8]
+        if currency not in CURRENCIES:
+            currency = current.get("currency")
+    else:
+        currency = current.get("currency")
+    cap = risk_cap(style)
+    if style and style != current.get("signal_style"):
+        risk = cap
+    elif "max_risk_pct" in profile and profile.get("max_risk_pct") not in (None, ""):
+        try:
+            risk = float(profile.get("max_risk_pct"))
+        except Exception:
+            risk = current.get("max_risk_pct")
+    else:
+        risk = current.get("max_risk_pct", cap)
+    if cap is not None and risk is not None:
+        risk = min(cap, max(0.0, float(risk)))
+    spec = get_profile(style) or {}
     user["profile"] = {
         "mode": mode,
         "capital": capital,
-        "currency": str(profile.get("currency") or current.get("currency") or "USD")[:8],
+        "currency": currency,
         "capital_type": profile.get("capital_type") if profile.get("capital_type") in {"virtual", "declared"} else current.get("capital_type", "virtual"),
+        "signal_style": style,
+        "signal_style_name": spec.get("name"),
+        "risk_mode": spec.get("risk_mode"),
         "max_risk_pct": risk,
+        "max_daily_loss_percent": spec.get("max_daily_loss_percent", current.get("max_daily_loss_percent")),
+        "max_open_risk_percent": spec.get("max_open_risk_percent", current.get("max_open_risk_percent")),
+        "min_rr": spec.get("min_rr", current.get("min_rr")),
+        "max_trades_per_day": spec.get("max_trades_per_day", current.get("max_trades_per_day")),
         "experimental_alerts": bool(profile.get("experimental_alerts", current.get("experimental_alerts", False))),
         "daily_report": bool(profile.get("daily_report", current.get("daily_report", True))),
         "timezone": str(profile.get("timezone") or current.get("timezone") or "Africa/Lagos")[:64],
@@ -175,6 +201,18 @@ def unlink_telegram(user_id: str) -> bool:
     user.pop("telegram_pending", None)
     path.write_text(json.dumps(user))
     return True
+
+
+def record_digest(user_id: str, day: str, status: str) -> None:
+    path = _path(user_id)
+    if not path.exists():
+        return
+    user = json.loads(path.read_text())
+    profile = user.get("profile") or {}
+    profile["last_digest_day"] = day
+    profile["last_digest_status"] = status[:80]
+    user["profile"] = profile
+    path.write_text(json.dumps(user))
 
 
 def list_users() -> list[dict]:
