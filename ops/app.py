@@ -337,6 +337,31 @@ def telegram_link():
     return jsonify(result)
 
 
+@app.post("/api/telegram/update")
+def telegram_update():
+    from ops.users import process_start_command
+    update = request.json or {}
+    msg = update.get("message") or {}
+    text_body = str(msg.get("text") or "")
+    if not text_body.startswith("/start "):
+        return jsonify({"ok": True, "ignored": True})
+    token = text_body.split(" ", 1)[1].strip()
+    from_user = msg.get("from") or {}
+    chat = msg.get("chat") or {}
+    result = process_start_command(token, str(from_user.get("id") or ""), str(chat.get("id") or ""))
+    return jsonify(result)
+
+
+@app.post("/api/telegram/unlink")
+def telegram_unlink():
+    from ops.users import unlink_telegram
+    user_id = session.get("user_id")
+    if not user_id:
+        return jsonify({"error": "unauthorized"}), 401
+    ok = unlink_telegram(user_id)
+    return jsonify({"ok": ok})
+
+
 @app.post("/api/telegram/confirm")
 def telegram_confirm():
     from ops.users import confirm_telegram_link
@@ -810,7 +835,7 @@ async function settings(){
     document.getElementById("tglink").onclick = async () => {
       const r = await fetch("/api/telegram/link", {method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({telegram_id: document.getElementById("tgid").value})});
       const d = await r.json();
-      document.getElementById("tglinkout").textContent = r.ok ? "Open bot and send /start " + d.token : "Link failed.";
+      document.getElementById("tglinkout").textContent = r.ok ? "Open: https://t.me/AureonLabBot?start=" + d.token : "Link failed.";
     };
     document.getElementById("out").onclick = async () => { await fetch("/api/logout", {method:"POST"}); location.reload(); };
     return;
