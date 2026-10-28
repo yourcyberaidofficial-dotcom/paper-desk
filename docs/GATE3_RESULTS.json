@@ -1,0 +1,595 @@
+{
+  "approved": [],
+  "broker": false,
+  "coverage": [
+    {
+      "bars": 35039,
+      "end": "2026-10-28T00:29:59.999000+00:00",
+      "interval": "15m",
+      "ok": true,
+      "provider": "binance-public",
+      "quote_semantics": "last_trade",
+      "reason": null,
+      "sha256": "0f51193e619c1c74a1743cba2e5652314d0cc32fb312e3eba65ac569b1d48a5b",
+      "start": "2025-10-28T00:45:00+00:00",
+      "symbol": "BTCUSDT"
+    },
+    {
+      "bars": 8879,
+      "end": "2026-10-27T23:59:59.999000+00:00",
+      "interval": "1h",
+      "ok": true,
+      "provider": "binance-public",
+      "quote_semantics": "last_trade",
+      "sha256": "bf4d15a203975c7e48b8013323625725629b102e69a4726a8a66d9530dcf1f88",
+      "start": "2025-10-23T01:00:00+00:00",
+      "symbol": "BTCUSDT"
+    },
+    {
+      "bars": 35039,
+      "end": "2026-10-28T00:29:59.999000+00:00",
+      "interval": "15m",
+      "ok": true,
+      "provider": "binance-public",
+      "quote_semantics": "last_trade",
+      "reason": null,
+      "sha256": "3faf3216a1f7512521367d7422fdd6758a7e2f97e5070950e956527e982de752",
+      "start": "2025-10-28T00:45:00+00:00",
+      "symbol": "ETHUSDT"
+    },
+    {
+      "bars": 8879,
+      "end": "2026-10-27T23:59:59.999000+00:00",
+      "interval": "1h",
+      "ok": true,
+      "provider": "binance-public",
+      "quote_semantics": "last_trade",
+      "sha256": "406626c4eb833a607e973ad1b0abbad3d002ccf205abc060039ac6df87c0221e",
+      "start": "2025-10-23T01:00:00+00:00",
+      "symbol": "ETHUSDT"
+    },
+    {
+      "bars": 5695,
+      "end": "2026-10-27T23:59:59.999000+00:00",
+      "interval": "1h",
+      "ok": true,
+      "partial_dropped": 10,
+      "provider": "xaus.com",
+      "quote_semantics": "ohlc_not_bid_ask",
+      "reason": null,
+      "sha256": "24cb98a8c1c6e207cfbf3d3962d0a9a2e6c176aba298c4dd43b81f272e3f7b2c",
+      "start": "2025-10-28T00:00:00+00:00",
+      "symbol": "XAUUSD"
+    },
+    {
+      "bars": 1233,
+      "end": "2026-10-27T19:59:59.999000+00:00",
+      "interval": "4h",
+      "ok": true,
+      "provider": "xaus.com",
+      "quote_semantics": "ohlc_not_bid_ask",
+      "sha256": "970057ee8677c567c0fab2f3cd41478c5b0a90dbe2ddcf7de3517063654a7f7d",
+      "start": "2025-10-28T00:00:00+00:00",
+      "symbol": "XAUUSD"
+    }
+  ],
+  "dukascopy": {
+    "ok": false,
+    "provider": "dukascopy",
+    "reason": "http_503"
+  },
+  "e1_benchmark": "FAIL on BTCUSDT and ETHUSDT 15m for 2024-10-17 to 2026-10-17. Not re-tuned.",
+  "production": "WAIT_DEFAULT",
+  "promoted": [],
+  "qualified_for_review": [],
+  "rows": [
+    {
+      "base_mean": -0.0024695946790678678,
+      "blocked": [],
+      "end": "2026-06-04T00:30:00+00:00",
+      "equity": 0.10791691797481663,
+      "failed": [
+        "expectancy",
+        "uncertainty",
+        "flat",
+        "drawdown",
+        "streak",
+        "half_first",
+        "half_second"
+      ],
+      "judgment": "FAIL",
+      "max_drawdown": 0.8983673808053371,
+      "normal_95_lower": -0.0029441180483440956,
+      "split": "development",
+      "start": "2025-10-28T00:45:00+00:00",
+      "strategy": "tf-pullback-20261027",
+      "stress_mean": -0.0032695946790678673,
+      "symbol": "BTCUSDT",
+      "trades": 891,
+      "win_rate": 0.30190796857463525,
+      "worst_loss_streak": 17
+    },
+    {
+      "base_mean": -0.0019517117710553405,
+      "blocked": [],
+      "end": "2026-08-16T00:30:00+00:00",
+      "equity": 0.551024718356057,
+      "failed": [
+        "expectancy",
+        "uncertainty",
+        "flat",
+        "drawdown",
+        "half_first",
+        "half_second"
+      ],
+      "judgment": "FAIL",
+      "max_drawdown": 0.4717425016903787,
+      "normal_95_lower": -0.0026628851549158647,
+      "split": "validation",
+      "start": "2026-06-04T00:30:00+00:00",
+      "strategy": "tf-pullback-20261027",
+      "stress_mean": -0.0027517117710553407,
+      "symbol": "BTCUSDT",
+      "trades": 302,
+      "win_rate": 0.33774834437086093,
+      "worst_loss_streak": 9
+    },
+    {
+      "base_mean": -0.002410883639486373,
+      "blocked": [],
+      "end": "2026-06-04T00:30:00+00:00",
+      "equity": 0.09269530504452415,
+      "failed": [
+        "expectancy",
+        "uncertainty",
+        "flat",
+        "drawdown",
+        "streak",
+        "half_first",
+        "half_second"
+      ],
+      "judgment": "FAIL",
+      "max_drawdown": 0.9117447392549181,
+      "normal_95_lower": -0.002813671895487954,
+      "split": "development",
+      "start": "2025-10-28T00:45:00+00:00",
+      "strategy": "vol-break-20261027",
+      "stress_mean": -0.0032108836394863726,
+      "symbol": "BTCUSDT",
+      "trades": 977,
+      "win_rate": 0.3101330603889457,
+      "worst_loss_streak": 14
+    },
+    {
+      "base_mean": -0.00294058352403815,
+      "blocked": [],
+      "end": "2026-08-16T00:30:00+00:00",
+      "equity": 0.3758019291852125,
+      "failed": [
+        "expectancy",
+        "uncertainty",
+        "flat",
+        "drawdown",
+        "half_first",
+        "half_second"
+      ],
+      "judgment": "FAIL",
+      "max_drawdown": 0.6241980708147875,
+      "normal_95_lower": -0.003465034809251378,
+      "split": "validation",
+      "start": "2026-06-04T00:30:00+00:00",
+      "strategy": "vol-break-20261027",
+      "stress_mean": -0.00374058352403815,
+      "symbol": "BTCUSDT",
+      "trades": 331,
+      "win_rate": 0.28700906344410876,
+      "worst_loss_streak": 12
+    },
+    {
+      "base_mean": -0.002275435762294686,
+      "blocked": [],
+      "end": "2026-06-04T00:30:00+00:00",
+      "equity": 0.8016357726442493,
+      "failed": [
+        "expectancy",
+        "uncertainty",
+        "flat",
+        "half_first",
+        "half_second"
+      ],
+      "judgment": "FAIL",
+      "max_drawdown": 0.19836422735575066,
+      "normal_95_lower": -0.0026050724500176034,
+      "split": "development",
+      "start": "2025-10-28T00:45:00+00:00",
+      "strategy": "mr-range-20261027",
+      "stress_mean": -0.0030754357622946858,
+      "symbol": "BTCUSDT",
+      "trades": 97,
+      "win_rate": 0.16494845360824742,
+      "worst_loss_streak": 12
+    },
+    {
+      "base_mean": -0.002105985370431172,
+      "blocked": [],
+      "end": "2026-08-16T00:30:00+00:00",
+      "equity": 0.8848244855779915,
+      "failed": [
+        "expectancy",
+        "uncertainty",
+        "flat",
+        "streak",
+        "half_first",
+        "half_second"
+      ],
+      "judgment": "FAIL",
+      "max_drawdown": 0.11517551442200846,
+      "normal_95_lower": -0.002562692804350228,
+      "split": "validation",
+      "start": "2026-06-04T00:30:00+00:00",
+      "strategy": "mr-range-20261027",
+      "stress_mean": -0.0029059853704311717,
+      "symbol": "BTCUSDT",
+      "trades": 58,
+      "win_rate": 0.1724137931034483,
+      "worst_loss_streak": 16
+    },
+    {
+      "base_mean": -0.0019387701932599474,
+      "blocked": [],
+      "end": "2026-06-04T00:30:00+00:00",
+      "equity": 0.16862677358672645,
+      "failed": [
+        "expectancy",
+        "uncertainty",
+        "flat",
+        "drawdown",
+        "streak",
+        "half_first",
+        "half_second"
+      ],
+      "judgment": "FAIL",
+      "max_drawdown": 0.8430252898233019,
+      "normal_95_lower": -0.002567852194135539,
+      "split": "development",
+      "start": "2025-10-28T00:45:00+00:00",
+      "strategy": "tf-pullback-20261027",
+      "stress_mean": -0.0027387701932599473,
+      "symbol": "ETHUSDT",
+      "trades": 896,
+      "win_rate": 0.34375,
+      "worst_loss_streak": 14
+    },
+    {
+      "base_mean": -0.0020385122603924816,
+      "blocked": [],
+      "end": "2026-08-16T00:30:00+00:00",
+      "equity": 0.5215771438671688,
+      "failed": [
+        "expectancy",
+        "uncertainty",
+        "flat",
+        "drawdown",
+        "half_first",
+        "half_second"
+      ],
+      "judgment": "FAIL",
+      "max_drawdown": 0.5491654526140002,
+      "normal_95_lower": -0.0029304272294544942,
+      "split": "validation",
+      "start": "2026-06-04T00:30:00+00:00",
+      "strategy": "tf-pullback-20261027",
+      "stress_mean": -0.002838512260392481,
+      "symbol": "ETHUSDT",
+      "trades": 314,
+      "win_rate": 0.31210191082802546,
+      "worst_loss_streak": 12
+    },
+    {
+      "base_mean": -0.0023968889545975132,
+      "blocked": [],
+      "end": "2026-06-04T00:30:00+00:00",
+      "equity": 0.1000333190595063,
+      "failed": [
+        "expectancy",
+        "uncertainty",
+        "flat",
+        "drawdown",
+        "streak",
+        "half_first",
+        "half_second"
+      ],
+      "judgment": "FAIL",
+      "max_drawdown": 0.9009998635586587,
+      "normal_95_lower": -0.002998213328879489,
+      "split": "development",
+      "start": "2025-10-28T00:45:00+00:00",
+      "strategy": "vol-break-20261027",
+      "stress_mean": -0.0031968889545975127,
+      "symbol": "ETHUSDT",
+      "trades": 942,
+      "win_rate": 0.3343949044585987,
+      "worst_loss_streak": 22
+    },
+    {
+      "base_mean": -0.0022305369452612915,
+      "blocked": [],
+      "end": "2026-08-16T00:30:00+00:00",
+      "equity": 0.5002013460447807,
+      "failed": [
+        "expectancy",
+        "uncertainty",
+        "flat",
+        "drawdown",
+        "half_first",
+        "half_second"
+      ],
+      "judgment": "FAIL",
+      "max_drawdown": 0.5309655651979301,
+      "normal_95_lower": -0.0029979576010070825,
+      "split": "validation",
+      "start": "2026-06-04T00:30:00+00:00",
+      "strategy": "vol-break-20261027",
+      "stress_mean": -0.003030536945261291,
+      "symbol": "ETHUSDT",
+      "trades": 307,
+      "win_rate": 0.3355048859934853,
+      "worst_loss_streak": 10
+    },
+    {
+      "base_mean": -0.002194339217220727,
+      "blocked": [],
+      "end": "2026-06-04T00:30:00+00:00",
+      "equity": 0.9057731274111197,
+      "failed": [
+        "expectancy",
+        "uncertainty",
+        "flat",
+        "streak",
+        "half_first",
+        "half_second"
+      ],
+      "judgment": "FAIL",
+      "max_drawdown": 0.0942268725888803,
+      "normal_95_lower": -0.002854636774952209,
+      "split": "development",
+      "start": "2025-10-28T00:45:00+00:00",
+      "strategy": "mr-range-20261027",
+      "stress_mean": -0.0029943392172207275,
+      "symbol": "ETHUSDT",
+      "trades": 45,
+      "win_rate": 0.1111111111111111,
+      "worst_loss_streak": 14
+    },
+    {
+      "base_mean": -0.002785521607861795,
+      "blocked": [
+        "sample",
+        "half_first"
+      ],
+      "end": "2026-08-16T00:30:00+00:00",
+      "equity": 0.9457167648599737,
+      "failed": [
+        "half_second"
+      ],
+      "judgment": "FAIL",
+      "max_drawdown": 0.05428323514002631,
+      "normal_95_lower": -0.003480138939555116,
+      "split": "validation",
+      "start": "2026-06-04T00:30:00+00:00",
+      "strategy": "mr-range-20261027",
+      "stress_mean": -0.0035855216078617947,
+      "symbol": "ETHUSDT",
+      "trades": 20,
+      "win_rate": 0.05,
+      "worst_loss_streak": 15
+    },
+    {
+      "base_mean": 0.0004101633393958761,
+      "blocked": [
+        "no_measured_bid_ask"
+      ],
+      "end": "2026-06-08T07:00:00+00:00",
+      "equity": 1.0514816723293243,
+      "failed": [
+        "expectancy",
+        "uncertainty",
+        "half_second"
+      ],
+      "judgment": "FAIL",
+      "max_drawdown": 0.10318524090904536,
+      "normal_95_lower": -0.001206633332912784,
+      "split": "development",
+      "start": "2025-10-28T00:00:00+00:00",
+      "strategy": "tf-pullback-20261027",
+      "stress_mean": -2.7253395677281377e-05,
+      "symbol": "XAUUSD",
+      "trades": 138,
+      "win_rate": 0.42028985507246375,
+      "worst_loss_streak": 8
+    },
+    {
+      "base_mean": -0.00043768525963113495,
+      "blocked": [
+        "no_measured_bid_ask"
+      ],
+      "end": "2026-08-18T09:00:00+00:00",
+      "equity": 0.9797980459766928,
+      "failed": [
+        "expectancy",
+        "uncertainty",
+        "flat",
+        "streak",
+        "half_first",
+        "half_second"
+      ],
+      "judgment": "FAIL",
+      "max_drawdown": 0.11590533831923489,
+      "normal_95_lower": -0.0034465559537337513,
+      "split": "validation",
+      "start": "2026-06-08T07:00:00+00:00",
+      "strategy": "tf-pullback-20261027",
+      "stress_mean": -0.0009135487809089238,
+      "symbol": "XAUUSD",
+      "trades": 42,
+      "win_rate": 0.40476190476190477,
+      "worst_loss_streak": 13
+    },
+    {
+      "base_mean": -0.0009037704491977012,
+      "blocked": [
+        "no_measured_bid_ask"
+      ],
+      "end": "2026-06-08T07:00:00+00:00",
+      "equity": 0.8744469283204459,
+      "failed": [
+        "expectancy",
+        "uncertainty",
+        "flat",
+        "half_first"
+      ],
+      "judgment": "FAIL",
+      "max_drawdown": 0.1920704002405433,
+      "normal_95_lower": -0.0027503270487620034,
+      "split": "development",
+      "start": "2025-10-28T00:00:00+00:00",
+      "strategy": "vol-break-20261027",
+      "stress_mean": -0.0013372186518240171,
+      "symbol": "XAUUSD",
+      "trades": 139,
+      "win_rate": 0.35251798561151076,
+      "worst_loss_streak": 10
+    },
+    {
+      "base_mean": 0.001003112131061073,
+      "blocked": [
+        "no_measured_bid_ask"
+      ],
+      "end": "2026-08-18T09:00:00+00:00",
+      "equity": 1.0502407556178917,
+      "failed": [
+        "uncertainty"
+      ],
+      "judgment": "FAIL",
+      "max_drawdown": 0.043302568904983615,
+      "normal_95_lower": -0.0015272120657096942,
+      "split": "validation",
+      "start": "2026-06-08T07:00:00+00:00",
+      "strategy": "vol-break-20261027",
+      "stress_mean": 0.0005229968501768508,
+      "symbol": "XAUUSD",
+      "trades": 51,
+      "win_rate": 0.37254901960784315,
+      "worst_loss_streak": 5
+    },
+    {
+      "base_mean": null,
+      "blocked": [
+        "sample",
+        "half_first",
+        "half_second",
+        "no_measured_bid_ask"
+      ],
+      "end": "2026-06-08T07:00:00+00:00",
+      "equity": 1.0,
+      "failed": [],
+      "judgment": "BLOCKED",
+      "max_drawdown": 0.0,
+      "normal_95_lower": null,
+      "split": "development",
+      "start": "2025-10-28T00:00:00+00:00",
+      "strategy": "mr-range-20261027",
+      "stress_mean": null,
+      "symbol": "XAUUSD",
+      "trades": 0,
+      "win_rate": null,
+      "worst_loss_streak": 0
+    },
+    {
+      "base_mean": null,
+      "blocked": [
+        "sample",
+        "half_first",
+        "half_second",
+        "no_measured_bid_ask"
+      ],
+      "end": "2026-08-18T09:00:00+00:00",
+      "equity": 1.0,
+      "failed": [],
+      "judgment": "BLOCKED",
+      "max_drawdown": 0.0,
+      "normal_95_lower": null,
+      "split": "validation",
+      "start": "2026-06-08T07:00:00+00:00",
+      "strategy": "mr-range-20261027",
+      "stress_mean": null,
+      "symbol": "XAUUSD",
+      "trades": 0,
+      "win_rate": null,
+      "worst_loss_streak": 0
+    },
+    {
+      "base_mean": 0.0006556594273142361,
+      "blocked": [
+        "no_measured_bid_ask"
+      ],
+      "end": "2026-06-08T07:00:00+00:00",
+      "equity": 1.045886819931971,
+      "failed": [
+        "uncertainty"
+      ],
+      "judgment": "FAIL",
+      "max_drawdown": 0.07495716748284745,
+      "normal_95_lower": -0.0017973857978147133,
+      "split": "development",
+      "start": "2025-10-28T00:00:00+00:00",
+      "strategy": "xau-session-20261027",
+      "stress_mean": 0.00021814293526519076,
+      "symbol": "XAUUSD",
+      "trades": 75,
+      "win_rate": 0.44,
+      "worst_loss_streak": 5
+    },
+    {
+      "base_mean": 0.0001596854854150373,
+      "blocked": [
+        "sample",
+        "no_measured_bid_ask"
+      ],
+      "end": "2026-08-18T09:00:00+00:00",
+      "equity": 1.0022604190940145,
+      "failed": [
+        "half_second"
+      ],
+      "judgment": "FAIL",
+      "max_drawdown": 0.053014091844573924,
+      "normal_95_lower": -0.004485772992484931,
+      "split": "validation",
+      "start": "2026-06-08T07:00:00+00:00",
+      "strategy": "xau-session-20261027",
+      "stress_mean": -0.0003122920333965585,
+      "symbol": "XAUUSD",
+      "trades": 23,
+      "win_rate": 0.34782608695652173,
+      "worst_loss_streak": 6
+    }
+  ],
+  "selection": {
+    "BTCUSDT": {
+      "holdout": "NOT_OPENED",
+      "reason": "no_validation_pass",
+      "selected": null
+    },
+    "ETHUSDT": {
+      "holdout": "NOT_OPENED",
+      "reason": "no_validation_pass",
+      "selected": null
+    },
+    "XAUUSD": {
+      "holdout": "NOT_OPENED",
+      "reason": "no_validation_pass",
+      "selected": null
+    }
+  },
+  "spec": "docs/GATE3_SPEC.md"
+}
