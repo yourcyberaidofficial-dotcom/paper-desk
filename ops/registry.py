@@ -131,6 +131,32 @@ STRATEGIES = (
         "promoted": False,
         "live": False,
     },
+    {
+        "id": "dip-in-trend-1d-20261028",
+        "version": "dip-in-trend-1d-20261028",
+        "name": "Daily dip in an uptrend",
+        "instruments": ["BTCUSDT", "ETHUSDT"],
+        "timeframe": "1d",
+        "entry": "Long only after a daily close at least 2 percent below the prior close while still above the 100-day average.",
+        "invalidation": "The signal day's low.",
+        "research_status": "FAIL",
+        "evidence": "Worse than the preserved 4h leaders. BTC median fold mean about -0.00505 on 72 trades. ETH median about -0.00403 on 97 trades. docs/DAILY_RESULTS.json",
+        "promoted": False,
+        "live": True,
+    },
+    {
+        "id": "quiet-week-reversal-1d-20261028",
+        "version": "quiet-week-reversal-1d-20261028",
+        "name": "Quiet down-week reversal",
+        "instruments": ["BTCUSDT", "ETHUSDT"],
+        "timeframe": "1d",
+        "entry": "Long only once per five daily bars after a quiet down week. Not a retune of the 4h rules.",
+        "invalidation": "The week's low.",
+        "research_status": "BLOCKED",
+        "evidence": "BTC had 9 trades and ETH had 4. The sample is too small to rank, including the positive BTC point estimate. docs/DAILY_RESULTS.json",
+        "promoted": False,
+        "live": False,
+    },
 )
 
 BY_ID = {row["id"]: row for row in STRATEGIES}
