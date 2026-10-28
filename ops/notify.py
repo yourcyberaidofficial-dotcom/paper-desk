@@ -36,9 +36,25 @@ def _accepted(payload: dict) -> dict:
     }
 
 
+def _blocked_text(text: str) -> str | None:
+    """The pre-patch experimental sender must not reach Telegram under any flag."""
+    sample = text or ""
+    if "EXPERIMENTAL — NOT VALIDATED" in sample:
+        return "experimental_message_blocked"
+    if "LONG_BIAS" in sample or "SHORT_BIAS" in sample:
+        return "experimental_message_blocked"
+    if "stale or unavailable" in sample:
+        return "experimental_message_blocked"
+    return None
+
+
 def send_alert(text: str, token: str | None = None, chat_id: str | None = None) -> dict:
+    blocked = _blocked_text(text)
+    if blocked:
+        return {"status": "FAILED", "reason": blocked, "delivered": False, "read_proof": False}
     token = token if token is not None else os.environ.get("TELEGRAM_BOT_TOKEN")
-    chat_id = chat_id if chat_id is not None else os.environ.get("TELEGRAM_CHAT_ID")
+    if chat_id is None:
+        chat_id = os.environ.get("TELEGRAM_CHAT_ID")
     if not token or not chat_id:
         return {"status": "FAILED", "reason": "missing_credentials", "delivered": False, "read_proof": False}
     url = f"https://api.telegram.org/bot{token}/sendMessage"

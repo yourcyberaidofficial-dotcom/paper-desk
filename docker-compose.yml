@@ -1,6 +1,9 @@
 services:
   desk:
-    build: .
+    build:
+      context: .
+      args:
+        AUREON_BUILD_COMMIT: ${AUREON_BUILD_COMMIT:-unknown}
     restart: unless-stopped
     env_file:
       - .env
@@ -12,6 +15,7 @@ services:
     volumes:
       - desk-data:/app/data/paper
       - desk-users:/app/data/users
+      - desk-shadow:/app/data/shadow
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/health')"]
       interval: 30s
@@ -20,3 +24,4 @@ services:
 volumes:
   desk-data:
   desk-users:
+  desk-shadow:

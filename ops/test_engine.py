@@ -215,19 +215,30 @@ def test_same_event_does_not_alert_two_users():
     assert style_risk(aegis, 2.0)["risk_pct"] == 0.5
     assert style_risk(aegis, 2.0)["rr_allowed"] is False
     assert style_risk({"max_risk_pct": 0.3, "currency": "EUR"}, 2.0)["risk_pct"] == 0.3
-    approved = {"state": "APPROVED_SIGNAL", "event_id": "once", "expires_at_ms": 5_000}
+    approved = {
+        "state": "APPROVED_SIGNAL",
+        "event_id": "once",
+        "expires_at_ms": 5_000,
+        "strategy": "future-strategy",
+        "version": "future-1",
+        "symbol": "BTCUSDT",
+        "timeframe": "15m",
+        "fresh": True,
+        "complete": True,
+    }
+    registry = [{"strategy": "future-strategy", "version": "future-1", "symbols": ["BTCUSDT"]}]
     opted = dict(apex)
-    first = decide_route(approved, opted, now_ms=100, production="NOT_USED")
+    first = decide_route(approved, opted, now_ms=100, registry=registry)
     assert first["send"] is True
-    assert decide_route(approved, opted, already_sent={"once"}, now_ms=100, production="NOT_USED")["reason"] == "duplicate"
-    assert decide_route(approved, opted, now_ms=9_000, production="NOT_USED")["reason"] == "expired"
+    assert decide_route(approved, opted, already_sent={"once"}, now_ms=100, registry=registry)["reason"] == "duplicate"
+    assert decide_route(approved, opted, now_ms=9_000, registry=registry)["reason"] == "expired"
     def _slow(*args, **kwargs):
         raise TimeoutError("slow")
 
-    failed = dispatch(approved, opted, _slow, now_ms=100, production="NOT_USED")
+    failed = dispatch(approved, opted, _slow, now_ms=100, registry=registry)
     assert failed["delivered"] is False
     assert failed["reason"] == "TimeoutError"
-    stale = decide_route(approved, {"experimental_alerts": True, "telegram": {"verified": False}}, now_ms=100, production="NOT_USED")
+    stale = decide_route(approved, {"experimental_alerts": True, "telegram": {"verified": False}}, now_ms=100, registry=registry)
     assert stale["reason"] == "unverified_destination"
 
 
