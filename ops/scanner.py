@@ -4,6 +4,7 @@ import time
 from datetime import datetime, timezone
 
 from ops.engine_eval import evaluate_snapshot
+from ops.plan import evidence_grade
 
 PLAIN = {
     "no_setup": "No qualifying setup on this completed bar.",
@@ -79,6 +80,14 @@ def present_window(window, now_ms):
         message = "No qualifying setup yet."
         state = "WAIT"
         status = "scanning"
+    grade = evidence_grade({
+        "completed_bar": live,
+        "fresh": live,
+        "enough_history": head.get("reason") != "insufficient_history",
+        "rule_checked": bool(head.get("strategy")),
+        "explained": bool(message),
+        "promoted": False,
+    })
     base.update(
         status=status,
         state=state,
@@ -88,6 +97,9 @@ def present_window(window, now_ms):
         event_id=head.get("event_id"),
         direction=head.get("direction") or "WAIT",
         invalidation=head.get("reason"),
+        evidence_grade=grade["evidence_grade"],
+        evidence_label=grade["label"],
+        calibrated=False,
     )
     return base
 

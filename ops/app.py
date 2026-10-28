@@ -61,7 +61,7 @@ def _gate():
 ALLOWED_NEXT = {
     "/overview", "/signals", "/trading", "/strategies", "/indicators",
     "/research", "/portfolio", "/risk", "/activity", "/system", "/settings", "/onboarding",
-    "/scanner", "/learn",
+    "/scanner", "/learn", "/plan",
 }
 
 
@@ -537,6 +537,59 @@ def telegram_link():
     return jsonify(result)
 
 
+@app.get("/api/registry")
+def registry_api():
+    if not _gate():
+        return jsonify({"error": "unauthorized"}), 401
+    from ops.registry import catalog
+    return jsonify(catalog())
+
+
+@app.get("/api/plan")
+def plan_get():
+    user_id = session.get("user_id")
+    if not user_id:
+        return jsonify({"error": "unauthorized"}), 401
+    from ops.plan import normalize, week_status
+    from ops.profiles import risk_cap
+    from ops.users import get
+    user = get(user_id) or {}
+    profile = user.get("profile") or {}
+    cap = risk_cap(profile.get("signal_style"))
+    plan = user.get("plan") or normalize({}, {}, cap)
+    return jsonify({"plan": plan, "week": week_status(plan, int(time.time() * 1000)), "style_cap": cap, "currency": profile.get("currency")})
+
+
+@app.post("/api/plan")
+def plan_save():
+    user_id = session.get("user_id")
+    if not user_id:
+        return jsonify({"error": "unauthorized"}), 401
+    from ops.users import save_plan
+    saved = save_plan(user_id, request.json or {})
+    if not saved:
+        return jsonify({"error": "not_found"}), 404
+    return jsonify({"ok": True, "plan": saved.get("plan"), "notes": saved.get("plan_notes") or []})
+
+
+@app.post("/api/size")
+def size_quote():
+    user_id = session.get("user_id")
+    if not user_id:
+        return jsonify({"error": "unauthorized"}), 401
+    from ops.plan import propose_size
+    from ops.users import get
+    user = get(user_id) or {}
+    profile = user.get("profile") or {}
+    plan = user.get("plan") or {}
+    risk = plan.get("risk_per_trade_percent")
+    if risk is None:
+        risk = profile.get("max_risk_pct")
+    result = propose_size(profile.get("capital"), risk, (request.json or {}).get("entry"), (request.json or {}).get("stop"))
+    result["recorded"] = False
+    return jsonify(result)
+
+
 @app.post("/api/telegram/update")
 def telegram_update():
     from ops.telegram_in import apply_update
@@ -1000,6 +1053,7 @@ def scanner_api():
 @app.get("/settings")
 @app.get("/scanner")
 @app.get("/learn")
+@app.get("/plan")
 @app.get("/onboarding")
 def index():
     if not _gate():
@@ -1226,6 +1280,7 @@ main h1{margin:0;font-size:1.55rem}
     <a href="/trading" data-path="/trading">Trading Terminal</a>
     <a href="/signals" data-path="/signals">Live Signals</a>
     <a href="/learn" data-path="/learn">Academy</a>
+    <a href="/plan" data-path="/plan">My Plan</a>
     <a href="/strategies" data-path="/strategies">Strategies</a>
     <a href="/portfolio" data-path="/portfolio">Portfolio</a>
     <a href="/activity" data-path="/activity">Orders & Trade History</a>
@@ -1256,7 +1311,7 @@ document.getElementById("signout").onclick = async () => {
 };
 const path = location.pathname === "/" ? "/overview" : location.pathname;
 document.querySelectorAll("aside a").forEach(a => { if (a.dataset.path === path) a.classList.add("active"); });
-const titles = {"/":"Overview","/signals":"Live Signals","/trading":"Trading Terminal","/strategies":"Strategies","/portfolio":"Portfolio","/risk":"Risk Management","/activity":"Orders & Trade History","/system":"System Status","/settings":"Account & Settings","/research":"Backtesting & Research","/onboarding":"Account setup","/scanner":"Live Scanner","/learn":"Academy","/indicators":"Academy"};
+const titles = {"/":"Overview","/signals":"Live Signals","/trading":"Trading Terminal","/strategies":"Strategies","/portfolio":"Portfolio","/risk":"Risk Management","/activity":"Orders & Trade History","/system":"System Status","/settings":"Account & Settings","/research":"Backtesting & Research","/onboarding":"Account setup","/scanner":"Live Scanner","/learn":"Academy","/indicators":"Academy","/plan":"My Trading Plan"};
 document.getElementById("title").textContent = titles[path] || "Aureon";
 document.title = (titles[path] || "Aureon") + " · Aureon Trading Lab";
 const view = document.getElementById("view");
@@ -1484,7 +1539,7 @@ async function researchLab(){
 }
 async function scannerPage(){
   const draw = (body) => {
-    const cards = (body.markets||[]).map(m => `<article class="card" data-symbol="${m.symbol}"><h2>${m.symbol}</h2><div class="row"><span>${m.interval||""} ${m.quote||""}</span><span>${m.price==null?"—":m.price}</span></div><div class="row"><span>Status</span><span>${m.status||"unknown"}</span></div><p>${m.message||"No qualifying setup yet."}</p><p class="muted">Updated ${m.updated_at||"unknown"}. Source ${m.source||"unknown"}. State ${m.state||"WAIT"}. Not an approved signal.</p></article>`).join("");
+    const cards = (body.markets||[]).map(m => `<article class="card" data-symbol="${m.symbol}"><h2>${m.symbol}</h2><div class="row"><span>${m.interval||""} ${m.quote||""}</span><span>${m.price==null?"—":m.price}</span></div><div class="row"><span>Status</span><span>${m.status||"unknown"}</span></div><p>${m.message||"No qualifying setup yet."}</p><p class="muted">Evidence grade ${m.evidence_grade==null?"—":m.evidence_grade}/100. ${m.evidence_label||"Checklist score, not a probability of profit."} Updated ${m.updated_at||"unknown"}. Source ${m.source||"unknown"}.</p></article>`).join("");
     view.innerHTML = `<p role="status">${body.notice||"No approved strategy is currently active; trade alerts are unavailable."}</p><div class="markets">${cards}</div><p class="muted">Scanned ${body.scanned_at||""}. Completed bars only. <a href="/learn">Why the scanner says this</a></p>`;
   };
   const loadScan = async () => {
@@ -1498,9 +1553,29 @@ async function scannerPage(){
   window.__scanTimer = setInterval(loadScan, 15000);
 }
 async function learnPage(){
-  view.innerHTML = `<article class="card"><h2>How to read the desk</h2><p>A candlestick shows the open, high, low and close of one completed period. A 15-minute candle is fifteen minutes of trades. A one-hour candle is one hour. The scanner uses only candles that have already closed.</p><p>E1 Donchian-20 compares the latest close with the highest high and lowest low of the previous 20 completed bars. SMA20 is the average of the last 20 closes. RSI14 is a momentum reading. They are research observations. If E1 is waiting, every account style waits.</p></article><article class="card"><h2>What a result means</h2><ul><li>No qualifying setup yet: the rule did not match.</li><li>Research observation: a condition was seen. It is not an order.</li><li>Paper candidate: the written rule is complete, and it is still not approved.</li><li>Approved signal: only after a promotion record exists. None exists now.</li><li>Paper trade: a simulated fill. Broker execution is off, so this desk does not send one.</li></ul><p>WAIT means the rule or the data does not justify an entry. It is the safe result, not a missing page.</p></article><article class="card"><h2>Accounts and alerts</h2><p>Apex Momentum caps risk at 2.5% of paper capital. Orion Precision caps it at 1.5%. Aegis Shield caps it at 0.8%. These are ceilings. Changing the base currency does not convert the stored amount.</p><p>Connect Telegram from Settings. The link is single-use. A connected chat can be removed, and a removed chat receives nothing. Trade alerts stay off until a strategy is explicitly approved.</p><p class="muted">Examples on this page are explanations of the implemented rules. They are not recorded trades and they are not a win rate.</p></article>`;
+  view.innerHTML = `<article class="card"><h2>How to read the desk</h2><p>A candlestick shows the open, high, low and close of one completed period. A 15-minute candle is fifteen minutes of trades. A one-hour candle is one hour. The scanner uses only candles that have already closed.</p><p>E1 Donchian-20 compares the latest close with the highest high and lowest low of the previous 20 completed bars. SMA20 is the average of the last 20 closes. RSI14 is a momentum reading. They are research observations. If E1 is waiting, every account style waits.</p></article><article class="card"><h2>What a result means</h2><ul><li>No qualifying setup yet: the rule did not match.</li><li>Research observation: a condition was seen. It is not an order.</li><li>Paper candidate: the written rule is complete, and it is still not approved.</li><li>Approved signal: only after a promotion record exists. None exists now.</li><li>Paper trade: a simulated fill. Broker execution is off, so this desk does not send one.</li></ul><p>WAIT means the rule or the data does not justify an entry. It is the safe result, not a missing page.</p></article><article class="card"><h2>Accounts and alerts</h2><p>Apex Momentum caps risk at 2.5% of paper capital. Orion Precision caps it at 1.5%. Aegis Shield caps it at 0.8%. These are ceilings. Changing the base currency does not convert the stored amount.</p><p>Connect Telegram from Settings. The link is single-use. A connected chat can be removed, and a removed chat receives nothing. Trade alerts stay off until a strategy is explicitly approved.</p><p>The evidence grade is a checklist. It is not a probability of profit, and it has not been calibrated. A weekly aim is a personal target. Missing it is shown as a shortfall. The aim does not create a signal or raise risk.</p></article>`;
+}
+async function planPage(){
+  const response = await fetch("/api/plan", {credentials:"same-origin"});
+  if (response.status === 401) { view.innerHTML = `<article class="card"><h2>Sign in required</h2><p><a href="/login">Sign in</a> to save a plan.</p></article>`; return; }
+  const body = await response.json();
+  const plan = body.plan || {};
+  const week = body.week || {};
+  const catalog = await fetch("/api/registry", {credentials:"same-origin"}).then(r => r.json());
+  const options = (catalog.strategies||[]).map(s => `<label><input type="checkbox" value="${s.id}" ${ (plan.strategies||[]).includes(s.id) ? "checked" : "" }> ${s.name} · ${s.research_status} · not approved</label>`).join("");
+  view.innerHTML = `<article class="card"><h2>This week ${week.week||""}</h2><p>Chosen aim: ${week.aim_percent==null?"not set":week.aim_percent+"%"}.</p><p>${week.paper_note||""}</p><p class="muted">Approved alerts this week: ${week.approved_alerts}. Simulated trades: ${week.simulated_trades}. A target does not force a signal.</p></article><form id="planform" class="card"><h2>Plan</h2><p id="plannote" role="status"></p><label>Mode <select id="mode"><option value="auto">Auto: evaluate every compatible strategy</option><option value="selected">Selected strategies only</option></select></label><div class="checks">${options}</div><label>Minimum evidence grade <input id="grade" type="number" min="0" max="100" value="${plan.min_evidence_grade||0}"></label><p class="muted">This is a checklist score, not a probability of profit.</p><label>Weekly aim percent <input id="aim" type="number" min="0" max="100" step="any" value="${plan.weekly_aim_percent??""}"></label><label>Weekly loss limit percent <input id="loss" type="number" min="0" max="100" step="any" value="${plan.weekly_loss_limit_percent??""}"></label><label>Per-trade risk percent <input id="risk" type="number" min="0" max="100" step="any" value="${plan.risk_per_trade_percent??""}"></label><p class="muted">Style cap ${body.style_cap==null?"not set":body.style_cap+"%"}. A higher number is rejected. Currency stays ${body.currency||"unset"} and is not converted.</p><label><input id="research" type="checkbox" ${plan.research_alerts?"checked":""}> Optional research notes in the app. Off by default. These are not trade alerts.</label><button type="submit">Save plan</button></form>`;
+  document.getElementById("mode").value = plan.mode || "auto";
+  document.getElementById("planform").onsubmit = async (event) => {
+    event.preventDefault();
+    const strategies = [...document.querySelectorAll("#planform input[type=checkbox][value]")].filter(box => box.checked).map(box => box.value);
+    const payload = {mode: document.getElementById("mode").value, strategies, min_evidence_grade: document.getElementById("grade").value, weekly_aim_percent: document.getElementById("aim").value, weekly_loss_limit_percent: document.getElementById("loss").value, risk_per_trade_percent: document.getElementById("risk").value, research_alerts: document.getElementById("research").checked, markets: ["BTCUSDT","ETHUSDT","XAUUSD"]};
+    const saved = await fetch("/api/plan", {method:"POST", credentials:"same-origin", headers:{"Content-Type":"application/json"}, body: JSON.stringify(payload)});
+    const result = await saved.json();
+    document.getElementById("plannote").textContent = saved.ok ? ((result.notes||[]).join(" ") || "Plan saved.") : "Your plan could not be saved. Please retry.";
+  };
 }
 async function load(){
+  if (path === "/plan") return planPage();
   if (path === "/scanner") return scannerPage();
   if (path === "/learn" || path === "/indicators") return learnPage();
   if (path === "/trading") return terminal();
@@ -1512,7 +1587,10 @@ async function load(){
   if (path === "/strategies") {
     const catalog = await fetch("/api/profiles").then(r=>r.json());
     const styles = (catalog.profiles||[]).map(p => `<article class="card"><h2>${p.name}</h2><p>${p.role}. ${p.purpose}</p><p class="muted">${p.confirmation} Risk cap ${p.risk_per_trade_percent}% per trade. Minimum reward/risk ${p.min_rr}. At most ${p.max_trades_per_day} trades a day in the Awuru account defaults. Not a promoted strategy.</p></article>`).join("");
-    view.innerHTML = `<article class="card"><h2>E1 Donchian-20</h2><p>Breakout on the prior 20 completed bars. Failed benchmark on BTC and ETH. Research observation only. Not promoted and not re-tuned.</p><p class="muted">Crypto decisions use completed 15m bars. Gold decisions use completed 1h XAUUSD chart OHLC. Daily history without an open is not used.</p></article><article class="card"><h2>Gate 3 candidates</h2><p>Trend pullback, volatility-normalized breakout, regime-filtered mean reversion, and a New York session gold pullback. Frozen research rules. A candidate is not an approved signal.</p></article><article class="card"><h2>SMA20 and RSI14</h2><p>Research observations only. They do not create paper orders. If E1 is WAIT, every style stays WAIT.</p></article>${styles}<p class="muted">${catalog.note||""} ${catalog.excluded||""}</p>`;
+    view.innerHTML = `<article class="card"><h2>E1 Donchian-20</h2><p>Breakout on the prior 20 completed bars. Failed benchmark on BTC and ETH. Research observation only. Not promoted and not re-tuned.</p></article><article class="card"><h2>Registered strategies</h2><div id="reg">Loading the registry.</div></article>${styles}<p class="muted">${catalog.note||""} ${catalog.excluded||""}</p>`;
+    const registry = await fetch("/api/registry", {credentials:"same-origin"}).then(r => r.ok ? r.json() : {strategies:[]});
+    const box = document.getElementById("reg");
+    if (box) box.innerHTML = (registry.strategies||[]).map(s => `<div class="row"><span>${s.name}</span><span>${s.research_status}</span></div><div class="muted">${s.instruments.join(", ")} · ${s.timeframe}. ${s.evidence} Promoted: no.</div>`).join("") || "<p>The registry could not be loaded.</p>";
     return;
   }
   if (path === "/risk") return riskPage();
@@ -1541,7 +1619,7 @@ async function paperPages(){
 async function riskPage(){
   const me = await fetch("/api/me").then(r=>r.ok?r.json():null);
   const profile = (me && me.profile) || {};
-  view.innerHTML = `<article class="card"><h2>Risk</h2><div class="row"><span>Active style</span><span>${profile.signal_style_name||"Not selected"}</span></div><div class="row"><span>Risk posture</span><span>${profile.risk_mode||"unset"}</span></div><div class="row"><span>Max risk per trade</span><span>${profile.max_risk_pct==null?"Not set":profile.max_risk_pct+"%"}</span></div><div class="row"><span>Max daily loss</span><span>${profile.max_daily_loss_percent==null?"Not set":profile.max_daily_loss_percent+"%"}</span></div><div class="row"><span>Max open risk</span><span>${profile.max_open_risk_percent==null?"Not set":profile.max_open_risk_percent+"%"}</span></div><div class="row"><span>Minimum reward/risk</span><span>${profile.min_rr==null?"Not set":profile.min_rr}</span></div><p class="muted">These caps come from the selected Awuru account style. They do not guarantee protection from losses. Production remains WAIT_DEFAULT, so the desk is not placing risk-sized orders from this page.</p></article>`;
+  view.innerHTML = `<article class="card"><h2>Risk</h2><div class="row"><span>Active style</span><span>${profile.signal_style_name||"Not selected"}</span></div><div class="row"><span>Risk posture</span><span>${profile.risk_mode||"unset"}</span></div><div class="row"><span>Max risk per trade</span><span>${profile.max_risk_pct==null?"Not set":profile.max_risk_pct+"%"}</span></div><div class="row"><span>Max daily loss</span><span>${profile.max_daily_loss_percent==null?"Not set":profile.max_daily_loss_percent+"%"}</span></div><div class="row"><span>Max open risk</span><span>${profile.max_open_risk_percent==null?"Not set":profile.max_open_risk_percent+"%"}</span></div><div class="row"><span>Minimum reward/risk</span><span>${profile.min_rr==null?"Not set":profile.min_rr}</span></div><p class="muted">These caps come from the selected Awuru account style. Apex per-trade risk is 2.5%. A 4% figure, where shown, is the style's daily-loss ceiling, not the per-trade limit. Production remains WAIT_DEFAULT, so this page does not place an order.</p></article>`;
 }
 async function systemPage(){
   const h = await fetch("/health").then(r=>r.json());

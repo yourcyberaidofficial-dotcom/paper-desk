@@ -138,6 +138,26 @@ def update_profile(user_id: str, profile: dict) -> dict | None:
     return get(user_id)
 
 
+def save_plan(user_id: str, incoming: dict) -> dict | None:
+    from ops.plan import normalize
+    from ops.profiles import risk_cap
+    path = _path(user_id)
+    if not path.exists():
+        return None
+    user = json.loads(path.read_text())
+    profile = user.get("profile") or {}
+    cap = risk_cap(profile.get("signal_style"))
+    if cap is not None and profile.get("max_risk_pct") is not None:
+        cap = min(cap, float(profile["max_risk_pct"]))
+    saved = normalize(incoming, user.get("plan"), cap)
+    notes = saved.pop("notes")
+    user["plan"] = saved
+    path.write_text(json.dumps(user))
+    public = get(user_id)
+    public["plan_notes"] = notes
+    return public
+
+
 def start_telegram_link(user_id: str, claimed_id: str | None = None) -> dict | None:
     """One-time token. A typed id is ignored and the raw token is not stored."""
     path = _path(user_id)
