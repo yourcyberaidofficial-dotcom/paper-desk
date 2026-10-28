@@ -1043,7 +1043,29 @@ def scanner_api():
         from ops.users import get
         plan = (get(user_id) or {}).get("plan") or {}
         record_scan(user_id, body, plan, now_ms)
+    from ops.signal_book import remember_live
+    remember_live(body)
     return jsonify(body)
+
+
+@app.get("/api/workspace")
+def workspace_api():
+    user_id = session.get("user_id")
+    if not user_id:
+        return jsonify({"error": "unauthorized"}), 401
+    from ops.scanner import scan
+    from ops.signal_book import read_events, remember_live
+    from ops.users import get
+    from ops.workspace import compose
+    now_ms = int(time.time() * 1000)
+    try:
+        from ops.shadow_bridge import load_live_windows
+        windows = load_live_windows(now_ms)
+    except Exception:
+        windows = []
+    body = scan(windows, now_ms=now_ms)
+    remember_live(body)
+    return jsonify(compose(get(user_id) or {}, body, read_events()))
 
 
 @app.get("/api/notifications")
@@ -1478,36 +1500,17 @@ async function overview(){
   }).catch(()=>{});
 }
 async function signals(){
-  view.innerHTML = `<p class="muted">Loading current research states…</p>`;
-  const me = await fetch("/api/me").then(r => r.ok ? r.json() : null).catch(()=>null);
-  const profile = (me && me.profile) || {};
-  const markets = (me && me.prefs && me.prefs.markets && me.prefs.markets.length) ? me.prefs.markets : ["BTCUSDT","ETHUSDT"];
-  const cards = await Promise.all(markets.map(async symbol => {
-    const elig = await fetch("/api/eligibility?symbol="+encodeURIComponent(symbol)).then(r=>r.json()).catch(()=>({decision:"WAIT", reason:"Eligibility unavailable"}));
-    let detail = "";
-    if (symbol === "XAUUSD") {
-      const gold = await fetch("/api/gold/signal").then(r=>r.json()).catch(()=>({}));
-      detail = `<div class="muted">${gold.interval||"1h"} ${gold.state||"WAIT"} ${label(gold.result||"unavailable")}. ${gold.reason||""} ${gold.note||"Not an order. Quote is USD/oz chart OHLC, not bid/ask."}</div>`;
-    } else {
-      const s = await fetch("/api/research-signals?symbol="+symbol+"&interval=15m").then(r=>r.json()).catch(()=>({states:[]}));
-      detail = (s.states||[]).map(st => `<div class="row"><span>${st.strategy}</span><span class="${cls(st.direction)}">${label(st.direction)}</span></div>`).join("");
-      detail += `<div class="muted">${s.fresh===false?"Feed is not fresh. ":""}${s.label||"Research observation."} Timeframe 15m.</div>`;
-    }
-    return `<article class="card" data-symbol="${symbol}"><h2>${symbol}</h2><div class="row"><span>Profile</span><span>${profile.signal_style_name||"Not selected"}</span></div><div class="row"><span>Eligibility</span><span class="${cls(elig.decision||"WAIT")}">${label(elig.decision||"WAIT")}</span></div><div class="muted">${elig.reason||""}</div>${detail}<div class="muted">Production ${elig.production||"WAIT_DEFAULT"}. Not an order.</div></article>`;
-  }));
-  const hist = await fetch("/api/signal-history").then(r=>r.json()).catch(()=>({signals:[]}));
-  const seen = new Map();
-  for (const s of (hist.signals||[])) {
-    const key = [s.asset, s.timeframe, s.result].join("|");
-    const cur = seen.get(key) || {row:s, n:0};
-    cur.n += 1;
-    seen.set(key, cur);
-  }
-  const rows = [...seen.values()].slice(0, 8).map(({row, n}) => `<div class="row"><span>${row.asset||""} ${row.timeframe||""}</span><span>${label(row.result||"")}</span><span>${n} stored ${n===1?"evaluation":"evaluations"}</span></div>`);
-  view.innerHTML = `<label class="field">Market filter <select id="sigfilter"><option value="">All selected markets</option>${markets.map(s => `<option value="${s}">${s}</option>`).join("")}</select></label><p class="muted">Decisions use the saved profile ${profile.signal_style_name||"(none selected)"}. Repeated unchanged evaluations are collapsed.</p>${cards.join("")}<article class="card"><h2>Earlier evaluations</h2>${rows.join("")||"<p>No stored evaluations.</p>"}<p class="muted">Research evaluations are not trades. Identical results are counted instead of repeated row by row.</p></article>`;
-  const filter = document.getElementById("sigfilter");
-  filter.onchange = () => {
-    const chosen = filter.value;
+  view.innerHTML = `<p role="status">Checking BTC, ETH and gold.</p>`;
+  const response = await fetch("/api/workspace", {credentials:"same-origin"});
+  if (response.status === 401) { view.innerHTML = `<article class="card"><h2>Sign in required</h2><p><a href="/login">Sign in</a> to see your signal workspace.</p></article>`; return; }
+  const body = await response.json().catch(()=>({panels:[], history:[], strategies:[], notice:"The workspace could not be read. Please retry."}));
+  const panels = (body.panels||[]).map(panel => `<article class="card" data-symbol="${panel.symbol}"><h2>${panel.symbol}</h2><div class="row"><span>${panel.scanner_state||"BLOCKED"}</span><span>${panel.price==null?"—":panel.price}</span></div><p>${panel.message||"No qualifying setup yet."}</p><p class="muted">${panel.interval||""} · ${panel.quote||""} ${panel.quote_note||""} Updated ${panel.updated_at||"unknown"}.</p></article>`).join("");
+  const setups = (body.current||[]).map(item => `<article class="card"><h2>${item.what}</h2><p>${item.why}</p><p>${item.why_not||""}</p><p class="muted">${item.strategy}. ${item.learn||""}</p><p class="muted">Invalidation: ${item.invalidation||""} Position suggestion: ${item.account&&item.account.ok?item.account.quantity:"not calculated"}. ${item.account&&item.account.order===false?"No order was created.":""}</p></article>`).join("");
+  const history = (body.history||[]).map(item => `<div class="row"><span>${item.label}</span><span>${item.symbol||""} ${item.scanner_state||""}</span></div><div class="muted">${item.message||""} Not delivered. Not filled.</div>`).join("");
+  const intel = (body.strategies||[]).map(item => `<div class="row"><span>${item.name}</span><span>${item.research_status}</span></div><div class="muted">${(item.instruments||[]).join(", ")}. ${item.evidence||""}</div>`).join("");
+  view.innerHTML = `<p role="status">${body.notice||""}</p><div class="markets">${panels}</div><article class="card"><h2>For your account</h2>${setups||"<p>No setup is eligible for your plan. A healthy scan can still have nothing to act on.</p>"}</article><article class="card"><h2>Signal history</h2><label class="field">Show <select id="sigfilter"><option value="">All</option><option value="BTCUSDT">BTCUSDT</option><option value="ETHUSDT">ETHUSDT</option><option value="XAUUSD">XAUUSD</option></select></label><div id="sigrows">${history||"<p>No saved evaluations yet.</p>"}</div><p class="muted">Historical replay is not a fill and was not delivered.</p></article><article class="card"><h2>Why nothing is approved</h2>${intel}</article>`;
+  document.getElementById("sigfilter").onchange = (event) => {
+    const chosen = event.target.value;
     document.querySelectorAll("#view article[data-symbol]").forEach(el => { el.hidden = Boolean(chosen) && el.dataset.symbol !== chosen; });
   };
 }
