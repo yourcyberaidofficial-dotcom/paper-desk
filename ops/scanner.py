@@ -4,6 +4,7 @@ import time
 from datetime import datetime, timezone
 
 from ops.engine_eval import evaluate_snapshot
+from ops.gold_live import completed_bid_ask_bar
 from ops.plan import evidence_grade
 
 PLAIN = {
@@ -65,6 +66,22 @@ def present_window(window, now_ms):
         "production": "WAIT_DEFAULT",
         "alert": "unavailable",
     }
+    if symbol == "XAUUSD":
+        quote = window.get("quote_semantics") or (last.get("quote_semantics") if last else None) or "missing_quote"
+        if quote != "dukascopy_xauusd_bid_ask" or not completed_bid_ask_bar(last):
+            shown = quote if quote != "dukascopy_xauusd_bid_ask" else "missing_bid_ask"
+            base.update(
+                status="unavailable",
+                state="DATA_UNAVAILABLE",
+                scanner_state="BLOCKED",
+                direction="WAIT",
+                rule=None,
+                price=None,
+                evidence_grade=None,
+                evaluated=False,
+                message=f"Gold is blocked. The feed is {shown}, not a completed bid/ask bar. The London rule was not calculated.",
+            )
+            return base
     if symbol == "XAUUSD" and not live:
         base.update(status="unavailable", state="DATA_UNAVAILABLE", scanner_state="BLOCKED", message=f"Gold scanning is temporarily unavailable. Last verified market update: {_when(updated)}.")
         return base
@@ -111,6 +128,7 @@ def present_window(window, now_ms):
         evidence_grade=grade["evidence_grade"],
         evidence_label=grade["label"],
         calibrated=False,
+        evaluated=True,
     )
     return base
 

@@ -8,7 +8,7 @@ from pathlib import Path
 from ops.bars import interval_ms
 from ops.hypotheses import _atr
 from ops.daily_rules import RULES as DAILY_RULES
-from ops.gold_live import snapshot_reason
+from ops.gold_live import completed_bid_ask_bar, snapshot_reason
 from ops.leaders import COMPRESS, CRYPTO_RULES, GOLD_RULES, LONDON, SWEEP
 from ops.plan import propose_size
 from ops.profiles import risk_cap
@@ -163,11 +163,12 @@ def decide(symbol, interval, strategy, bars, now_ms, user, prior=None, live_quot
     })
     if not fresh:
         return {**base, "decision": "WAIT", "reason": "The latest candle is missing, still forming, or too old to treat as live.", "blocked": "stale_or_incomplete"}
-    if symbol == "XAUUSD" and (last.get("quote_semantics") != "dukascopy_xauusd_bid_ask" or last.get("ask_open") is None):
+    if symbol == "XAUUSD" and not completed_bid_ask_bar(last):
+        quote = last.get("quote_semantics") or "missing_bid_ask"
         extra = ""
         if live_quote and live_quote.get("ok"):
             extra = " " + snapshot_reason(live_quote)
-        return {**base, "decision": "WAIT", "reason": "Gold is blocked. The candle feed is not verified bid/ask, so the London rule was not calculated." + extra, "blocked": "quote_not_bid_ask", "live_quote": live_quote}
+        return {**base, "decision": "WAIT", "reason": f"Gold is blocked. The candle feed is {quote}, not verified bid/ask, so the London rule was not calculated." + extra, "blocked": "quote_not_bid_ask", "live_quote": live_quote}
     if interval != spec.get("timeframe"):
         return {**base, "decision": "WAIT", "reason": f"This rule is defined on {spec.get('timeframe')} candles. {interval} was not substituted.", "blocked": "timeframe"}
     if prior and prior.get("decision") == "BUY":
@@ -225,3 +226,55 @@ def stamp(user_id, result):
     saved = save_result(user_id, result)
     result["duplicate"] = saved.get("duplicate", False)
     return result
+
+
+def attach_request(body, result):
+    """Echo the request. A different instrument is rejected instead of shown."""
+    body = body or {}
+    requested_symbol = body.get("symbol") or "BTCUSDT"
+    requested_interval = body.get("interval") or "4h"
+    requested_strategy = body.get("strategy") if body.get("strategy") not in {None, ""} else "auto"
+    request_id = str(body.get("request_id") or "")
+    result = dict(result or {})
+    result["requested_symbol"] = requested_symbol
+    result["requested_interval"] = requested_interval
+    result["requested_strategy"] = requested_strategy
+    result["request_id"] = request_id
+    if result.get("symbol") != requested_symbol or str(result.get("interval") or "") != str(requested_interval):
+        return {
+            "decision": "WAIT",
+            "reason": "The result did not match the requested market and was rejected.",
+            "symbol": requested_symbol,
+            "interval": requested_interval,
+            "strategy": requested_strategy,
+            "requested_symbol": requested_symbol,
+            "requested_interval": requested_interval,
+            "requested_strategy": requested_strategy,
+            "request_id": request_id,
+            "approved": False,
+            "rejected": "market_mismatch",
+            "fresh": False,
+            "reference_price": None,
+            "delivered": False,
+            "filled": False,
+            "order": False,
+            "blocked": "market_mismatch",
+            "validation_status": "unknown",
+        }
+    return result
+
+
+def response_matches(requested, payload):
+    """True only when this payload is the result for this exact request."""
+    payload = payload or {}
+    requested = requested or {}
+    if payload.get("rejected") == "market_mismatch":
+        return False
+    if payload.get("symbol") != requested.get("symbol"):
+        return False
+    if str(payload.get("interval") or "") != str(requested.get("interval") or ""):
+        return False
+    wanted = str(requested.get("request_id") or "")
+    if wanted and payload.get("request_id") != wanted:
+        return False
+    return True

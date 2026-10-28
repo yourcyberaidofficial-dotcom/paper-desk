@@ -1538,28 +1538,59 @@ async function signals(){
   };
 }
 async function terminal(){
-  view.innerHTML = `<article class="card"><h2>Generate a signal</h2><div class="fieldrow"><label>Market <select id="sym"><option>BTCUSDT</option><option>ETHUSDT</option><option>XAUUSD</option></select></label><label>Timeframe <select id="tf"><option>15m</option><option>1h</option><option selected>4h</option><option>1d</option></select></label><label>Strategy <select id="mode"><option value="auto">Auto</option><option value="compress-break-4h-20261028">BTC compression breakout</option><option value="sweep-reclaim-4h-20261028">ETH failed-breakdown</option><option value="london-reclaim-1h-20261028">Gold London reclaim</option><option value="dip-in-trend-1d-20261028">Daily dip in trend</option><option value="quiet-week-reversal-1d-20261028">Quiet week reversal</option></select></label></div><button id="generate" type="button">Generate Signal</button><p id="termstatus" role="status"></p></article><div id="termout"></div><article class="card"><h2>Your requested evaluations</h2><div id="termhist"><p>No requested evaluation yet.</p></div></article>`;
-  document.getElementById("tf").innerHTML = `<option>15m</option><option>1h</option><option selected>4h</option><option>1d</option>`;
+  view.innerHTML = `<article class="card"><h2>Generate a signal</h2><div class="fieldrow"><label>Market <select id="term-symbol"><option>BTCUSDT</option><option>ETHUSDT</option><option>XAUUSD</option></select></label><label>Timeframe <select id="term-interval"><option>15m</option><option>1h</option><option selected>4h</option><option>1d</option></select></label><label>Strategy <select id="term-strategy"><option value="auto">Auto</option><option value="compress-break-4h-20261028">BTC compression breakout</option><option value="sweep-reclaim-4h-20261028">ETH failed-breakdown</option><option value="london-reclaim-1h-20261028">Gold London reclaim</option><option value="dip-in-trend-1d-20261028">Daily dip in trend</option><option value="quiet-week-reversal-1d-20261028">Quiet week reversal</option></select></label></div><button id="generate" type="button">Generate Signal</button><p id="termstatus" role="status"></p></article><div id="termout"></div><article class="card"><h2>Your requested evaluations</h2><div id="termhist"><p>No requested evaluation yet.</p></div></article>`;
+  const symbolEl = document.getElementById("term-symbol");
+  const intervalEl = document.getElementById("term-interval");
+  const strategyEl = document.getElementById("term-strategy");
+  let ticket = 0;
+  function requestedNow(){ return {symbol: symbolEl.value, interval: intervalEl.value, strategy: strategyEl.value}; }
+  function labelPrevious(){
+    ticket += 1;
+    const status = document.getElementById("termstatus");
+    const card = document.querySelector("#termout [data-request]");
+    if (card) {
+      card.dataset.stale = "1";
+      const note = card.querySelector("[data-stale-note]");
+      if (note) note.textContent = "Previous evaluation. It is not the current selection.";
+    }
+    const next = requestedNow();
+    status.textContent = "Selection changed. Generate Signal to evaluate " + next.symbol + " " + next.interval + ".";
+  }
+  symbolEl.onchange = labelPrevious;
+  intervalEl.onchange = labelPrevious;
+  strategyEl.onchange = labelPrevious;
   async function history(){
     const response = await fetch("/api/terminal/history", {credentials:"same-origin"});
     const body = response.ok ? await response.json() : {items:[]};
-    const rows = (body.items||[]).map(item => `<div class="row"><span>${item.decision}</span><span>${item.symbol} ${item.interval}</span></div><div class="muted">${item.source==="user_requested"?"Requested evaluation":"Historical replay"}. Validation ${item.validation_status||"unknown"}. Not delivered. Not filled. ${item.reason||""}</div>`).join("");
+    const rows = (body.items||[]).map(item => `<div class="row" data-symbol="${item.symbol||""}"><span>${item.decision}</span><span>${item.symbol} ${item.interval}</span></div><div class="muted">Request ${item.request_id||item.id||"saved"}. Strategy ${item.requested_strategy||item.strategy||""}. Validation ${item.validation_status||"unknown"}. Not delivered. Not filled. ${item.reason||""}</div>`).join("");
     document.getElementById("termhist").innerHTML = rows || "<p>No requested evaluation yet.</p>";
   }
   document.getElementById("generate").onclick = async () => {
     const status = document.getElementById("termstatus");
     const out = document.getElementById("termout");
-    status.textContent = "Evaluating the latest completed candle.";
+    const mine = ++ticket;
+    const requested = requestedNow();
+    const requestId = mine + ":" + requested.symbol + ":" + requested.interval + ":" + Date.now();
+    status.textContent = "Evaluating " + requested.symbol + " " + requested.interval + ".";
     out.innerHTML = "";
     try {
-      const response = await fetch("/api/terminal/signal", {method:"POST", credentials:"same-origin", headers:{"Content-Type":"application/json"}, body: JSON.stringify({symbol:document.getElementById("sym").value, interval:document.getElementById("tf").value, strategy:document.getElementById("mode").value})});
+      const response = await fetch("/api/terminal/signal", {method:"POST", credentials:"same-origin", headers:{"Content-Type":"application/json"}, body: JSON.stringify({symbol:requested.symbol, interval:requested.interval, strategy:requested.strategy, request_id:requestId})});
+      if (mine !== ticket) return;
       if (response.status === 401) { status.textContent = "Sign in to generate a signal."; return; }
       const body = await response.json();
+      if (mine !== ticket) return;
+      const same = body.symbol === requested.symbol && body.interval === requested.interval && body.request_id === requestId && body.rejected !== "market_mismatch";
+      if (!same) {
+        status.textContent = "The result did not match " + requested.symbol + " " + requested.interval + " and was not shown.";
+        out.innerHTML = `<article class="card"><h2>Rejected</h2><p>That response was not for ${requested.symbol} ${requested.interval}. It was not presented as this selection.</p></article>`;
+        return;
+      }
       status.textContent = "";
       const size = body.size && body.size.ok ? `${body.size.quantity} units, risk ${body.size.risk_budget} ${body.currency||""}. Informational only.` : (body.size && body.size.reason ? `Position size not calculated: ${body.size.reason}.` : "No position size on this result.");
-      out.innerHTML = `<article class="card"><h2>${body.decision||"WAIT"}</h2><p>${body.reason||""}</p><div class="row"><span>${body.symbol||""} ${body.interval||""}</span><span>${body.reference_price==null?"no price":body.reference_price}</span></div><p class="muted">${body.fresh?"Completed candle is fresh.":"Not a fresh live candle."} Source ${body.source_name||"unknown"}. Quote ${body.quote||"unknown"}. Candle ${body.bar_close_ms?new Date(body.bar_close_ms).toISOString():"unknown"}.</p><p>Validation: ${body.validation_status||"unknown"}. ${body.approved?"Approved.":"Not an approved strategy and not a claim of profit."}</p><p>Entry ${body.entry==null?"—":body.entry}. Stop ${body.stop==null?"—":body.stop}. Target ${body.target==null?"—":body.target}. Reward/risk ${body.reward_risk==null?"—":Number(body.reward_risk).toFixed(2)}.</p><p>${size}</p><p class="muted">${body.costs?body.costs.note||"":""} ${body.invalidation||""}</p></article>`;
+      out.innerHTML = `<article class="card" data-request="${requestId}" data-symbol="${body.symbol}" data-interval="${body.interval}"><p data-stale-note></p><h2>${body.decision||"WAIT"}</h2><p>${body.reason||""}</p><div class="row"><span>${body.symbol||""} ${body.interval||""}</span><span>${body.reference_price==null?"no price":body.reference_price}</span></div><p class="muted">Request ${requestId}. Requested ${body.requested_symbol||""} ${body.requested_interval||""} ${body.requested_strategy||""}. Resolved strategy ${body.strategy||""}.</p><p class="muted">${body.fresh?"Completed candle is fresh.":"Not a fresh live candle."} Source ${body.source_name||"unknown"}. Quote ${body.quote||"unknown"}. Candle ${body.bar_close_ms?new Date(body.bar_close_ms).toISOString():"unknown"}.</p><p>Validation: ${body.validation_status||"unknown"}. ${body.approved?"Approved.":"Not an approved strategy and not a claim of profit."}</p><p>Entry ${body.entry==null?"—":body.entry}. Stop ${body.stop==null?"—":body.stop}. Target ${body.target==null?"—":body.target}. Reward/risk ${body.reward_risk==null?"—":Number(body.reward_risk).toFixed(2)}.</p><p>${size}</p><p class="muted">${body.costs?body.costs.note||"":""} ${body.invalidation||""}</p></article>`;
       history();
     } catch (err) {
+      if (mine !== ticket) return;
       status.textContent = "The evaluation could not be completed. Please retry.";
     }
   };
@@ -1587,7 +1618,13 @@ async function researchLab(){
 }
 async function scannerPage(){
   const draw = (body) => {
-    const cards = (body.markets||[]).map(m => `<article class="card" data-symbol="${m.symbol}"><h2>${m.symbol}</h2><div class="row"><span>${m.interval||""} ${m.quote||""}</span><span>${m.price==null?"—":m.price}</span></div><div class="row"><span>Status</span><span>${m.status||"unknown"}</span></div><p>${m.message||"No qualifying setup yet."}</p><p class="muted">${m.scanner_state||m.state||"WAIT"}. Evidence grade ${m.evidence_grade==null?"—":m.evidence_grade}/100. ${m.evidence_label||"Checklist score, not a probability of profit."}</p></article>`).join("");
+    const cards = (body.markets||[]).map(m => {
+      const goldChart = m.symbol === "XAUUSD" && m.quote && m.quote !== "dukascopy_xauusd_bid_ask";
+      const blocked = goldChart || m.evaluated === false || m.scanner_state === "BLOCKED" || m.state === "DATA_UNAVAILABLE";
+      const stateText = blocked ? "BLOCKED" : (m.scanner_state || m.state || "WAIT");
+      const grade = blocked || m.evidence_grade == null ? "No candidate evidence grade. The rule was not validly evaluated." : `Evidence grade ${m.evidence_grade}/100. ${m.evidence_label||"Checklist score, not a probability of profit."}`;
+      return `<article class="card" data-symbol="${m.symbol}"><h2>${m.symbol}</h2><div class="row"><span>${m.interval||""} ${m.quote||""}</span><span>${m.price==null?"—":m.price}</span></div><div class="row"><span>Status</span><span>${m.status||"unknown"}</span></div><p>${m.message||"No qualifying setup yet."}</p><p class="muted">${stateText}. ${grade}</p></article>`;
+    }).join("");
     view.innerHTML = `<p role="status">${body.notice||"No approved strategy is currently active; trade alerts are unavailable."}</p><div class="markets">${cards}</div><p class="muted">Scanned ${body.scanned_at||""}. Completed bars only. <a href="/learn">Why the scanner says this</a></p>`;
   };
   const loadScan = async () => {

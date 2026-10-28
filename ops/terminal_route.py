@@ -37,7 +37,7 @@ def load_crypto_bars(symbol, interval, now_ms):
 
 
 def handle_signal(user_id, body, now_ms=None, bars_loader=None, quote_loader=None, session_loader=None):
-    from ops.terminal_signal import auto_strategy, decide, open_idea, stamp
+    from ops.terminal_signal import attach_request, auto_strategy, decide, open_idea, stamp
     from ops.users import get
 
     body = body or {}
@@ -58,8 +58,11 @@ def handle_signal(user_id, body, now_ms=None, bars_loader=None, quote_loader=Non
     else:
         bars = (bars_loader or load_crypto_bars)(symbol, interval, now_ms)
     if isinstance(bars, tuple):
-        return 200, {
+        return 200, attach_request(body, {
             "decision": "WAIT",
+            "symbol": symbol,
+            "interval": interval,
+            "strategy": strategy,
             "reason": bars[1],
             "approved": False,
             "fresh": False,
@@ -68,11 +71,11 @@ def handle_signal(user_id, body, now_ms=None, bars_loader=None, quote_loader=Non
             "delivered": False,
             "filled": False,
             "order": False,
-        }
+        })
     chosen = auto_strategy(symbol) if strategy in {None, "", "auto"} else strategy
     user = get(user_id) or {}
     result = decide(
         symbol, interval, strategy, bars, now_ms, user,
         open_idea(user_id, symbol, chosen), live_quote=live_quote,
     )
-    return 200, stamp(user_id, result)
+    return 200, stamp(user_id, attach_request(body, result))
