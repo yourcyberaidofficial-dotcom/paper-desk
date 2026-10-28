@@ -4,6 +4,7 @@ import json
 import time
 from pathlib import Path
 
+from ops.build_id import shadow_enabled
 from ops.market import fetch_last_closed, fetch_klines
 from ops.notify import send_alert
 from ops.e1 import e1_side
@@ -59,10 +60,13 @@ DEFAULT_PREFS = {
 
 
 class Worker:
-    def __init__(self, ledger, prefs_path: Path, experimental_path=None):
+    def __init__(self, ledger, prefs_path: Path, experimental_path=None, shadow_path=None):
         self.ledger = ledger
         self.prefs_path = Path(prefs_path)
         self.book = ExperimentalBook(experimental_path or self.prefs_path.parent / "experimental.jsonl")
+        self.shadow_path = shadow_path
+        self.shadow = None
+        self.shadow_loader = None
         self.last_beat_ms = 0
         self.last_result = None
 
@@ -176,8 +180,27 @@ class Worker:
                     "label": "EXPERIMENTAL PAPER — NOT VALIDATED",
                 })
             out.append(record)
+        self._write_shadow(now_ms)
         self.last_result = out[-1] if out else self.last_result
         return out
+
+    def _shadow_book(self):
+        if not shadow_enabled():
+            return None
+        if self.shadow is None:
+            from ops.shadow import ShadowLedger
+
+            self.shadow = ShadowLedger(self.shadow_path)
+        return self.shadow
+
+    def _write_shadow(self, now_ms):
+        book = self._shadow_book()
+        if book is None:
+            return []
+        from ops.shadow_bridge import load_live_windows, observe_prospective
+
+        loader = self.shadow_loader or load_live_windows
+        return observe_prospective(book, now_ms, loader)
 
     def status(self) -> dict:
         return {

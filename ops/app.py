@@ -20,6 +20,7 @@ from ops.deepboard import deep_board
 from ops.market import snapshot as market_snapshot, fetch_klines
 from ops.notify import send_alert
 from ops.strategy import WaitStrategy
+from ops.build_id import build_commit, shadow_enabled
 from ops.worker import Worker
 import threading
 
@@ -38,7 +39,7 @@ app.config.update(
 )
 ledger = Ledger(LEDGER_PATH)
 engine = PaperEngine(ledger, WaitStrategy())
-worker = Worker(ledger, LEDGER_PATH.parent / "prefs.json")
+worker = Worker(ledger, LEDGER_PATH.parent / "prefs.json", shadow_path=ROOT / "data" / "shadow" / "observations.jsonl")
 
 
 SESSION_TTL = 12 * 3600
@@ -110,9 +111,22 @@ def health():
         "ledger": "ok" if LEDGER_PATH.parent.exists() else "missing",
         "strategy": engine.strategy.name,
         "strategy_status": "WAIT_DEFAULT",
+        "build_commit": build_commit(),
+        "shadow": "enabled" if shadow_enabled() else "disabled",
         "paper_only": True,
         "broker": False,
         "worker": worker.status(),
+    })
+
+
+@app.get("/version")
+def version():
+    return jsonify({
+        "build_commit": build_commit(),
+        "strategy_status": "WAIT_DEFAULT",
+        "paper_only": True,
+        "broker": False,
+        "shadow": "enabled" if shadow_enabled() else "disabled",
     })
 
 
