@@ -36,14 +36,31 @@ def _user(capital=1000, risk=1.0, style="orion_balance"):
 def test_buy_is_labelled_unvalidated_and_sized():
     bars = _compress_bars()
     now = bars[-1]["close_time_ms"] + 1000
-    result = decide("BTCUSDT", "4h", "auto", bars, now, _user())
+    result = decide("BTCUSDT", "4h", "compress-break-4h-20261028", bars, now, _user())
     assert result["decision"] == "BUY"
+    assert result["decision_label"] == "BUY"
     assert result["validation_status"] == "FAIL"
     assert result["approved"] is False
+    assert result["eligible_for_alert"] is False
     assert result["stop"] < result["entry"] < result["target"]
     assert result["size"]["ok"] is True
     assert result["size"]["order"] is False
     assert result["filled"] is False
+
+
+def test_auto_does_not_promote_a_failed_rule_match():
+    bars = _compress_bars()
+    now = bars[-1]["close_time_ms"] + 1000
+    result = decide("BTCUSDT", "4h", "auto", bars, now, _user())
+    assert result["decision"] == "WAIT"
+    assert result["decision_label"] == "WAIT"
+    assert result["auto_selected"] is False
+    assert result["eligible_for_alert"] is False
+    assert result["experimental_match"]["decision"] == "BUY"
+    assert result["experimental_match"]["approved"] is False
+    assert result["entry"] is None
+    assert result["size"]["order"] is False
+    assert "not a trade recommendation" in result["reason"]
 
 
 def test_wait_explains_the_failed_condition_and_ignores_risk_style():
@@ -121,9 +138,11 @@ def test_terminal_route_requires_a_user_and_uses_completed_bars(tmp_path, monkey
     response = client.post("/api/terminal/signal", json={"symbol": "BTCUSDT", "interval": "4h", "strategy": "auto"})
     body = response.get_json()
     assert response.status_code == 200
-    assert body["decision"] == "BUY"
+    assert body["decision"] == "WAIT"
     assert body["approved"] is False
+    assert body["eligible_for_alert"] is False
     assert body["validation_status"] == "FAIL"
+    assert body["experimental_match"]["decision"] == "BUY"
     history = client.get("/api/terminal/history").get_json()
-    assert history["items"][0]["decision"] == "BUY"
+    assert history["items"][0]["decision"] == "WAIT"
     assert history["items"][0]["source"] == "user_requested"

@@ -130,6 +130,13 @@ def present_window(window, now_ms):
         calibrated=False,
         evaluated=True,
     )
+    if not base.get("approved"):
+        if base.get("scanner_state") in {"SIGNAL_CANDIDATE", "APPROVED_SIGNAL", "SETUP_WATCH"}:
+            base["message"] = "No approved strategy is active. " + (base.get("message") or "")
+            base["scanner_state"] = "WAIT"
+        base["evidence_grade"] = None
+        base["evidence_label"] = "not a probability of profit, and this rule is not approved"
+        base["eligible_for_alert"] = False
     return base
 
 
