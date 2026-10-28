@@ -1,1 +1,39 @@
-PLACEHOLDER
+{
+  "holdout": "NOT_OPENED",
+  "preserved_4h": "docs/LEADER_RESULTS.json",
+  "markets": [
+    {
+      "symbol": "BTCUSDT",
+      "bars": 1396,
+      "prefix_bars": 1116,
+      "holdout_bars": 280,
+      "holdout": "NOT_OPENED",
+      "sha256": "dc2043042a9e8f7c243ae7ee0ca696ee24e68e3b97fe815722cc94c6ea746e2d",
+      "start": "2023-01-01T00:00:00+00:00",
+      "prefix_end": "2026-01-20T23:59:59.999000+00:00",
+      "validation": {"ok": true, "bars": 1396, "gaps": 0, "duplicates": 0, "invalid": 0, "forming": 0, "errors": []},
+      "leader": {"strategy": "dip-in-trend-1d-20261028", "median_fold_mean": -0.005050864763120895, "judgment": "FAIL", "status": "research_leader_failed", "approved": false},
+      "benchmark": {"name": "buy_and_hold_one_round_turn", "gross": 4.345719351677602, "net": 4.343519351677601, "cost": "22 bps for one round turn at the project crypto rate"},
+      "rows": [
+        {"strategy": "dip-in-trend-1d-20261028", "judgment": "FAIL", "failed": ["expectancy", "uncertainty", "flat", "drawdown", "half_first", "half_second"], "blocked": [], "trades": 72, "gross_sum": -0.02884619668907045, "net_sum": -0.1872461966890705, "cost_drag": 0.15840000000000004, "base_mean": -0.0026006416206815343, "stress_mean": -0.003400641620681534, "win_rate": 0.2916666666666667, "max_drawdown": 0.31041737020639754, "folds": [{"fold": 1, "trades": 19, "base_mean": 0.005041876330935094}, {"fold": 2, "trades": 38, "base_mean": -0.005050864763120895}, {"fold": 3, "trades": 15, "base_mean": -0.006073932398549548}], "promoted": false},
+        {"strategy": "quiet-week-reversal-1d-20261028", "judgment": "BLOCKED", "failed": [], "blocked": ["sample", "half_first", "half_second", "unstable_folds"], "trades": 9, "gross_sum": 0.14167134700810524, "net_sum": 0.12187134700810524, "cost_drag": 0.0198, "base_mean": 0.01354126077867836, "stress_mean": 0.01274126077867836, "folds": [{"fold": 1, "trades": 3, "base_mean": 0.016962912605878868}, {"fold": 2, "trades": 2, "base_mean": 0.004004277925268029}, {"fold": 3, "trades": 4, "base_mean": 0.015743513334983143}], "promoted": false}
+      ]
+    },
+    {
+      "symbol": "ETHUSDT",
+      "bars": 1396,
+      "prefix_bars": 1116,
+      "holdout_bars": 280,
+      "holdout": "NOT_OPENED",
+      "sha256": "a19a620169faa561494620799b71d2ffa6cfc10f5137fb5d94232bdb7692ab81",
+      "start": "2023-01-01T00:00:00+00:00",
+      "prefix_end": "2026-01-20T23:59:59.999000+00:00",
+      "leader": {"strategy": "dip-in-trend-1d-20261028", "median_fold_mean": -0.004034783467301521, "judgment": "FAIL", "status": "research_leader_failed", "approved": false},
+      "benchmark": {"name": "buy_and_hold_one_round_turn", "gross": 1.4578264904316418, "net": 1.4556264904316418, "cost": "22 bps for one round turn at the project crypto rate"},
+      "rows": [
+        {"strategy": "dip-in-trend-1d-20261028", "judgment": "FAIL", "failed": ["expectancy", "uncertainty", "flat", "drawdown", "half_first", "half_second"], "blocked": [], "trades": 97, "gross_sum": -0.28556046952381664, "net_sum": -0.49896046952381673, "cost_drag": 0.2134000000000001, "base_mean": -0.0051439223662249145, "stress_mean": -0.005943922366224914, "folds": [{"fold": 1, "trades": 20, "base_mean": 0.001104840775871511}, {"fold": 2, "trades": 41, "base_mean": -0.004034783467301521}, {"fold": 3, "trades": 36, "base_mean": -0.009878643413385681}], "promoted": false},
+        {"strategy": "quiet-week-reversal-1d-20261028", "judgment": "BLOCKED", "failed": [], "blocked": ["sample", "half_first", "half_second", "unstable_folds"], "trades": 4, "base_mean": -0.010403089228742151, "stress_mean": -0.011203089228742151, "net_sum": -0.041612356914968604, "folds": [{"fold": 1, "trades": 4, "base_mean": -0.010403089228742151}, {"fold": 2, "trades": 0, "base_mean": null}, {"fold": 3, "trades": 0, "base_mean": null}], "promoted": false}
+      ]
+    }
+  ]
+}
