@@ -30,6 +30,9 @@ def make_bar(**fields):
         "complete": bool(fields.get("complete")),
         "fresh": bool(fields.get("fresh")),
     }
+    for key in ("bid_open", "bid_high", "bid_low", "bid_close", "ask_open", "ask_high", "ask_low", "ask_close"):
+        if fields.get(key) is not None:
+            bar[key] = fields[key]
     return bar
 
 
@@ -162,5 +165,22 @@ def aggregate(bars, source_interval, target_interval):
             retrieved_at_ms=children[-1]["retrieved_at_ms"],
             complete=True,
             fresh=False,
+            **_side_aggregate(children),
         ))
     return out
+
+
+def _side_aggregate(children):
+    keys = ("bid_open", "bid_high", "bid_low", "bid_close", "ask_open", "ask_high", "ask_low", "ask_close")
+    if not all(all(key in child for key in keys) for child in children):
+        return {}
+    return {
+        "bid_open": children[0]["bid_open"],
+        "bid_close": children[-1]["bid_close"],
+        "bid_high": max(child["bid_high"] for child in children),
+        "bid_low": min(child["bid_low"] for child in children),
+        "ask_open": children[0]["ask_open"],
+        "ask_close": children[-1]["ask_close"],
+        "ask_high": max(child["ask_high"] for child in children),
+        "ask_low": min(child["ask_low"] for child in children),
+    }

@@ -216,6 +216,39 @@ def decode_dukascopy_bi5(payload, hour_open_ms, point_scale=1000.0):
     return ticks
 
 
+def decode_dukascopy_m1(payload, day_open_ms, point_scale=1000.0):
+    """Decode one UTC day's Dukascopy 1-minute bid or ask file.
+
+    Record layout is big-endian seconds, open, close, low, high, volume.
+    Open is never copied from close. A short or crossed record is rejected.
+    """
+    raw = lzma.decompress(payload)
+    if not raw:
+        return []
+    if len(raw) % 24 != 0:
+        raise ValueError("candle_record_length")
+    rows = []
+    for offset in range(0, len(raw), 24):
+        second, open_i, close_i, low_i, high_i, volume = struct.unpack(">IIIIIf", raw[offset:offset + 24])
+        open_ = open_i / point_scale
+        close = close_i / point_scale
+        low = low_i / point_scale
+        high = high_i / point_scale
+        if min(open_, high, low, close) <= 0 or high < low or open_ > high or open_ < low or close > high or close < low:
+            continue
+        if second < 0 or second >= 86400 or second % 60 != 0:
+            continue
+        rows.append({
+            "time_ms": int(day_open_ms) + int(second) * 1000,
+            "open": open_,
+            "high": high,
+            "low": low,
+            "close": close,
+            "volume": volume,
+        })
+    return rows
+
+
 def dukascopy_hour(year, month_index, day, hour, timeout=20):
     """month_index is Dukascopy's zero-based month. HTTP 429 stays unavailable."""
     url = f"{DUKA}/{year}/{month_index:02d}/{day:02d}/{hour:02d}h_ticks.bi5"
