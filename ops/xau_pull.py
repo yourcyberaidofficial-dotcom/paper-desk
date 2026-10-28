@@ -7,6 +7,7 @@ Historical files are not a live feed.
 
 import hashlib
 import json
+import lzma
 import time
 import urllib.error
 import urllib.request
@@ -22,26 +23,39 @@ POINT_SCALE = 1000.0
 USER_AGENT = "aureon-paper-desk"
 
 
+def _lzma_candle(payload):
+    try:
+        raw = lzma.decompress(payload)
+    except Exception:
+        return False
+    return bool(raw) and len(raw) % 24 == 0
+
+
 def day_url(day, side):
     return f"{FEED}/{day.year}/{day.month - 1:02d}/{day.day:02d}/{side}_candles_min_1.bi5"
 
 
-def fetch_day(day, side, cache, timeout=25, attempts=5):
+def fetch_day(day, side, cache, timeout=40, attempts=8):
     path = cache / side / f"{day.isoformat()}.bi5"
     path.parent.mkdir(parents=True, exist_ok=True)
     if path.exists() and path.stat().st_size > 0:
         payload = path.read_bytes()
-        return {"ok": True, "body": payload, "cached": True, "sha256": hashlib.sha256(payload).hexdigest(), "url": day_url(day, side)}
+        if _lzma_candle(payload):
+            return {"ok": True, "body": payload, "cached": True, "sha256": hashlib.sha256(payload).hexdigest(), "url": day_url(day, side)}
+        path.unlink()
     url = day_url(day, side)
-    delay = 1.0
+    delay = 2.0
     last = "not_tried"
     for attempt in range(attempts):
         request = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
         try:
             with urllib.request.urlopen(request, timeout=timeout) as response:
                 payload = response.read()
-            if not payload:
-                return {"ok": False, "reason": "empty", "url": url, "sha256": None}
+            if not payload or not _lzma_candle(payload):
+                last = "empty" if not payload else "not_candle"
+                time.sleep(delay)
+                delay = min(delay * 2, 30)
+                continue
             path.write_bytes(payload)
             return {"ok": True, "body": payload, "cached": False, "sha256": hashlib.sha256(payload).hexdigest(), "url": url}
         except urllib.error.HTTPError as exc:
@@ -49,11 +63,11 @@ def fetch_day(day, side, cache, timeout=25, attempts=5):
             if exc.code == 404:
                 return {"ok": False, "reason": last, "url": url, "sha256": None}
             time.sleep(delay)
-            delay = min(delay * 2, 20)
+            delay = min(delay * 2, 30)
         except Exception as exc:
             last = type(exc).__name__
             time.sleep(delay)
-            delay = min(delay * 2, 20)
+            delay = min(delay * 2, 30)
     return {"ok": False, "reason": last, "url": url, "sha256": None}
 
 
@@ -151,9 +165,10 @@ def main():
     parser.add_argument("--start", default="2025-10-28")
     parser.add_argument("--end", default="2026-10-27")
     parser.add_argument("--cache", default="/tmp/xau-m1")
-    parser.add_argument("--out", default="/tmp/xau-h1.jsonl")
+    parser.add_argument("--out", default="/tmp/gate4-data/xau-h1.jsonl")
+    parser.add_argument("--workers", type=int, default=2)
     args = parser.parse_args()
-    pull(date.fromisoformat(args.start), date.fromisoformat(args.end), args.cache, args.out)
+    pull(date.fromisoformat(args.start), date.fromisoformat(args.end), args.cache, args.out, workers=args.workers)
 
 
 if __name__ == "__main__":

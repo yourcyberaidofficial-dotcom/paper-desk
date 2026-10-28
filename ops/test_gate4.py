@@ -237,3 +237,68 @@ def test_unapproved_event_still_does_not_send():
     assert result["send"] is False
     assert calls == []
     assert "token" not in json.dumps(result)
+
+
+def test_closed_saturday_hour_is_not_kept_and_history_is_not_fresh():
+    from datetime import date
+    import urllib.error
+    import urllib.request
+    from ops.hypotheses import SETUP
+    from ops.sessions import gold_market_open
+    from ops.xau_pull import build_day, fetch_day
+
+    saturday = date(2026, 1, 3)
+    assert saturday.weekday() == 5
+    day_ms = int(datetime(2026, 1, 3, tzinfo=timezone.utc).timestamp() * 1000)
+    bids, asks = [], []
+    for offset in range(60):
+        left, right = _minute(day_ms + 12 * HOUR, offset, 2000, 2000.4)
+        bids.append(left)
+        asks.append(right)
+    built = hours_from_minutes(bids, asks)
+    assert len(built["bars"]) == 1
+    assert built["bars"][0]["fresh"] is False
+    assert built["bars"][0]["open"] != built["bars"][0]["close"]
+    moment = datetime.fromtimestamp(built["bars"][0]["open_time_ms"] / 1000, timezone.utc)
+    assert gold_market_open(moment) is False
+    raw_bid = _pack_hour(bids)
+    raw_ask = _pack_hour(asks)
+    filtered = build_day(saturday, raw_bid, raw_ask, retrieved_at_ms=0)
+    assert filtered["bars"] == []
+    assert filtered["closed_hours"] == 1
+    assert set(GATE4_SETUP).isdisjoint(SETUP)
+
+    def boom(request, timeout=0):
+        del timeout
+        raise urllib.error.HTTPError(request.full_url, 503, "busy", hdrs=None, fp=None)
+
+    original = urllib.request.urlopen
+    urllib.request.urlopen = boom
+    try:
+        import tempfile
+        from pathlib import Path
+        cache = Path(tempfile.mkdtemp())
+        result = fetch_day(date(2026, 1, 5), "BID", cache, attempts=1, timeout=1)
+        assert result["ok"] is False
+        assert result["reason"] == "http_503"
+        assert list(cache.rglob("*.bi5")) == []
+    finally:
+        urllib.request.urlopen = original
+
+
+def _pack_hour(rows):
+    import lzma
+    import struct
+    raw = b"".join(
+        struct.pack(
+            ">IIIIIf",
+            int((row["time_ms"] // 1000) % 86400),
+            int(round(row["open"] * 1000)),
+            int(round(row["close"] * 1000)),
+            int(round(row["low"] * 1000)),
+            int(round(row["high"] * 1000)),
+            float(row["volume"]),
+        )
+        for row in rows
+    )
+    return lzma.compress(raw)

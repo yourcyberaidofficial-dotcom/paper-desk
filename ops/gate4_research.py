@@ -174,3 +174,146 @@ def replay_names(symbol):
     if symbol == "XAUUSD":
         names.extend(GOLD_ONLY)
     return names
+
+
+def gap_report(bars):
+    from ops.sessions import expected_gold_gap
+
+    holes = []
+    unexpected = 0
+    for left, right in zip(bars, bars[1:]):
+        delta = right["open_time_ms"] - left["open_time_ms"]
+        if delta == 3_600_000:
+            continue
+        closed = expected_gold_gap(left["open_time_ms"], right["open_time_ms"])
+        if not closed:
+            unexpected += 1
+        holes.append({
+            "from": _iso(left["open_time_ms"]),
+            "to": _iso(right["open_time_ms"]),
+            "hours": delta / 3_600_000,
+            "weekly_close": closed,
+        })
+    return {"gaps": len(holes), "unexpected_gaps": unexpected, "largest": holes[:8]}
+
+
+def _coverage(symbol, bars, provider, interval):
+    if not bars:
+        return {"symbol": symbol, "interval": interval, "bars": 0, "provider": provider}
+    return {
+        "symbol": symbol,
+        "interval": interval,
+        "provider": provider,
+        "bars": len(bars),
+        "start": _iso(bars[0]["open_time_ms"]),
+        "end": _iso(bars[-1]["close_time_ms"]),
+        "sha256": _hash(bars),
+        "quote_semantics": bars[0].get("quote_semantics"),
+        "fresh": bars[-1].get("fresh"),
+    }
+
+
+# Recorded Gate 3 endpoints. A later clock must not slide this window.
+CRYPTO_15M_START = "2025-10-28T00:45:00+00:00"
+CRYPTO_15M_END = "2026-10-28T00:29:59.999000+00:00"
+CRYPTO_1H_START = "2025-10-23T01:00:00+00:00"
+CRYPTO_1H_END = "2026-10-27T23:59:59.999000+00:00"
+
+
+def _ms(text):
+    return int(datetime.fromisoformat(text).timestamp() * 1000)
+
+
+def score_crypto(now_ms=None):
+    from ops.hypotheses import SETUP as GATE3_SETUP
+    from ops.research_cli import _evaluate_symbol
+
+    start_15 = _ms(CRYPTO_15M_START)
+    end_15 = _ms(CRYPTO_15M_END)
+    start_1h = _ms(CRYPTO_1H_START)
+    end_1h = _ms(CRYPTO_1H_END)
+    clock = end_15 if now_ms is None else now_ms
+    report = {"coverage": [], "rows": [], "selection": {}, "gate3_replay": [], "gate3_selection": {}, "gate3_engine": {}}
+    for symbol in ("BTCUSDT", "ETHUSDT"):
+        entry_page, higher_page = crypto_bundle(symbol, start_15, end_15, clock)
+        if not entry_page.get("ok") or not higher_page.get("ok"):
+            reason = entry_page.get("reason") or higher_page.get("reason") or "missing_bars"
+            report["selection"][symbol] = {"selected": None, "holdout": "NOT_OPENED", "reason": reason}
+            report["coverage"].append({"symbol": symbol, "ok": False, "reason": reason})
+            continue
+        higher = [bar for bar in higher_page["bars"] if start_1h <= bar["open_time_ms"] and bar["close_time_ms"] <= end_1h]
+        entry = [bar for bar in entry_page["bars"] if bar["close_time_ms"] <= end_15]
+        report["coverage"].append(_coverage(symbol, entry, "binance-public", "15m"))
+        report["coverage"].append(_coverage(symbol, higher, "binance-public", "1h"))
+        rows, selection = score_symbol(symbol, entry, higher, new_names(symbol), "last_trade", False, selectable=True)
+        report["rows"].extend(rows)
+        report["selection"][symbol] = selection
+        replay_rows, replay_selection = score_symbol(
+            symbol, entry, higher, replay_names(symbol), "last_trade", False, selectable=False, setup_map=GATE3_SETUP,
+        )
+        report["gate3_replay"].extend(replay_rows)
+        report["gate3_selection"][symbol] = replay_selection
+        report["gate3_engine"][symbol] = _evaluate_symbol(symbol, entry, higher)[1]
+    return report
+
+
+def score_gold(bars):
+    from ops.hypotheses import SETUP as GATE3_SETUP
+
+    ordered = sorted(bars, key=lambda bar: bar["open_time_ms"])
+    higher = gold_higher(ordered)
+    measured_rows, measured_selection = score_symbol(
+        "XAUUSD", ordered, higher, new_names("XAUUSD"), "bid_ask", True, selectable=True,
+    )
+    replay_rows, replay_selection = score_symbol(
+        "XAUUSD", ordered, higher, replay_names("XAUUSD"), "bid_ask", True, selectable=False, setup_map=GATE3_SETUP,
+    )
+    assumed_rows, _assumed_selection = score_symbol(
+        "XAUUSD", ordered, higher, list(new_names("XAUUSD")) + list(replay_names("XAUUSD")),
+        "last_trade", False, selectable=False, setup_map={**GATE3_SETUP, **SETUP},
+    )
+    for row in assumed_rows:
+        row["cost_label"] = "assumed_0.50_1.50_usd_per_side_on_bid_ohlc_not_measured"
+        if row["judgment"] == "PASS":
+            row["judgment"] = "BLOCKED"
+            row["blocked"] = list(row["blocked"]) + ["assumed_cost_cannot_pass"]
+    return {
+        "coverage": [
+            _coverage("XAUUSD", ordered, "dukascopy", "1h"),
+            _coverage("XAUUSD", higher, "dukascopy", "4h"),
+        ],
+        "gaps": gap_report(ordered),
+        "measured": {"rows": measured_rows, "selection": measured_selection},
+        "gate3_replay_measured": {"rows": replay_rows, "selection": replay_selection},
+        "assumed_cost_comparison": {"rows": assumed_rows, "selection": {"selected": None, "holdout": "NOT_OPENED", "reason": "assumed_cost_cannot_pass"}, "can_pass": False},
+    }
+
+
+def main():
+    import argparse
+    import json
+    from pathlib import Path
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--crypto-out", default="/tmp/gate4-data/crypto-score.json")
+    parser.add_argument("--gold", default="")
+    parser.add_argument("--gold-out", default="/tmp/gate4-data/gold-score.json")
+    parser.add_argument("--skip-crypto", action="store_true")
+    args = parser.parse_args()
+    if not args.skip_crypto:
+        crypto = score_crypto()
+        path = Path(args.crypto_out)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(crypto, indent=2, sort_keys=True))
+        print(json.dumps({"crypto": str(path), "selection": crypto.get("selection")}, sort_keys=True))
+    if args.gold:
+        bars = load_bars(args.gold)
+        gold = score_gold(bars)
+        path = Path(args.gold_out)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(gold, indent=2, sort_keys=True))
+        print(json.dumps({"gold": str(path), "bars": len(bars), "selection": gold["measured"]["selection"]}, sort_keys=True))
+
+
+if __name__ == "__main__":
+    main()
