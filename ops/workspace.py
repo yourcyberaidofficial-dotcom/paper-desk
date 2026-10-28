@@ -85,4 +85,5 @@ def compose(user, scan_body, history):
         "production": "WAIT_DEFAULT",
         "broker": False,
         "notice": (scan_body or {}).get("notice") or "No approved strategy is currently active; trade alerts are unavailable.",
+        "leaders": (scan_body or {}).get("leaders") or [],
     }

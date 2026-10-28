@@ -1065,6 +1065,8 @@ def workspace_api():
         windows = []
     body = scan(windows, now_ms=now_ms)
     remember_live(body)
+    from ops.leader_run import published_leaders
+    body["leaders"] = published_leaders()
     return jsonify(compose(get(user_id) or {}, body, read_events()))
 
 
@@ -1508,7 +1510,8 @@ async function signals(){
   const setups = (body.current||[]).map(item => `<article class="card"><h2>${item.what}</h2><p>${item.why}</p><p>${item.why_not||""}</p><p class="muted">${item.strategy}. ${item.learn||""}</p><p class="muted">Invalidation: ${item.invalidation||""} Position suggestion: ${item.account&&item.account.ok?item.account.quantity:"not calculated"}. ${item.account&&item.account.order===false?"No order was created.":""}</p></article>`).join("");
   const history = (body.history||[]).map(item => `<div class="row"><span>${item.label}</span><span>${item.symbol||""} ${item.scanner_state||""}</span></div><div class="muted">${item.message||""} Not delivered. Not filled.</div>`).join("");
   const intel = (body.strategies||[]).map(item => `<div class="row"><span>${item.name}</span><span>${item.research_status}</span></div><div class="muted">${(item.instruments||[]).join(", ")}. ${item.evidence||""}</div>`).join("");
-  view.innerHTML = `<p role="status">${body.notice||""}</p><div class="markets">${panels}</div><article class="card"><h2>For your account</h2>${setups||"<p>No setup is eligible for your plan. A healthy scan can still have nothing to act on.</p>"}</article><article class="card"><h2>Signal history</h2><label class="field">Show <select id="sigfilter"><option value="">All</option><option value="BTCUSDT">BTCUSDT</option><option value="ETHUSDT">ETHUSDT</option><option value="XAUUSD">XAUUSD</option></select></label><div id="sigrows">${history||"<p>No saved evaluations yet.</p>"}</div><p class="muted">Historical replay is not a fill and was not delivered.</p></article><article class="card"><h2>Why nothing is approved</h2>${intel}</article>`;
+  const leaders = (body.leaders||[]).map(item => `<div class="row"><span>${item.symbol}</span><span>${item.strategy||"no ranked rule"}</span></div><div class="muted">${item.status||"none"}. ${item.approved?"Approved.":"Not an approved strategy."}</div>`).join("");
+  view.innerHTML = `<p role="status">${body.notice||""}</p><article class="card"><h2>Research leader by market</h2>${leaders||"<p>No market leader has been ranked.</p>"}<p class="muted">A research leader is the highest pre-holdout rank. It is not an approved signal.</p></article><div class="markets">${panels}</div><article class="card"><h2>For your account</h2>${setups||"<p>No setup is eligible for your plan. A healthy scan can still have nothing to act on.</p>"}</article><article class="card"><h2>Signal history</h2><label class="field">Show <select id="sigfilter"><option value="">All</option><option value="BTCUSDT">BTCUSDT</option><option value="ETHUSDT">ETHUSDT</option><option value="XAUUSD">XAUUSD</option></select></label><div id="sigrows">${history||"<p>No saved evaluations yet.</p>"}</div><p class="muted">Historical replay is not a fill and was not delivered.</p></article><article class="card"><h2>Why nothing is approved</h2>${intel}</article>`;
   document.getElementById("sigfilter").onchange = (event) => {
     const chosen = event.target.value;
     document.querySelectorAll("#view article[data-symbol]").forEach(el => { el.hidden = Boolean(chosen) && el.dataset.symbol !== chosen; });
