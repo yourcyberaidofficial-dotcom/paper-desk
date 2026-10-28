@@ -1,34 +1,21 @@
 # Gate 5 release sequence
 
-Verified on 2026-10-28 from this checkout, before any merge was attempted.
+`origin/main` is now `1f7f7d2`. Pull requests #78, #79, and #80 were merged in that order with merge commits. Pull request #81 was not merged. Nothing was deployed and no SSH session was opened.
 
-| PR | Head | Base | State |
+| PR | Head | Merge commit | State |
 |---|---|---|---|
-| #78 | `3993c08` `stop-unvalidated-alerts` | `main` | OPEN, mergeable, no GitHub checks |
-| #79 | `3d58cfd` `gate3-signal-engine` | `stop-unvalidated-alerts` | OPEN, mergeable, no GitHub checks |
-| #80 | `9cff49d` `gate4-bidask` | `gate3-signal-engine` | OPEN, mergeable, no GitHub checks |
+| #78 | `3993c08` | `ef44f51d4e880701c8c4dd5865ac683d00cde83e` | MERGED into `main` |
+| #79 | `3d58cfd` | `424ffdce120f4613289911db2ce088310ec941d4` | MERGED into `main` after #78 |
+| #80 | `9cff49d` | `1f7f7d2a46dee37fcfeaf71fb9675e42f8226194` | MERGED into `main` after #79 |
+| #81 | `2f40c27` | not merged | OPEN against `main` |
 
-`origin/main` was `0400ebc`. `9cff49d` contains `3993c08` and `3d58cfd`. There is no GitHub Actions workflow. Merging a pull request does not deploy the server by itself.
+Before those merges, `origin/main` was `0400ebc`. There is no GitHub Actions workflow, so the merges did not deploy the server.
 
-`https://aureontradelab.tech/health` timed out after 20 seconds from this environment. Health was not read. `strategy_status: WAIT_DEFAULT` on an older payload does not prove that #78 is the running code. This health route also does not return a commit id. `experimental_alerts: true` would only show a saved preference.
-
-## Required merge order
-
-Do not merge #79 or #80 into `main` before #78.
-
-```text
-gh pr merge 78 --merge
-gh pr edit 79 --base main
-gh pr merge 79 --merge
-gh pr edit 80 --base main
-gh pr merge 80 --merge
-```
-
-The Gate 5 branch stays a separate pull request. Retarget it to `main` only after #80 is on `main`.
+`https://aureontradelab.tech/health` timed out after 20 seconds from this environment. Health was not read. A body that says `WAIT_DEFAULT` would not, by itself, prove which commit is running. This health route does not return a commit id.
 
 ## Deploy, operator only
 
-Not run from this task. Do not `docker compose down -v`. Do not delete `desk-data` or `desk-users`.
+Not run. Do not `docker compose down -v`. Do not delete `desk-data` or `desk-users`.
 
 On the server, copy the volumes first. Replace the volume names if `docker volume ls` shows a different compose prefix. Do not run `docker volume rm`.
 
@@ -39,14 +26,14 @@ docker run --rm -v paper-desk_desk-data:/from -v "$HOME/aureon-backup-$stamp/des
 docker run --rm -v paper-desk_desk-users:/from -v "$HOME/aureon-backup-$stamp/desk-users":/to alpine cp -a /from/. /to/
 ```
 
-Then fetch the merge commit, build, and recreate the container without removing volumes:
+Then fetch the current main commit, build, and recreate the container without removing volumes:
 
 ```text
 git fetch origin
-git checkout <merge-sha>
+git checkout 1f7f7d2a46dee37fcfeaf71fb9675e42f8226194
 docker compose build
 docker compose up -d
 curl -sS http://127.0.0.1:8080/health
 ```
 
-Accept the deploy only if `paper_only` is true, `broker` is false, and `strategy_status` is `WAIT_DEFAULT`, and the running tree contains `3993c08` or a descendant. A healthy body without that commit check is not acceptance.
+Accept the deploy only if `paper_only` is true, `broker` is false, and `strategy_status` is `WAIT_DEFAULT`, and the running tree is `1f7f7d2` or a descendant that still contains `3993c08`. A healthy body without that commit check is not acceptance. Do not treat this checkout as deployed until that curl is observed on the server.
