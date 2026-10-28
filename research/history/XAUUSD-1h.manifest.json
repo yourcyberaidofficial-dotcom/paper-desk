@@ -1,0 +1,896 @@
+{
+  "bars": 717,
+  "bars_path": "research/history/XAUUSD-1h.jsonl",
+  "bars_sha256": "2d15b43463069264037a5b52f15b5f1c363754fc2a859daaf8f5b1a9e9a082b2",
+  "days": [
+    {
+      "ask": {
+        "cached": false,
+        "ok": true,
+        "reason": null,
+        "sha256": "8759eebbe5f51b2d755e8c583fcf734360b278f3d2935d1dcca42b5f68ffe4a8",
+        "url": "https://datafeed.dukascopy.com/datafeed/XAUUSD/2024/05/03/ASK_candles_min_1.bi5"
+      },
+      "bid": {
+        "cached": false,
+        "ok": true,
+        "reason": null,
+        "sha256": "c116ac89b54a9ae3dd9ac60d10b92cc52fcdc5a164e9fc41d4d0f3d2308b354e",
+        "url": "https://datafeed.dukascopy.com/datafeed/XAUUSD/2024/05/03/BID_candles_min_1.bi5"
+      },
+      "closed_hours": 0,
+      "day": "2024-06-03",
+      "duplicate_minutes": 0,
+      "hours": 24,
+      "invalid_minutes": 0,
+      "skipped_hours": 0
+    },
+    {
+      "ask": {
+        "cached": false,
+        "ok": true,
+        "reason": null,
+        "sha256": "c45381f9276f6f38778dbcf6db2826c1c8a4bb9f2dd587df3fcb1e9203b5c273",
+        "url": "https://datafeed.dukascopy.com/datafeed/XAUUSD/2024/05/04/ASK_candles_min_1.bi5"
+      },
+      "bid": {
+        "cached": false,
+        "ok": true,
+        "reason": null,
+        "sha256": "5b85bc39c34b8b71b4619a9e3cfbcce32c912e30fcc8bd0d1adc510a5cae4dde",
+        "url": "https://datafeed.dukascopy.com/datafeed/XAUUSD/2024/05/04/BID_candles_min_1.bi5"
+      },
+      "closed_hours": 0,
+      "day": "2024-06-04",
+      "duplicate_minutes": 0,
+      "hours": 24,
+      "invalid_minutes": 0,
+      "skipped_hours": 0
+    },
+    {
+      "ask": {
+        "cached": false,
+        "ok": true,
+        "reason": null,
+        "sha256": "2c3d2178f89409304770259ff3b422ede5d67c14abe62f055dd63f456afd4aab",
+        "url": "https://datafeed.dukascopy.com/datafeed/XAUUSD/2024/05/05/ASK_candles_min_1.bi5"
+      },
+      "bid": {
+        "cached": false,
+        "ok": true,
+        "reason": null,
+        "sha256": "5c1c66a35c0f5444bffac0641abe9bdd87bc7922709f73c1a6aa76672e275538",
+        "url": "https://datafeed.dukascopy.com/datafeed/XAUUSD/2024/05/05/BID_candles_min_1.bi5"
+      },
+      "closed_hours": 0,
+      "day": "2024-06-05",
+      "duplicate_minutes": 0,
+      "hours": 24,
+      "invalid_minutes": 0,
+      "skipped_hours": 0
+    },
+    {
+      "ask": {
+        "cached": false,
+        "ok": true,
+        "reason": null,
+        "sha256": "7df2cff3b48772a900b9b25869674a818fd92b64313f60a572dc5ab585999a03",
+        "url": "https://datafeed.dukascopy.com/datafeed/XAUUSD/2024/05/06/ASK_candles_min_1.bi5"
+      },
+      "bid": {
+        "cached": false,
+        "ok": true,
+        "reason": null,
+        "sha256": "e9a7851f3e90f9dedeb2dfd9f90e4c639e3d43793005ecb4bf27715553c215a1",
+        "url": "https://datafeed.dukascopy.com/datafeed/XAUUSD/2024/05/06/BID_candles_min_1.bi5"
+      },
+      "closed_hours": 0,
+      "day": "2024-06-06",
+      "duplicate_minutes": 0,
+      "hours": 24,
+      "invalid_minutes": 0,
+      "skipped_hours": 0
+    },
+    {
+      "ask": {
+        "cached": false,
+        "ok": true,
+        "reason": null,
+        "sha256": "77474ac26379dd6b6d94493990dcae0a279046683c21fba2be15243cf56b97db",
+        "url": "https://datafeed.dukascopy.com/datafeed/XAUUSD/2024/05/07/ASK_candles_min_1.bi5"
+      },
+      "bid": {
+        "cached": false,
+        "ok": true,
+        "reason": null,
+        "sha256": "fef706c1d16f498fa4025ccf1eb2ef7bbe8354514aae42e3f78bbc2722499363",
+        "url": "https://datafeed.dukascopy.com/datafeed/XAUUSD/2024/05/07/BID_candles_min_1.bi5"
+      },
+      "closed_hours": 3,
+      "day": "2024-06-07",
+      "duplicate_minutes": 0,
+      "hours": 21,
+      "invalid_minutes": 0,
+      "skipped_hours": 0
+    },
+    {
+      "ask": {
+        "cached": false,
+        "ok": true,
+        "reason": null,
+        "sha256": "1e06bd958be297328b3818a09cb86aa91c0ea8b95b204f15158aa60200eaea22",
+        "url": "https://datafeed.dukascopy.com/datafeed/XAUUSD/2024/05/08/ASK_candles_min_1.bi5"
+      },
+      "bid": {
+        "cached": false,
+        "ok": true,
+        "reason": null,
+        "sha256": "2e180e344df19b3e0738cd2c172a7758ad3625ca83dedd970ebfcc52ff37b5da",
+        "url": "https://datafeed.dukascopy.com/datafeed/XAUUSD/2024/05/08/BID_candles_min_1.bi5"
+      },
+      "closed_hours": 24,
+      "day": "2024-06-08",
+      "duplicate_minutes": 0,
+      "hours": 0,
+      "invalid_minutes": 0,
+      "skipped_hours": 0
+    },
+    {
+      "ask": {
+        "cached": false,
+        "ok": true,
+        "reason": null,
+        "sha256": "443b0fa2f2cbb7c62db62e8a9d88d17e2e397b61640aba0154a37f8c69a7e3c0",
+        "url": "https://datafeed.dukascopy.com/datafeed/XAUUSD/2024/05/09/ASK_candles_min_1.bi5"
+      },
+      "bid": {
+        "cached": false,
+        "ok": true,
+        "reason": null,
+        "sha256": "c4a0ccfd0308c9727d795ab0398ecf133d8eed77e72eaf1b5595a3260611ac2d",
+        "url": "https://datafeed.dukascopy.com/datafeed/XAUUSD/2024/05/09/BID_candles_min_1.bi5"
+      },
+      "closed_hours": 21,
+      "day": "2024-06-09",
+      "duplicate_minutes": 0,
+      "hours": 3,
+      "invalid_minutes": 0,
+      "skipped_hours": 0
+    },
+    {
+      "ask": {
+        "cached": false,
+        "ok": true,
+        "reason": null,
+        "sha256": "012b0c0f7963adfd90f7352e39ce905f09e1b79e269545c959f929aed84bbdd6",
+        "url": "https://datafeed.dukascopy.com/datafeed/XAUUSD/2024/05/10/ASK_candles_min_1.bi5"
+      },
+      "bid": {
+        "cached": false,
+        "ok": true,
+        "reason": null,
+        "sha256": "33310af4c753f9acf7a9ff1b1c5446bd850e954deb478cafbd9d0e3b36c7e80c",
+        "url": "https://datafeed.dukascopy.com/datafeed/XAUUSD/2024/05/10/BID_candles_min_1.bi5"
+      },
+      "closed_hours": 0,
+      "day": "2024-06-10",
+      "duplicate_minutes": 0,
+      "hours": 24,
+      "invalid_minutes": 0,
+      "skipped_hours": 0
+    },
+    {
+      "ask": {
+        "cached": false,
+        "ok": true,
+        "reason": null,
+        "sha256": "a9906278d00f248a4c67654173a8ee64097a65267bbee7715539dbdca0b68e76",
+        "url": "https://datafeed.dukascopy.com/datafeed/XAUUSD/2024/05/11/ASK_candles_min_1.bi5"
+      },
+      "bid": {
+        "cached": false,
+        "ok": true,
+        "reason": null,
+        "sha256": "1b3c87737527f765602c426169a775dd85c86f403d575d97c7e7e81137e0c05a",
+        "url": "https://datafeed.dukascopy.com/datafeed/XAUUSD/2024/05/11/BID_candles_min_1.bi5"
+      },
+      "closed_hours": 0,
+      "day": "2024-06-11",
+      "duplicate_minutes": 0,
+      "hours": 24,
+      "invalid_minutes": 0,
+      "skipped_hours": 0
+    },
+    {
+      "ask": {
+        "cached": false,
+        "ok": true,
+        "reason": null,
+        "sha256": "c44993b1d16edeac051a98d2061e1fff59ccb2427b9aaf41dc334d596e0dfb43",
+        "url": "https://datafeed.dukascopy.com/datafeed/XAUUSD/2024/05/12/ASK_candles_min_1.bi5"
+      },
+      "bid": {
+        "cached": false,
+        "ok": true,
+        "reason": null,
+        "sha256": "3d8fa9a54249393ccb21bcdd3efc3bb7089cfdbbddfca3134f0519ffd4a6dc8c",
+        "url": "https://datafeed.dukascopy.com/datafeed/XAUUSD/2024/05/12/BID_candles_min_1.bi5"
+      },
+      "closed_hours": 0,
+      "day": "2024-06-12",
+      "duplicate_minutes": 0,
+      "hours": 24,
+      "invalid_minutes": 0,
+      "skipped_hours": 0
+    },
+    {
+      "ask": {
+        "cached": false,
+        "ok": true,
+        "reason": null,
+        "sha256": "6a043f1890152cca97a11b1cf3a7dad4be3d19c3beb7b4e18363178f2e5c0a43",
+        "url": "https://datafeed.dukascopy.com/datafeed/XAUUSD/2024/05/13/ASK_candles_min_1.bi5"
+      },
+      "bid": {
+        "cached": false,
+        "ok": true,
+        "reason": null,
+        "sha256": "7b8734c35a76f2f349fc0cad142d7436fe74567ee8077eca5f064a6b879181bb",
+        "url": "https://datafeed.dukascopy.com/datafeed/XAUUSD/2024/05/13/BID_candles_min_1.bi5"
+      },
+      "closed_hours": 0,
+      "day": "2024-06-13",
+      "duplicate_minutes": 0,
+      "hours": 24,
+      "invalid_minutes": 0,
+      "skipped_hours": 0
+    },
+    {
+      "ask": {
+        "cached": false,
+        "ok": true,
+        "reason": null,
+        "sha256": "84b661d1e7a38bf8f8dcf83cb56cd61ad9b678c6135acb8eba418ea3b22927c7",
+        "url": "https://datafeed.dukascopy.com/datafeed/XAUUSD/2024/05/14/ASK_candles_min_1.bi5"
+      },
+      "bid": {
+        "cached": false,
+        "ok": true,
+        "reason": null,
+        "sha256": "c5f732684cced7aafa5cadcae19ab8966ef8f17f50918e7764a709a4ea12461e",
+        "url": "https://datafeed.dukascopy.com/datafeed/XAUUSD/2024/05/14/BID_candles_min_1.bi5"
+      },
+      "closed_hours": 3,
+      "day": "2024-06-14",
+      "duplicate_minutes": 0,
+      "hours": 21,
+      "invalid_minutes": 0,
+      "skipped_hours": 0
+    },
+    {
+      "ask": {
+        "cached": false,
+        "ok": true,
+        "reason": null,
+        "sha256": "577eecb220588464f046fa5dab6fa7c75ffeca45dbe35610a538591f44fc5552",
+        "url": "https://datafeed.dukascopy.com/datafeed/XAUUSD/2024/05/15/ASK_candles_min_1.bi5"
+      },
+      "bid": {
+        "cached": false,
+        "ok": true,
+        "reason": null,
+        "sha256": "be87b88ef966fc73c37f6725429ce48ab1290a38bed889619c72b2442e9693b4",
+        "url": "https://datafeed.dukascopy.com/datafeed/XAUUSD/2024/05/15/BID_candles_min_1.bi5"
+      },
+      "closed_hours": 24,
+      "day": "2024-06-15",
+      "duplicate_minutes": 0,
+      "hours": 0,
+      "invalid_minutes": 0,
+      "skipped_hours": 0
+    },
+    {
+      "ask": {
+        "cached": false,
+        "ok": true,
+        "reason": null,
+        "sha256": "d5ad46fafaf9fb30be72768a32f8e738bdfd27008dcf1f9d9be352bfa3c39b18",
+        "url": "https://datafeed.dukascopy.com/datafeed/XAUUSD/2024/05/16/ASK_candles_min_1.bi5"
+      },
+      "bid": {
+        "cached": false,
+        "ok": true,
+        "reason": null,
+        "sha256": "9c4f0ceea9b4b486b2b3d92ed92ff173eb7f3448168f772a595d0cfc17f5bbce",
+        "url": "https://datafeed.dukascopy.com/datafeed/XAUUSD/2024/05/16/BID_candles_min_1.bi5"
+      },
+      "closed_hours": 21,
+      "day": "2024-06-16",
+      "duplicate_minutes": 0,
+      "hours": 3,
+      "invalid_minutes": 0,
+      "skipped_hours": 0
+    },
+    {
+      "ask": {
+        "cached": false,
+        "ok": true,
+        "reason": null,
+        "sha256": "d00c5f83dfd7557cc3028907f1200da2d819bb56d27661ffbd5dfcdaa37083fc",
+        "url": "https://datafeed.dukascopy.com/datafeed/XAUUSD/2024/05/17/ASK_candles_min_1.bi5"
+      },
+      "bid": {
+        "cached": false,
+        "ok": true,
+        "reason": null,
+        "sha256": "c3ab42d7dcd27cf8062c7486be1443c15af908c4301936d96612cac4b016c030",
+        "url": "https://datafeed.dukascopy.com/datafeed/XAUUSD/2024/05/17/BID_candles_min_1.bi5"
+      },
+      "closed_hours": 0,
+      "day": "2024-06-17",
+      "duplicate_minutes": 0,
+      "hours": 24,
+      "invalid_minutes": 0,
+      "skipped_hours": 0
+    },
+    {
+      "ask": {
+        "cached": false,
+        "ok": true,
+        "reason": null,
+        "sha256": "f57373fcf69f5bd86ccc2797b1126967174ff565744d5da14baabf61e854d907",
+        "url": "https://datafeed.dukascopy.com/datafeed/XAUUSD/2024/05/18/ASK_candles_min_1.bi5"
+      },
+      "bid": {
+        "cached": false,
+        "ok": true,
+        "reason": null,
+        "sha256": "44d2c96e0a1e4be0fd5624a670be90b268026d79e93bf2f5e784d0ec54263c39",
+        "url": "https://datafeed.dukascopy.com/datafeed/XAUUSD/2024/05/18/BID_candles_min_1.bi5"
+      },
+      "closed_hours": 0,
+      "day": "2024-06-18",
+      "duplicate_minutes": 0,
+      "hours": 24,
+      "invalid_minutes": 0,
+      "skipped_hours": 0
+    },
+    {
+      "ask": {
+        "cached": false,
+        "ok": true,
+        "reason": null,
+        "sha256": "d4f64f6b0cc3c1bb4d97c7300481c891eb10138768caaadeb0fcccbce079218c",
+        "url": "https://datafeed.dukascopy.com/datafeed/XAUUSD/2024/05/19/ASK_candles_min_1.bi5"
+      },
+      "bid": {
+        "cached": false,
+        "ok": true,
+        "reason": null,
+        "sha256": "9bfeff78807347ac6efe8e89694071585ac94eb6eaab42c1a7136ca2465aadef",
+        "url": "https://datafeed.dukascopy.com/datafeed/XAUUSD/2024/05/19/BID_candles_min_1.bi5"
+      },
+      "closed_hours": 0,
+      "day": "2024-06-19",
+      "duplicate_minutes": 0,
+      "hours": 24,
+      "invalid_minutes": 0,
+      "skipped_hours": 0
+    },
+    {
+      "ask": {
+        "cached": false,
+        "ok": true,
+        "reason": null,
+        "sha256": "1a77698f59357dd2c25f037b6d3a40b63d7b3c16d682366253e975a29b0a8009",
+        "url": "https://datafeed.dukascopy.com/datafeed/XAUUSD/2024/05/20/ASK_candles_min_1.bi5"
+      },
+      "bid": {
+        "cached": false,
+        "ok": true,
+        "reason": null,
+        "sha256": "0625a83e6f2ee41b99eaadfc0144ef2811ce39e7165a559f0ea1bc1eb452dc52",
+        "url": "https://datafeed.dukascopy.com/datafeed/XAUUSD/2024/05/20/BID_candles_min_1.bi5"
+      },
+      "closed_hours": 0,
+      "day": "2024-06-20",
+      "duplicate_minutes": 0,
+      "hours": 24,
+      "invalid_minutes": 0,
+      "skipped_hours": 0
+    },
+    {
+      "ask": {
+        "cached": false,
+        "ok": true,
+        "reason": null,
+        "sha256": "acc8ba39d3971be1afa160785fbe13447e45cc24d531cdf647ea50ab80a2a407",
+        "url": "https://datafeed.dukascopy.com/datafeed/XAUUSD/2024/05/21/ASK_candles_min_1.bi5"
+      },
+      "bid": {
+        "cached": false,
+        "ok": true,
+        "reason": null,
+        "sha256": "5386e9081d0f225c89dd875e284bd85157f05f8049c30a7c8db930ce0e4a2f16",
+        "url": "https://datafeed.dukascopy.com/datafeed/XAUUSD/2024/05/21/BID_candles_min_1.bi5"
+      },
+      "closed_hours": 3,
+      "day": "2024-06-21",
+      "duplicate_minutes": 0,
+      "hours": 21,
+      "invalid_minutes": 0,
+      "skipped_hours": 0
+    },
+    {
+      "ask": {
+        "cached": false,
+        "ok": true,
+        "reason": null,
+        "sha256": "a1953e8b4559c48973c31870ebe24390262f58b7a1aec184621a6f3d79f5cd53",
+        "url": "https://datafeed.dukascopy.com/datafeed/XAUUSD/2024/05/22/ASK_candles_min_1.bi5"
+      },
+      "bid": {
+        "cached": false,
+        "ok": true,
+        "reason": null,
+        "sha256": "f77b76af68b04e623bcf0e9dff381a3ecc87de4d08079ff68e477eadfa613cdc",
+        "url": "https://datafeed.dukascopy.com/datafeed/XAUUSD/2024/05/22/BID_candles_min_1.bi5"
+      },
+      "closed_hours": 24,
+      "day": "2024-06-22",
+      "duplicate_minutes": 0,
+      "hours": 0,
+      "invalid_minutes": 0,
+      "skipped_hours": 0
+    },
+    {
+      "ask": {
+        "cached": false,
+        "ok": true,
+        "reason": null,
+        "sha256": "31d42a3bb581d436830d1cfa9ca2f4464d2477a4af94ced852e966c8e23a275a",
+        "url": "https://datafeed.dukascopy.com/datafeed/XAUUSD/2024/05/23/ASK_candles_min_1.bi5"
+      },
+      "bid": {
+        "cached": false,
+        "ok": true,
+        "reason": null,
+        "sha256": "a02b563ab4098a1098107e5ca101b22f5c282490d86f6afc6d2e7b19a7b98596",
+        "url": "https://datafeed.dukascopy.com/datafeed/XAUUSD/2024/05/23/BID_candles_min_1.bi5"
+      },
+      "closed_hours": 21,
+      "day": "2024-06-23",
+      "duplicate_minutes": 0,
+      "hours": 3,
+      "invalid_minutes": 0,
+      "skipped_hours": 0
+    },
+    {
+      "ask": {
+        "cached": false,
+        "ok": true,
+        "reason": null,
+        "sha256": "0db11ac43454d3dc80526729818ac26011e8b38b212bf658f56ae770f28f1b9f",
+        "url": "https://datafeed.dukascopy.com/datafeed/XAUUSD/2024/05/24/ASK_candles_min_1.bi5"
+      },
+      "bid": {
+        "cached": false,
+        "ok": true,
+        "reason": null,
+        "sha256": "f5b3a55877b3772bd15e53be66150b1dda551015cecf5cc6167ded75b2bcd892",
+        "url": "https://datafeed.dukascopy.com/datafeed/XAUUSD/2024/05/24/BID_candles_min_1.bi5"
+      },
+      "closed_hours": 0,
+      "day": "2024-06-24",
+      "duplicate_minutes": 0,
+      "hours": 24,
+      "invalid_minutes": 0,
+      "skipped_hours": 0
+    },
+    {
+      "ask": {
+        "cached": false,
+        "ok": true,
+        "reason": null,
+        "sha256": "913b2228b80e9113bac9ead109eddec42b7195e47a67b4f4e7d6a1cbca4875f9",
+        "url": "https://datafeed.dukascopy.com/datafeed/XAUUSD/2024/05/25/ASK_candles_min_1.bi5"
+      },
+      "bid": {
+        "cached": false,
+        "ok": true,
+        "reason": null,
+        "sha256": "66e62f0b1284dbd941e0d42e5ae1072bbb6510a1ec5a78057750bac73ba4d6bf",
+        "url": "https://datafeed.dukascopy.com/datafeed/XAUUSD/2024/05/25/BID_candles_min_1.bi5"
+      },
+      "closed_hours": 0,
+      "day": "2024-06-25",
+      "duplicate_minutes": 0,
+      "hours": 24,
+      "invalid_minutes": 0,
+      "skipped_hours": 0
+    },
+    {
+      "ask": {
+        "cached": false,
+        "ok": true,
+        "reason": null,
+        "sha256": "55ebeb798227091fb31a043edd9e3b5c1b9677bdd08517133c312470b302dc5d",
+        "url": "https://datafeed.dukascopy.com/datafeed/XAUUSD/2024/05/26/ASK_candles_min_1.bi5"
+      },
+      "bid": {
+        "cached": false,
+        "ok": true,
+        "reason": null,
+        "sha256": "815473dcc41ccac590ac8a8f928caf6a20b1f9f1ab4b2ddae2a479fd55297fbc",
+        "url": "https://datafeed.dukascopy.com/datafeed/XAUUSD/2024/05/26/BID_candles_min_1.bi5"
+      },
+      "closed_hours": 0,
+      "day": "2024-06-26",
+      "duplicate_minutes": 0,
+      "hours": 24,
+      "invalid_minutes": 0,
+      "skipped_hours": 0
+    },
+    {
+      "ask": {
+        "cached": false,
+        "ok": true,
+        "reason": null,
+        "sha256": "a7e7b0bab189714993f340e0934facadd890537d14d7c64447464f1e5860bc95",
+        "url": "https://datafeed.dukascopy.com/datafeed/XAUUSD/2024/05/27/ASK_candles_min_1.bi5"
+      },
+      "bid": {
+        "cached": false,
+        "ok": true,
+        "reason": null,
+        "sha256": "499e198f02ada22551f20d80da92e99e717a7d2992a2a044241b817eb122dbe5",
+        "url": "https://datafeed.dukascopy.com/datafeed/XAUUSD/2024/05/27/BID_candles_min_1.bi5"
+      },
+      "closed_hours": 0,
+      "day": "2024-06-27",
+      "duplicate_minutes": 0,
+      "hours": 24,
+      "invalid_minutes": 0,
+      "skipped_hours": 0
+    },
+    {
+      "ask": {
+        "cached": false,
+        "ok": true,
+        "reason": null,
+        "sha256": "c95141706c778ecb83ca401f104b6ae0cb30890e575532d16a036b51575ddd5f",
+        "url": "https://datafeed.dukascopy.com/datafeed/XAUUSD/2024/05/28/ASK_candles_min_1.bi5"
+      },
+      "bid": {
+        "cached": false,
+        "ok": true,
+        "reason": null,
+        "sha256": "b5a37f0255c97cef928536ec8a7f5c1c67e2c6aedf5dbb0620ca68b399c6c199",
+        "url": "https://datafeed.dukascopy.com/datafeed/XAUUSD/2024/05/28/BID_candles_min_1.bi5"
+      },
+      "closed_hours": 3,
+      "day": "2024-06-28",
+      "duplicate_minutes": 0,
+      "hours": 21,
+      "invalid_minutes": 0,
+      "skipped_hours": 0
+    },
+    {
+      "ask": {
+        "cached": false,
+        "ok": true,
+        "reason": null,
+        "sha256": "837d399077a54b25ebfc7476457eb92fd1092a12927646006ccbbb6cb7c7912c",
+        "url": "https://datafeed.dukascopy.com/datafeed/XAUUSD/2024/05/29/ASK_candles_min_1.bi5"
+      },
+      "bid": {
+        "cached": false,
+        "ok": true,
+        "reason": null,
+        "sha256": "bc80af65346eb9de8a69e2725e608edf3b003f3f243bd10e349db9fb188a9448",
+        "url": "https://datafeed.dukascopy.com/datafeed/XAUUSD/2024/05/29/BID_candles_min_1.bi5"
+      },
+      "closed_hours": 24,
+      "day": "2024-06-29",
+      "duplicate_minutes": 0,
+      "hours": 0,
+      "invalid_minutes": 0,
+      "skipped_hours": 0
+    },
+    {
+      "ask": {
+        "cached": false,
+        "ok": true,
+        "reason": null,
+        "sha256": "bc390cf133e6517c236150bbf37a39a41ea4e69ca9a810b6d685b59d18106d25",
+        "url": "https://datafeed.dukascopy.com/datafeed/XAUUSD/2024/05/30/ASK_candles_min_1.bi5"
+      },
+      "bid": {
+        "cached": false,
+        "ok": true,
+        "reason": null,
+        "sha256": "df6412ddbb725eca2eb77126d43760ec59db59849f58b3a071ac0795b1f6ba88",
+        "url": "https://datafeed.dukascopy.com/datafeed/XAUUSD/2024/05/30/BID_candles_min_1.bi5"
+      },
+      "closed_hours": 21,
+      "day": "2024-06-30",
+      "duplicate_minutes": 0,
+      "hours": 3,
+      "invalid_minutes": 0,
+      "skipped_hours": 0
+    },
+    {
+      "ask": {
+        "cached": false,
+        "ok": true,
+        "reason": null,
+        "sha256": "0fb2bda0772db9bbec4a62724c76e030033a7d666080edc8478de8dd988c90fd",
+        "url": "https://datafeed.dukascopy.com/datafeed/XAUUSD/2024/06/01/ASK_candles_min_1.bi5"
+      },
+      "bid": {
+        "cached": false,
+        "ok": true,
+        "reason": null,
+        "sha256": "aabca73348ea585e64ca763752c47f735377cbdefc2fcd96efae0f7b104ff1cf",
+        "url": "https://datafeed.dukascopy.com/datafeed/XAUUSD/2024/06/01/BID_candles_min_1.bi5"
+      },
+      "closed_hours": 0,
+      "day": "2024-07-01",
+      "duplicate_minutes": 0,
+      "hours": 24,
+      "invalid_minutes": 0,
+      "skipped_hours": 0
+    },
+    {
+      "ask": {
+        "cached": false,
+        "ok": true,
+        "reason": null,
+        "sha256": "be731f671e6ba7c5cb45160e395abc1c1f1c02197345b7025b8be6fbf616f505",
+        "url": "https://datafeed.dukascopy.com/datafeed/XAUUSD/2024/06/02/ASK_candles_min_1.bi5"
+      },
+      "bid": {
+        "cached": false,
+        "ok": true,
+        "reason": null,
+        "sha256": "0245213dacf6f0d7ec4dabe1e4da4da1484f284e53b13ae42a9b15661530f1d1",
+        "url": "https://datafeed.dukascopy.com/datafeed/XAUUSD/2024/06/02/BID_candles_min_1.bi5"
+      },
+      "closed_hours": 0,
+      "day": "2024-07-02",
+      "duplicate_minutes": 0,
+      "hours": 24,
+      "invalid_minutes": 0,
+      "skipped_hours": 0
+    },
+    {
+      "ask": {
+        "cached": false,
+        "ok": true,
+        "reason": null,
+        "sha256": "e8fb6389e037a3f3d8c2fc6a553ab95777ac80f84d08e03564290c7cf64f013b",
+        "url": "https://datafeed.dukascopy.com/datafeed/XAUUSD/2024/06/03/ASK_candles_min_1.bi5"
+      },
+      "bid": {
+        "cached": false,
+        "ok": true,
+        "reason": null,
+        "sha256": "9c606b537251dfe71b08faf4fbb80acc56fc5d99ec4a26c3238b314e28b14556",
+        "url": "https://datafeed.dukascopy.com/datafeed/XAUUSD/2024/06/03/BID_candles_min_1.bi5"
+      },
+      "closed_hours": 0,
+      "day": "2024-07-03",
+      "duplicate_minutes": 0,
+      "hours": 24,
+      "invalid_minutes": 0,
+      "skipped_hours": 0
+    },
+    {
+      "ask": {
+        "cached": false,
+        "ok": true,
+        "reason": null,
+        "sha256": "19eece58c600d3ec97c1ba01d51b86f8dd2c275212b48fc5173146488eeb3e06",
+        "url": "https://datafeed.dukascopy.com/datafeed/XAUUSD/2024/06/04/ASK_candles_min_1.bi5"
+      },
+      "bid": {
+        "cached": false,
+        "ok": true,
+        "reason": null,
+        "sha256": "30cba6797c3b8940ee7289967d34aa564e952d80d395e629ed22659516b28e05",
+        "url": "https://datafeed.dukascopy.com/datafeed/XAUUSD/2024/06/04/BID_candles_min_1.bi5"
+      },
+      "closed_hours": 0,
+      "day": "2024-07-04",
+      "duplicate_minutes": 0,
+      "hours": 24,
+      "invalid_minutes": 0,
+      "skipped_hours": 0
+    },
+    {
+      "ask": {
+        "cached": false,
+        "ok": true,
+        "reason": null,
+        "sha256": "c2ee4463144f62009bc9617c4f23ed7b26ef3fcabdb0cfedf02b6dfad3c4336d",
+        "url": "https://datafeed.dukascopy.com/datafeed/XAUUSD/2024/06/05/ASK_candles_min_1.bi5"
+      },
+      "bid": {
+        "cached": false,
+        "ok": true,
+        "reason": null,
+        "sha256": "ba240b12f3f25b0688c788d20767a6673dcc029fdbf8dd9aa971e919a27ffe28",
+        "url": "https://datafeed.dukascopy.com/datafeed/XAUUSD/2024/06/05/BID_candles_min_1.bi5"
+      },
+      "closed_hours": 3,
+      "day": "2024-07-05",
+      "duplicate_minutes": 0,
+      "hours": 21,
+      "invalid_minutes": 0,
+      "skipped_hours": 0
+    },
+    {
+      "ask": {
+        "cached": false,
+        "ok": true,
+        "reason": null,
+        "sha256": "572b1d7d6ee44efeecdc420dcb19b5a18b700bebf13adbf0fee1278e2c7f3bcf",
+        "url": "https://datafeed.dukascopy.com/datafeed/XAUUSD/2024/06/06/ASK_candles_min_1.bi5"
+      },
+      "bid": {
+        "cached": false,
+        "ok": true,
+        "reason": null,
+        "sha256": "07c5b182d1aaeacf595266aa0b6cfd09e6ffc7c0f79a6fad1ee009a7cab04587",
+        "url": "https://datafeed.dukascopy.com/datafeed/XAUUSD/2024/06/06/BID_candles_min_1.bi5"
+      },
+      "closed_hours": 24,
+      "day": "2024-07-06",
+      "duplicate_minutes": 0,
+      "hours": 0,
+      "invalid_minutes": 0,
+      "skipped_hours": 0
+    },
+    {
+      "ask": {
+        "cached": false,
+        "ok": true,
+        "reason": null,
+        "sha256": "fa11e07bb1a8e92331c4d583d789b71e0ead50be55fa91bd2e3ebc7cbfb6ffdb",
+        "url": "https://datafeed.dukascopy.com/datafeed/XAUUSD/2024/06/07/ASK_candles_min_1.bi5"
+      },
+      "bid": {
+        "cached": false,
+        "ok": true,
+        "reason": null,
+        "sha256": "849f135d2533976ee271f5ff7eac59b2936164ca21fb337c49b03d830ce83126",
+        "url": "https://datafeed.dukascopy.com/datafeed/XAUUSD/2024/06/07/BID_candles_min_1.bi5"
+      },
+      "closed_hours": 21,
+      "day": "2024-07-07",
+      "duplicate_minutes": 0,
+      "hours": 3,
+      "invalid_minutes": 0,
+      "skipped_hours": 0
+    },
+    {
+      "ask": {
+        "cached": false,
+        "ok": true,
+        "reason": null,
+        "sha256": "c6fd0f82f2471d52e901b6547947b4e1b3d5a34e2aafe3ba29d2421e77b62f18",
+        "url": "https://datafeed.dukascopy.com/datafeed/XAUUSD/2024/06/08/ASK_candles_min_1.bi5"
+      },
+      "bid": {
+        "cached": false,
+        "ok": true,
+        "reason": null,
+        "sha256": "48d720806eed580147ba97671b5b5efe09705824e80711db53b8316103375b64",
+        "url": "https://datafeed.dukascopy.com/datafeed/XAUUSD/2024/06/08/BID_candles_min_1.bi5"
+      },
+      "closed_hours": 0,
+      "day": "2024-07-08",
+      "duplicate_minutes": 0,
+      "hours": 24,
+      "invalid_minutes": 0,
+      "skipped_hours": 0
+    },
+    {
+      "ask": {
+        "cached": false,
+        "ok": true,
+        "reason": null,
+        "sha256": "5ad156467e5b7fcbf18d38b217b46718b69b93ae95bf880a02ffed9688be06b6",
+        "url": "https://datafeed.dukascopy.com/datafeed/XAUUSD/2024/06/09/ASK_candles_min_1.bi5"
+      },
+      "bid": {
+        "cached": false,
+        "ok": true,
+        "reason": null,
+        "sha256": "d1528b35a114bc0f80d61cfe006f4723156034641e5d3252a594ab761195701c",
+        "url": "https://datafeed.dukascopy.com/datafeed/XAUUSD/2024/06/09/BID_candles_min_1.bi5"
+      },
+      "closed_hours": 0,
+      "day": "2024-07-09",
+      "duplicate_minutes": 0,
+      "hours": 24,
+      "invalid_minutes": 0,
+      "skipped_hours": 0
+    },
+    {
+      "ask": {
+        "cached": false,
+        "ok": true,
+        "reason": null,
+        "sha256": "2b419bade624816752b2fa6d614b510c99a02086a9448f0804070e7551a4f5b6",
+        "url": "https://datafeed.dukascopy.com/datafeed/XAUUSD/2024/06/10/ASK_candles_min_1.bi5"
+      },
+      "bid": {
+        "cached": false,
+        "ok": true,
+        "reason": null,
+        "sha256": "bfb5b386425d73466da5d53a76b2e3a6eed9c4fd69826ea3ae163edb295fa9cd",
+        "url": "https://datafeed.dukascopy.com/datafeed/XAUUSD/2024/06/10/BID_candles_min_1.bi5"
+      },
+      "closed_hours": 0,
+      "day": "2024-07-10",
+      "duplicate_minutes": 0,
+      "hours": 24,
+      "invalid_minutes": 0,
+      "skipped_hours": 0
+    },
+    {
+      "ask": {
+        "cached": false,
+        "ok": true,
+        "reason": null,
+        "sha256": "fa613b32007532f869a82242026c87bc9f255330e0765be85f2db434a37ccfa4",
+        "url": "https://datafeed.dukascopy.com/datafeed/XAUUSD/2024/06/11/ASK_candles_min_1.bi5"
+      },
+      "bid": {
+        "cached": false,
+        "ok": true,
+        "reason": null,
+        "sha256": "4d73b92cf835a5e9c09d1ab3f333c2e12223ad0b52fbf52fb87e714f21980d95",
+        "url": "https://datafeed.dukascopy.com/datafeed/XAUUSD/2024/06/11/BID_candles_min_1.bi5"
+      },
+      "closed_hours": 0,
+      "day": "2024-07-11",
+      "duplicate_minutes": 0,
+      "hours": 24,
+      "invalid_minutes": 0,
+      "skipped_hours": 0
+    },
+    {
+      "ask": {
+        "cached": false,
+        "ok": true,
+        "reason": null,
+        "sha256": "110303f5030ad03ffa9070788488e5ed9489c78824b9d2ecafa683bcab050128",
+        "url": "https://datafeed.dukascopy.com/datafeed/XAUUSD/2024/06/12/ASK_candles_min_1.bi5"
+      },
+      "bid": {
+        "cached": false,
+        "ok": true,
+        "reason": null,
+        "sha256": "aee9a751bbcfa111bf0405ce8db0a18728d71afd1978beaab98b4c0276476957",
+        "url": "https://datafeed.dukascopy.com/datafeed/XAUUSD/2024/06/12/BID_candles_min_1.bi5"
+      },
+      "closed_hours": 3,
+      "day": "2024-07-12",
+      "duplicate_minutes": 0,
+      "hours": 21,
+      "invalid_minutes": 0,
+      "skipped_hours": 0
+    }
+  ],
+  "end": "2024-07-12",
+  "instrument": "XAUUSD",
+  "instrument_note": "Dukascopy XAUUSD bid and ask. Not a claim about any other broker's executable price.",
+  "live_feed": false,
+  "point_scale": 1000.0,
+  "provider": "dukascopy-public-datafeed",
+  "record": "uint32 seconds, open, close, low, high, float32 volume",
+  "start": "2024-06-03",
+  "url_template": "https://datafeed.dukascopy.com/datafeed/XAUUSD/{year}/{month0}/{day}/{BID|ASK}_candles_min_1.bi5"
+}

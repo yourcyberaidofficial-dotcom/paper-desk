@@ -1,0 +1,155 @@
+{
+  "promoted": [],
+  "holdout": "NOT_OPENED",
+  "costs": "11 bps per fill, 15 bps stress, two fills",
+  "symbols": [
+    {
+      "symbol": "BTCUSDT",
+      "bars": 9599,
+      "sha256": "d2047db90ae3d5c3ee84c1ff997f300e674585136ef7271c3526c60c9eb09022",
+      "start": "2025-09-23T12:00:00+00:00",
+      "validation_end": "2026-08-09T10:59:59.999000+00:00",
+      "holdout_bars": 1920,
+      "holdout": "NOT_OPENED",
+      "benchmark_same_prefix": {
+        "gross": -0.42483377607179396,
+        "net_of_one_round_turn": -0.42703377607179394,
+        "cost_bps_per_fill": 11
+      },
+      "rows": [
+        {
+          "strategy": "spot-tsmom-1h-20261028",
+          "split": "development_plus_validation",
+          "judgment": "FAIL",
+          "failed": [
+            "expectancy",
+            "uncertainty",
+            "flat",
+            "drawdown",
+            "half_first",
+            "half_second"
+          ],
+          "blocked": [],
+          "trades": 417,
+          "gross_sum": 0.0881560935910512,
+          "net_sum": -0.8292439064089488,
+          "cost_drag": 0.9174,
+          "base_mean": -0.001988594499781652,
+          "stress_mean": -0.0027885944997816515,
+          "normal_95_lower": -0.003078790240699606,
+          "profit_factor_note": "not a probability",
+          "win_rate": 0.381294964028777,
+          "equity": 0.42449022287298216,
+          "max_drawdown": 0.6027138251174757,
+          "worst_loss_streak": 8,
+          "directions": "LONG only. Spot short was not simulated.",
+          "promoted": false
+        },
+        {
+          "strategy": "tight-range-long-1h-20261028",
+          "split": "development_plus_validation",
+          "judgment": "FAIL",
+          "failed": [
+            "expectancy",
+            "uncertainty",
+            "flat",
+            "half_first",
+            "half_second"
+          ],
+          "blocked": [],
+          "trades": 45,
+          "gross_sum": -0.00022906202825290255,
+          "net_sum": -0.0992290620282529,
+          "cost_drag": 0.099,
+          "base_mean": -0.002205090267294509,
+          "stress_mean": -0.003005090267294509,
+          "normal_95_lower": -0.002794379556903561,
+          "profit_factor_note": "not a probability",
+          "win_rate": 0.17777777777777778,
+          "equity": 0.9053548142555645,
+          "max_drawdown": 0.09506385587172961,
+          "worst_loss_streak": 11,
+          "directions": "LONG only. Spot short was not simulated.",
+          "promoted": false
+        }
+      ]
+    },
+    {
+      "symbol": "ETHUSDT",
+      "bars": 9599,
+      "sha256": "de8c874ad0e6c503b913df9d9acb1fd7a2970157dabeb880a6ef9448c43fca20",
+      "start": "2025-09-23T12:00:00+00:00",
+      "validation_end": "2026-08-09T10:59:59.999000+00:00",
+      "holdout_bars": 1920,
+      "holdout": "NOT_OPENED",
+      "benchmark_same_prefix": {
+        "gross": -0.5423746183674588,
+        "net_of_one_round_turn": -0.5445746183674588,
+        "cost_bps_per_fill": 11
+      },
+      "rows": [
+        {
+          "strategy": "spot-tsmom-1h-20261028",
+          "split": "development_plus_validation",
+          "judgment": "FAIL",
+          "failed": [
+            "expectancy",
+            "uncertainty",
+            "flat",
+            "drawdown",
+            "streak",
+            "half_first",
+            "half_second"
+          ],
+          "blocked": [],
+          "trades": 420,
+          "gross_sum": -0.20078695173916894,
+          "net_sum": -1.1247869517391689,
+          "cost_drag": 0.9239999999999999,
+          "base_mean": -0.0026780641708075456,
+          "stress_mean": -0.0034780641708075447,
+          "normal_95_lower": -0.004219636887645929,
+          "profit_factor_note": "not a probability",
+          "win_rate": 0.3595238095238095,
+          "equity": 0.3071060895201292,
+          "max_drawdown": 0.7082344568077534,
+          "worst_loss_streak": 13,
+          "directions": "LONG only. Spot short was not simulated.",
+          "promoted": false
+        },
+        {
+          "strategy": "tight-range-long-1h-20261028",
+          "split": "development_plus_validation",
+          "judgment": "BLOCKED",
+          "failed": [],
+          "blocked": [
+            "sample",
+            "half_first",
+            "half_second"
+          ],
+          "trades": 9,
+          "gross_sum": 0.012781135839847328,
+          "net_sum": -0.007018864160152671,
+          "cost_drag": 0.019799999999999998,
+          "base_mean": -0.000779873795572519,
+          "stress_mean": -0.001579873795572519,
+          "normal_95_lower": -0.00261196773203447,
+          "profit_factor_note": "not a probability",
+          "win_rate": 0.5555555555555556,
+          "equity": 0.9929717058407397,
+          "max_drawdown": 0.01438238993932461,
+          "worst_loss_streak": 4,
+          "directions": "LONG only. Spot short was not simulated.",
+          "promoted": false
+        }
+      ]
+    },
+    {
+      "symbol": "XAUUSD",
+      "judgment": "BLOCKED",
+      "reason": "no_measured_bid_ask",
+      "holdout": "NOT_OPENED",
+      "note": "These two rules are spot-crypto rules. Gold was not scored on an assumed spread."
+    }
+  ]
+}

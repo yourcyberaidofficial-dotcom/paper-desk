@@ -123,6 +123,28 @@ def evaluate_snapshot(symbol, bars, higher, now_ms, interval):
             results.append(_blank(name, symbol, interval, "WAIT", setup["rejected"]))
             continue
         results.append(_candidate(setup, bars, index, symbol, interval))
+    if interval == "1h" and symbol in {"BTCUSDT", "ETHUSDT"}:
+        from ops.spot_momentum import RULES
+        for name, rule in RULES.items():
+            found = rule(bars, index, higher, symbol)
+            if not found:
+                results.append(_blank(name, symbol, interval, "WAIT", "no_setup"))
+                continue
+            row = _blank(name, symbol, interval, "RESEARCH_OBSERVATION", "research_failed")
+            row["direction"] = "LONG"
+            row["event_id"] = event_id(name, symbol, interval, "LONG", found["anchor_open_ms"])
+            results.append(row)
+    if interval == "4h" and symbol in {"BTCUSDT", "ETHUSDT"}:
+        from ops.leaders import CRYPTO_RULES
+        for name, rule in CRYPTO_RULES.items():
+            found = rule(bars, index, higher, symbol)
+            if not found:
+                results.append(_blank(name, symbol, interval, "WAIT", "no_setup"))
+                continue
+            row = _blank(name, symbol, interval, "RESEARCH_OBSERVATION", "research_failed")
+            row["direction"] = "LONG"
+            row["event_id"] = event_id(name, symbol, interval, "LONG", found["anchor_open_ms"])
+            results.append(row)
     return results
 
 

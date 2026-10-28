@@ -61,6 +61,7 @@ def _gate():
 ALLOWED_NEXT = {
     "/overview", "/signals", "/trading", "/strategies", "/indicators",
     "/research", "/portfolio", "/risk", "/activity", "/system", "/settings", "/onboarding",
+    "/scanner", "/learn", "/plan", "/notifications",
 }
 
 
@@ -265,7 +266,7 @@ def deep_board_api():
     try:
         return jsonify(deep_board())
     except Exception as exc:
-        return jsonify({"error": type(exc).__name__}), 502
+        return jsonify({"error": "unavailable"}), 502
 
 
 @app.get("/api/leaderboard")
@@ -273,7 +274,7 @@ def leaderboard_api():
     try:
         return jsonify(leaderboard())
     except Exception as exc:
-        return jsonify({"error": type(exc).__name__}), 502
+        return jsonify({"error": "unavailable"}), 502
 
 
 @app.get("/api/period")
@@ -285,7 +286,7 @@ def period_api():
     try:
         return jsonify(period(symbol, interval, at_ms))
     except Exception as exc:
-        return jsonify({"error": type(exc).__name__}), 502
+        return jsonify({"error": "unavailable"}), 502
 
 
 @app.get("/api/replay")
@@ -297,7 +298,7 @@ def replay_api():
     try:
         return jsonify(replay(symbol, interval, at_ms))
     except Exception as exc:
-        return jsonify({"error": type(exc).__name__}), 502
+        return jsonify({"error": "unavailable"}), 502
 
 
 @app.get("/api/paper-status")
@@ -317,13 +318,13 @@ def paper_status():
                 "open": shown["open"],
                 "rows": shown["trades"][-10:],
                 "observations": shown["observations"][-8:],
-                "label": "EXPERIMENTAL PAPER — NOT VALIDATED",
+                "label": "Research notes are not orders.",
                 "broker": False,
                 "note": "A directional research observation is not a holding or an order.",
             })
         except Exception as exc:
-            return jsonify({"open": None, "rows": [], "label": "EXPERIMENTAL PAPER — NOT VALIDATED", "broker": False, "error": type(exc).__name__})
-    return jsonify({"open": None, "rows": [], "label": "EXPERIMENTAL PAPER — NOT VALIDATED", "broker": False})
+            return jsonify({"open": None, "rows": [], "label": "Research notes are not orders.", "broker": False, "error": "unavailable"})
+    return jsonify({"open": None, "rows": [], "label": "Research notes are not orders.", "broker": False})
 
 
 def _remember(key, ttl, loader):
@@ -536,23 +537,67 @@ def telegram_link():
     return jsonify(result)
 
 
+@app.get("/api/registry")
+def registry_api():
+    if not _gate():
+        return jsonify({"error": "unauthorized"}), 401
+    from ops.registry import catalog
+    return jsonify(catalog())
+
+
+@app.get("/api/plan")
+def plan_get():
+    user_id = session.get("user_id")
+    if not user_id:
+        return jsonify({"error": "unauthorized"}), 401
+    from ops.plan import normalize, week_status
+    from ops.profiles import risk_cap
+    from ops.users import get
+    user = get(user_id) or {}
+    profile = user.get("profile") or {}
+    cap = risk_cap(profile.get("signal_style"))
+    plan = user.get("plan") or normalize({}, {}, cap)
+    return jsonify({"plan": plan, "week": week_status(plan, int(time.time() * 1000)), "style_cap": cap, "currency": profile.get("currency")})
+
+
+@app.post("/api/plan")
+def plan_save():
+    user_id = session.get("user_id")
+    if not user_id:
+        return jsonify({"error": "unauthorized"}), 401
+    from ops.users import save_plan
+    saved = save_plan(user_id, request.json or {})
+    if not saved:
+        return jsonify({"error": "not_found"}), 404
+    return jsonify({"ok": True, "plan": saved.get("plan"), "notes": saved.get("plan_notes") or []})
+
+
+@app.post("/api/size")
+def size_quote():
+    user_id = session.get("user_id")
+    if not user_id:
+        return jsonify({"error": "unauthorized"}), 401
+    from ops.plan import propose_size
+    from ops.users import get
+    user = get(user_id) or {}
+    profile = user.get("profile") or {}
+    plan = user.get("plan") or {}
+    risk = plan.get("risk_per_trade_percent")
+    if risk is None:
+        risk = profile.get("max_risk_pct")
+    result = propose_size(profile.get("capital"), risk, (request.json or {}).get("entry"), (request.json or {}).get("stop"))
+    result["recorded"] = False
+    return jsonify(result)
+
+
 @app.post("/api/telegram/update")
 def telegram_update():
-    from ops.users import process_start_command
+    from ops.telegram_in import apply_update
     secret = os.environ.get("TELEGRAM_WEBHOOK_SECRET")
     if not secret or request.headers.get("X-Telegram-Bot-Api-Secret-Token") != secret:
-        return jsonify({"error": "webhook_disabled"}), 503
-    update = request.json or {}
-    msg = update.get("message") or {}
-    text_body = str(msg.get("text") or "")
-    if not text_body.startswith("/start "):
-        return jsonify({"ok": True, "ignored": True})
-    token = text_body.split(" ", 1)[1].strip()
-    from_user = msg.get("from") or {}
-    chat = msg.get("chat") or {}
-    result = process_start_command(token, str(from_user.get("id") or ""), str(chat.get("id") or ""))
-    public = {"ok": bool(result.get("ok")), "error": result.get("error")}
-    return jsonify(public)
+        return jsonify({"ok": True, "ignored": True, "reason": "polling_mode"})
+    result = apply_update(request.json or {})
+    return jsonify({"ok": bool(result.get("ok")), "ignored": bool(result.get("ignored") or result.get("duplicate")), "error": result.get("error")})
 
 
 @app.post("/api/telegram/unlink")
@@ -910,7 +955,7 @@ def research_signals():
 @require_token
 def experimental():
     rows = worker.book.read()
-    return jsonify({"rows": rows[-50:], "total": len(rows), "label": "EXPERIMENTAL PAPER — NOT VALIDATED"})
+    return jsonify({"rows": rows[-50:], "total": len(rows), "label": "Research notes are not orders."})
 
 
 @app.get("/api/prefs")
@@ -932,6 +977,19 @@ def _loop():
         except Exception:
             pass
         time.sleep(60)
+
+
+def _telegram_loop():
+    while True:
+        try:
+            from ops.telegram_in import poll_if_enabled
+            poll_if_enabled()
+        except Exception:
+            pass
+        time.sleep(3)
+
+
+threading.Thread(target=_telegram_loop, daemon=True).start()
 
 
 threading.Thread(target=_loop, daemon=True).start()
@@ -961,6 +1019,96 @@ def register_page():
     return make_response(_auth_page("register", nxt))
 
 
+@app.get("/api/scanner")
+def scanner_api():
+    if not _user_ok() and not _owner_ok():
+        return jsonify({"error": "unauthorized"}), 401
+    from ops.scanner import scan
+    from ops.shadow_bridge import load_live_windows
+    now_ms = int(time.time() * 1000)
+    try:
+        windows = load_live_windows(now_ms)
+    except Exception:
+        windows = []
+    body = scan(windows, now_ms=now_ms)
+    if not body["markets"]:
+        body["markets"] = [
+            {"symbol": "BTCUSDT", "status": "unavailable", "state": "DATA_UNAVAILABLE", "scanner_state": "BLOCKED", "message": "BTCUSDT is not being scanned. The latest completed bar is missing or stale.", "approved": False},
+            {"symbol": "ETHUSDT", "status": "unavailable", "state": "DATA_UNAVAILABLE", "scanner_state": "BLOCKED", "message": "ETHUSDT is not being scanned. The latest completed bar is missing or stale.", "approved": False},
+            {"symbol": "XAUUSD", "status": "unavailable", "state": "DATA_UNAVAILABLE", "scanner_state": "BLOCKED", "message": "Gold scanning is temporarily unavailable. Last verified market update: unknown.", "approved": False},
+        ]
+    user_id = session.get("user_id")
+    if user_id:
+        from ops.inbox import record_scan
+        from ops.users import get
+        plan = (get(user_id) or {}).get("plan") or {}
+        record_scan(user_id, body, plan, now_ms)
+    from ops.signal_book import remember_live
+    remember_live(body)
+    return jsonify(body)
+
+
+@app.get("/api/workspace")
+def workspace_api():
+    user_id = session.get("user_id")
+    if not user_id:
+        return jsonify({"error": "unauthorized"}), 401
+    from ops.scanner import scan
+    from ops.signal_book import read_events, remember_live
+    from ops.users import get
+    from ops.workspace import compose
+    now_ms = int(time.time() * 1000)
+    try:
+        from ops.shadow_bridge import load_live_windows
+        windows = load_live_windows(now_ms)
+    except Exception:
+        windows = []
+    body = scan(windows, now_ms=now_ms)
+    remember_live(body)
+    from ops.leader_run import published_leaders
+    body["leaders"] = published_leaders()
+    return jsonify(compose(get(user_id) or {}, body, read_events()))
+
+
+@app.get("/api/notifications")
+def notifications_api():
+    user_id = session.get("user_id")
+    if not user_id:
+        return jsonify({"error": "unauthorized"}), 401
+    from ops.inbox import items, unread_count
+    return jsonify({"items": items(user_id), "unread": unread_count(user_id)})
+
+
+@app.post("/api/notifications/read")
+def notifications_read():
+    user_id = session.get("user_id")
+    if not user_id:
+        return jsonify({"error": "unauthorized"}), 401
+    from ops.inbox import mark_read
+    event_id = (request.json or {}).get("id")
+    return jsonify(mark_read(user_id, event_id or None))
+
+
+@app.post("/api/terminal/signal")
+def terminal_signal():
+    user_id = session.get("user_id")
+    if not user_id or not _user_ok():
+        return jsonify({"error": "unauthorized"}), 401
+    from ops.terminal_route import handle_signal
+    status, payload = handle_signal(user_id, request.get_json(silent=True) or {})
+    return jsonify(payload), status
+
+
+@app.get("/api/terminal/history")
+def terminal_history():
+    user_id = session.get("user_id")
+    if not user_id or not _user_ok():
+        return jsonify({"error": "unauthorized"}), 401
+    from ops.terminal_signal import read_history
+    rows = list(reversed(read_history(user_id)))
+    return jsonify({"items": rows[:40]})
+
+
 @app.get("/overview")
 @app.get("/signals")
 @app.get("/trading")
@@ -972,6 +1120,10 @@ def register_page():
 @app.get("/activity")
 @app.get("/system")
 @app.get("/settings")
+@app.get("/scanner")
+@app.get("/learn")
+@app.get("/plan")
+@app.get("/notifications")
 @app.get("/onboarding")
 def index():
     if not _gate():
@@ -1194,8 +1346,12 @@ main h1{margin:0;font-size:1.55rem}
   <aside id="nav">
     <div class="brand">Aureon Trading Lab</div>
     <a href="/overview" data-path="/overview">Overview</a>
+    <a href="/scanner" data-path="/scanner">Live Scanner</a>
     <a href="/trading" data-path="/trading">Trading Terminal</a>
     <a href="/signals" data-path="/signals">Live Signals</a>
+    <a href="/learn" data-path="/learn">Academy</a>
+    <a href="/plan" data-path="/plan">My Plan</a>
+    <a href="/notifications" data-path="/notifications">Inbox</a>
     <a href="/strategies" data-path="/strategies">Strategies</a>
     <a href="/portfolio" data-path="/portfolio">Portfolio</a>
     <a href="/activity" data-path="/activity">Orders & Trade History</a>
@@ -1210,7 +1366,7 @@ main h1{margin:0;font-size:1.55rem}
         <h1 id="title">Overview</h1>
         <div class="muted">Live market desk. Paper only. Broker off.</div>
       </div>
-      <div class="pills"><span class="pill">WAIT_DEFAULT</span><span class="pill">Paper only</span><span class="pill">Broker off</span><button id="signout" type="button">Sign out</button></div>
+      <div class="pills"><span class="pill">WAIT_DEFAULT</span><span class="pill">Paper only</span><span class="pill">Broker off</span><a href="/notifications" id="inboxlink">Inbox</a><button id="signout" type="button">Sign out</button></div>
     </header>
     <section id="view"></section>
   </main>
@@ -1226,7 +1382,7 @@ document.getElementById("signout").onclick = async () => {
 };
 const path = location.pathname === "/" ? "/overview" : location.pathname;
 document.querySelectorAll("aside a").forEach(a => { if (a.dataset.path === path) a.classList.add("active"); });
-const titles = {"/":"Overview","/signals":"Live Signals","/trading":"Trading Terminal","/strategies":"Strategies","/portfolio":"Portfolio","/risk":"Risk Management","/activity":"Orders & Trade History","/system":"System Status","/settings":"Account & Settings","/research":"Backtesting & Research","/onboarding":"Account setup"};
+const titles = {"/":"Overview","/signals":"Live Signals","/trading":"Trading Terminal","/strategies":"Strategies","/portfolio":"Portfolio","/risk":"Risk Management","/activity":"Orders & Trade History","/system":"System Status","/settings":"Account & Settings","/research":"Backtesting & Research","/onboarding":"Account setup","/scanner":"Live Scanner","/learn":"Academy","/indicators":"Academy","/plan":"My Trading Plan","/notifications":"Inbox"};
 document.getElementById("title").textContent = titles[path] || "Aureon";
 document.title = (titles[path] || "Aureon") + " · Aureon Trading Lab";
 const view = document.getElementById("view");
@@ -1366,71 +1522,48 @@ async function overview(){
   }).catch(()=>{});
 }
 async function signals(){
-  view.innerHTML = `<p class="muted">Loading current research states…</p>`;
-  const me = await fetch("/api/me").then(r => r.ok ? r.json() : null).catch(()=>null);
-  const profile = (me && me.profile) || {};
-  const markets = (me && me.prefs && me.prefs.markets && me.prefs.markets.length) ? me.prefs.markets : ["BTCUSDT","ETHUSDT"];
-  const cards = await Promise.all(markets.map(async symbol => {
-    const elig = await fetch("/api/eligibility?symbol="+encodeURIComponent(symbol)).then(r=>r.json()).catch(()=>({decision:"WAIT", reason:"Eligibility unavailable"}));
-    let detail = "";
-    if (symbol === "XAUUSD") {
-      const gold = await fetch("/api/gold/signal").then(r=>r.json()).catch(()=>({}));
-      detail = `<div class="muted">${gold.interval||"1h"} ${gold.state||"WAIT"} ${label(gold.result||"unavailable")}. ${gold.reason||""} ${gold.note||"Not an order. Quote is USD/oz chart OHLC, not bid/ask."}</div>`;
-    } else {
-      const s = await fetch("/api/research-signals?symbol="+symbol+"&interval=15m").then(r=>r.json()).catch(()=>({states:[]}));
-      detail = (s.states||[]).map(st => `<div class="row"><span>${st.strategy}</span><span class="${cls(st.direction)}">${label(st.direction)}</span></div>`).join("");
-      detail += `<div class="muted">${s.fresh===false?"Feed is not fresh. ":""}${s.label||"Research observation."} Timeframe 15m.</div>`;
-    }
-    return `<article class="card" data-symbol="${symbol}"><h2>${symbol}</h2><div class="row"><span>Profile</span><span>${profile.signal_style_name||"Not selected"}</span></div><div class="row"><span>Eligibility</span><span class="${cls(elig.decision||"WAIT")}">${label(elig.decision||"WAIT")}</span></div><div class="muted">${elig.reason||""}</div>${detail}<div class="muted">Production ${elig.production||"WAIT_DEFAULT"}. Not an order.</div></article>`;
-  }));
-  const hist = await fetch("/api/signal-history").then(r=>r.json()).catch(()=>({signals:[]}));
-  const seen = new Map();
-  for (const s of (hist.signals||[])) {
-    const key = [s.asset, s.timeframe, s.result].join("|");
-    const cur = seen.get(key) || {row:s, n:0};
-    cur.n += 1;
-    seen.set(key, cur);
-  }
-  const rows = [...seen.values()].slice(0, 8).map(({row, n}) => `<div class="row"><span>${row.asset||""} ${row.timeframe||""}</span><span>${label(row.result||"")}</span><span>${n} stored ${n===1?"evaluation":"evaluations"}</span></div>`);
-  view.innerHTML = `<label class="field">Market filter <select id="sigfilter"><option value="">All selected markets</option>${markets.map(s => `<option value="${s}">${s}</option>`).join("")}</select></label><p class="muted">Decisions use the saved profile ${profile.signal_style_name||"(none selected)"}. Repeated unchanged evaluations are collapsed.</p>${cards.join("")}<article class="card"><h2>Earlier evaluations</h2>${rows.join("")||"<p>No stored evaluations.</p>"}<p class="muted">Research evaluations are not trades. Identical results are counted instead of repeated row by row.</p></article>`;
-  const filter = document.getElementById("sigfilter");
-  filter.onchange = () => {
-    const chosen = filter.value;
+  view.innerHTML = `<p role="status">Checking BTC, ETH and gold.</p>`;
+  const response = await fetch("/api/workspace", {credentials:"same-origin"});
+  if (response.status === 401) { view.innerHTML = `<article class="card"><h2>Sign in required</h2><p><a href="/login">Sign in</a> to see your signal workspace.</p></article>`; return; }
+  const body = await response.json().catch(()=>({panels:[], history:[], strategies:[], notice:"The workspace could not be read. Please retry."}));
+  const panels = (body.panels||[]).map(panel => `<article class="card" data-symbol="${panel.symbol}"><h2>${panel.symbol}</h2><div class="row"><span>${panel.scanner_state||"BLOCKED"}</span><span>${panel.price==null?"—":panel.price}</span></div><p>${panel.message||"No qualifying setup yet."}</p><p class="muted">${panel.interval||""} · ${panel.quote||""} ${panel.quote_note||""} Updated ${panel.updated_at||"unknown"}.</p></article>`).join("");
+  const setups = (body.current||[]).map(item => `<article class="card"><h2>${item.what}</h2><p>${item.why}</p><p>${item.why_not||""}</p><p class="muted">${item.strategy}. ${item.learn||""}</p><p class="muted">Invalidation: ${item.invalidation||""} Position suggestion: ${item.account&&item.account.ok?item.account.quantity:"not calculated"}. ${item.account&&item.account.order===false?"No order was created.":""}</p></article>`).join("");
+  const history = (body.history||[]).map(item => `<div class="row"><span>${item.label}</span><span>${item.symbol||""} ${item.scanner_state||""}</span></div><div class="muted">${item.message||""} Not delivered. Not filled.</div>`).join("");
+  const intel = (body.strategies||[]).map(item => `<div class="row"><span>${item.name}</span><span>${item.research_status}</span></div><div class="muted">${(item.instruments||[]).join(", ")}. ${item.evidence||""}</div>`).join("");
+  const leaders = (body.leaders||[]).map(item => `<div class="row"><span>${item.symbol}</span><span>${item.strategy||"no ranked rule"}</span></div><div class="muted">${item.status||"none"}. ${item.approved?"Approved.":"Not an approved strategy."}</div>`).join("");
+  view.innerHTML = `<p role="status">${body.notice||""}</p><article class="card"><h2>Research leader by market</h2>${leaders||"<p>No market leader has been ranked.</p>"}<p class="muted">A research leader is the highest pre-holdout rank. It is not an approved signal.</p></article><div class="markets">${panels}</div><article class="card"><h2>For your account</h2>${setups||"<p>No setup is eligible for your plan. A healthy scan can still have nothing to act on.</p>"}</article><article class="card"><h2>Signal history</h2><label class="field">Show <select id="sigfilter"><option value="">All</option><option value="BTCUSDT">BTCUSDT</option><option value="ETHUSDT">ETHUSDT</option><option value="XAUUSD">XAUUSD</option></select></label><div id="sigrows">${history||"<p>No saved evaluations yet.</p>"}</div><p class="muted">Historical replay is not a fill and was not delivered.</p></article><article class="card"><h2>Why nothing is approved</h2>${intel}</article>`;
+  document.getElementById("sigfilter").onchange = (event) => {
+    const chosen = event.target.value;
     document.querySelectorAll("#view article[data-symbol]").forEach(el => { el.hidden = Boolean(chosen) && el.dataset.symbol !== chosen; });
   };
 }
 async function terminal(){
-  view.innerHTML = `<article class="card"><h2>Market workspace</h2><div class="fieldrow"><label>Market <select id="sym"><option>BTCUSDT</option><option>ETHUSDT</option><option>XAUUSD</option></select></label><label>Timeframe <select id="tf"><option>15m</option><option>1h</option><option>4h</option><option>1d</option></select></label></div><canvas id="chart"></canvas><p class="muted" id="chartnote">Loading closed candles…</p><div id="termmeta"></div></article>`;
-  async function loadChart(){
-    const sym = document.getElementById("sym").value;
-    const tf = document.getElementById("tf").value;
-    const note = document.getElementById("chartnote");
-    const meta = document.getElementById("termmeta");
-    note.textContent = "Loading closed candles…";
-    meta.innerHTML = "";
-    try {
-      if (sym === "XAUUSD") {
-        const bars = await fetch("/api/gold/candles?interval="+encodeURIComponent(tf)).then(r=>r.json());
-        const candles = (bars.candles||[]).filter(c => c.o != null && c.h != null && c.l != null && c.c != null).map(c => ({t:c.t, o:+c.o, h:+c.h, l:+c.l, c:+c.c}));
-        if (!candles.length) { note.textContent = bars.error ? "Gold chart unavailable: " + bars.error : (bars.note || "No completed gold candles."); return; }
-        draw(candles);
-        note.textContent = (bars.interval || tf) + " · " + (bars.note || "XAUUSD chart OHLC");
-      } else {
-        const bars = await fetch(`/api/klines?symbol=${sym}&interval=${tf}`).then(r=>r.json());
-        if (!bars.candles || !bars.candles.length) { note.textContent = bars.error ? "Chart unavailable: " + bars.error : "No closed candles returned."; return; }
-        draw(bars.candles);
-        const last = bars.candles[bars.candles.length-1];
-        note.textContent = (bars.source || "market") + " · " + tf + " · last close " + last.c + (last.t ? " · " + new Date(last.t).toISOString() : "") + " · quote currency is the market's own";
-      }
-      const elig = await fetch("/api/eligibility?symbol="+encodeURIComponent(sym)).then(r=>r.ok?r.json():{decision:"WAIT", reason:"Eligibility unavailable"});
-      meta.innerHTML = `<div class="row"><span>Profile eligibility</span><span class="${cls(elig.decision||"WAIT")}">${label(elig.decision||"WAIT")}</span></div><div class="muted">${elig.name?elig.name+". ":""}${elig.reason||""} Not a trade.</div>`;
-    } catch (err) {
-      note.textContent = "Market data request failed.";
-    }
+  view.innerHTML = `<article class="card"><h2>Generate a signal</h2><div class="fieldrow"><label>Market <select id="sym"><option>BTCUSDT</option><option>ETHUSDT</option><option>XAUUSD</option></select></label><label>Timeframe <select id="tf"><option>15m</option><option>1h</option><option selected>4h</option><option>1d</option></select></label><label>Strategy <select id="mode"><option value="auto">Auto</option><option value="compress-break-4h-20261028">BTC compression breakout</option><option value="sweep-reclaim-4h-20261028">ETH failed-breakdown</option><option value="london-reclaim-1h-20261028">Gold London reclaim</option><option value="dip-in-trend-1d-20261028">Daily dip in trend</option><option value="quiet-week-reversal-1d-20261028">Quiet week reversal</option></select></label></div><button id="generate" type="button">Generate Signal</button><p id="termstatus" role="status"></p></article><div id="termout"></div><article class="card"><h2>Your requested evaluations</h2><div id="termhist"><p>No requested evaluation yet.</p></div></article>`;
+  document.getElementById("tf").innerHTML = `<option>15m</option><option>1h</option><option selected>4h</option><option>1d</option>`;
+  async function history(){
+    const response = await fetch("/api/terminal/history", {credentials:"same-origin"});
+    const body = response.ok ? await response.json() : {items:[]};
+    const rows = (body.items||[]).map(item => `<div class="row"><span>${item.decision}</span><span>${item.symbol} ${item.interval}</span></div><div class="muted">${item.source==="user_requested"?"Requested evaluation":"Historical replay"}. Validation ${item.validation_status||"unknown"}. Not delivered. Not filled. ${item.reason||""}</div>`).join("");
+    document.getElementById("termhist").innerHTML = rows || "<p>No requested evaluation yet.</p>";
   }
-  document.getElementById("sym").onchange = loadChart;
-  document.getElementById("tf").onchange = loadChart;
-  await loadChart();
+  document.getElementById("generate").onclick = async () => {
+    const status = document.getElementById("termstatus");
+    const out = document.getElementById("termout");
+    status.textContent = "Evaluating the latest completed candle.";
+    out.innerHTML = "";
+    try {
+      const response = await fetch("/api/terminal/signal", {method:"POST", credentials:"same-origin", headers:{"Content-Type":"application/json"}, body: JSON.stringify({symbol:document.getElementById("sym").value, interval:document.getElementById("tf").value, strategy:document.getElementById("mode").value})});
+      if (response.status === 401) { status.textContent = "Sign in to generate a signal."; return; }
+      const body = await response.json();
+      status.textContent = "";
+      const size = body.size && body.size.ok ? `${body.size.quantity} units, risk ${body.size.risk_budget} ${body.currency||""}. Informational only.` : (body.size && body.size.reason ? `Position size not calculated: ${body.size.reason}.` : "No position size on this result.");
+      out.innerHTML = `<article class="card"><h2>${body.decision||"WAIT"}</h2><p>${body.reason||""}</p><div class="row"><span>${body.symbol||""} ${body.interval||""}</span><span>${body.reference_price==null?"no price":body.reference_price}</span></div><p class="muted">${body.fresh?"Completed candle is fresh.":"Not a fresh live candle."} Source ${body.source_name||"unknown"}. Quote ${body.quote||"unknown"}. Candle ${body.bar_close_ms?new Date(body.bar_close_ms).toISOString():"unknown"}.</p><p>Validation: ${body.validation_status||"unknown"}. ${body.approved?"Approved.":"Not an approved strategy and not a claim of profit."}</p><p>Entry ${body.entry==null?"—":body.entry}. Stop ${body.stop==null?"—":body.stop}. Target ${body.target==null?"—":body.target}. Reward/risk ${body.reward_risk==null?"—":Number(body.reward_risk).toFixed(2)}.</p><p>${size}</p><p class="muted">${body.costs?body.costs.note||"":""} ${body.invalidation||""}</p></article>`;
+      history();
+    } catch (err) {
+      status.textContent = "The evaluation could not be completed. Please retry.";
+    }
+  };
+  history();
 }
 async function signalsLegacy(){
   const rows = await Promise.all(["BTCUSDT","ETHUSDT"].map(s=>fetch("/api/research-signals?symbol="+s+"&interval=15m").then(r=>r.json())));
@@ -1452,7 +1585,59 @@ async function researchLab(){
   const rows = (d.experiments||[]).map(e => `<div class="row"><span>${e.id}</span><span class="${cls(e.decision)}">${e.decision}</span></div><div class="muted">${e.name}. ${e.reason}</div>`).join("");
   view.innerHTML = `<article class="card"><h2>Promotion gates</h2><p>Promoted strategies: ${d.promoted_count}. Production: ${d.production}.</p>${gates}</article><article class="card"><h2>Experiment archive</h2>${rows}<p class="muted">${d.note}</p></article>`;
 }
+async function scannerPage(){
+  const draw = (body) => {
+    const cards = (body.markets||[]).map(m => `<article class="card" data-symbol="${m.symbol}"><h2>${m.symbol}</h2><div class="row"><span>${m.interval||""} ${m.quote||""}</span><span>${m.price==null?"—":m.price}</span></div><div class="row"><span>Status</span><span>${m.status||"unknown"}</span></div><p>${m.message||"No qualifying setup yet."}</p><p class="muted">${m.scanner_state||m.state||"WAIT"}. Evidence grade ${m.evidence_grade==null?"—":m.evidence_grade}/100. ${m.evidence_label||"Checklist score, not a probability of profit."}</p></article>`).join("");
+    view.innerHTML = `<p role="status">${body.notice||"No approved strategy is currently active; trade alerts are unavailable."}</p><div class="markets">${cards}</div><p class="muted">Scanned ${body.scanned_at||""}. Completed bars only. <a href="/learn">Why the scanner says this</a></p>`;
+  };
+  const loadScan = async () => {
+    const response = await fetch("/api/scanner", {credentials:"same-origin"});
+    if (response.status === 401) { view.innerHTML = `<article class="card"><h2>Sign in required</h2><p><a href="/login">Sign in</a></p></article>`; return; }
+    const body = await response.json().catch(()=>({notice:"The scanner could not be read. Please retry.", markets:[]}));
+    draw(body);
+  };
+  await loadScan();
+  if (window.__scanTimer) clearInterval(window.__scanTimer);
+  window.__scanTimer = setInterval(loadScan, 15000);
+}
+async function learnPage(){
+  view.innerHTML = `<article class="card"><h2>How to read the desk</h2><p>A candlestick shows the open, high, low and close of one completed period. A 15-minute candle is fifteen minutes of trades. A one-hour candle is one hour. The scanner uses only candles that have already closed.</p><p>E1 Donchian-20 compares the latest close with the highest high and lowest low of the previous 20 completed bars. SMA20 is the average of the last 20 closes. RSI14 is a momentum reading. They are research observations. If E1 is waiting, every account style waits.</p></article><article class="card"><h2>What a result means</h2><ul><li>No qualifying setup yet: the rule did not match.</li><li>Research observation: a condition was seen. It is not an order.</li><li>Paper candidate: the written rule is complete, and it is still not approved.</li><li>Approved signal: only after a promotion record exists. None exists now.</li><li>Paper trade: a simulated fill. Broker execution is off, so this desk does not send one.</li></ul><p>WAIT means the rule or the data does not justify an entry. It is the safe result, not a missing page.</p></article><article class="card"><h2>Accounts and alerts</h2><p>Apex Momentum caps risk at 2.5% of paper capital. Orion Precision caps it at 1.5%. Aegis Shield caps it at 0.8%. These are ceilings. Changing the base currency does not convert the stored amount.</p><p>Connect Telegram from Settings. The link is single-use. A connected chat can be removed, and a removed chat receives nothing. Trade alerts stay off until a strategy is explicitly approved.</p><p>The evidence grade is a checklist. It is not a probability of profit, and it has not been calibrated. A weekly aim is a personal target. Missing it is shown as a shortfall. The aim does not create a signal or raise risk.</p></article>`;
+}
+async function planPage(){
+  const response = await fetch("/api/plan", {credentials:"same-origin"});
+  if (response.status === 401) { view.innerHTML = `<article class="card"><h2>Sign in required</h2><p><a href="/login">Sign in</a> to save a plan.</p></article>`; return; }
+  const body = await response.json();
+  const plan = body.plan || {};
+  const week = body.week || {};
+  const catalog = await fetch("/api/registry", {credentials:"same-origin"}).then(r => r.json());
+  const options = (catalog.strategies||[]).map(s => `<label><input type="checkbox" value="${s.id}" ${ (plan.strategies||[]).includes(s.id) ? "checked" : "" }> ${s.name} · ${s.research_status} · not approved</label>`).join("");
+  view.innerHTML = `<article class="card"><h2>This week ${week.week||""}</h2><p>Chosen aim: ${week.aim_percent==null?"not set":week.aim_percent+"%"}.</p><p>${week.paper_note||""}</p><p class="muted">Approved alerts this week: ${week.approved_alerts}. Simulated trades: ${week.simulated_trades}. A target does not force a signal.</p></article><form id="planform" class="card"><h2>Plan</h2><p id="plannote" role="status"></p><label>Mode <select id="mode"><option value="auto">Auto: evaluate every compatible strategy</option><option value="selected">Selected strategies only</option></select></label><div class="checks">${options}</div><label>Minimum evidence grade <input id="grade" type="number" min="0" max="100" value="${plan.min_evidence_grade||0}"></label><p class="muted">This is a checklist score, not a probability of profit.</p><label>Weekly aim percent <input id="aim" type="number" min="0" max="100" step="any" value="${plan.weekly_aim_percent??""}"></label><label>Weekly loss limit percent <input id="loss" type="number" min="0" max="100" step="any" value="${plan.weekly_loss_limit_percent??""}"></label><label>Per-trade risk percent <input id="risk" type="number" min="0" max="100" step="any" value="${plan.risk_per_trade_percent??""}"></label><p class="muted">Style cap ${body.style_cap==null?"not set":body.style_cap+"%"}. A higher number is rejected. Currency stays ${body.currency||"unset"} and is not converted.</p><label><input id="research" type="checkbox" ${plan.research_alerts?"checked":""}> Optional research notes in the app. Off by default. These are not trade alerts.</label><button type="submit">Save plan</button></form>`;
+  document.getElementById("mode").value = plan.mode || "auto";
+  document.getElementById("planform").onsubmit = async (event) => {
+    event.preventDefault();
+    const strategies = [...document.querySelectorAll("#planform input[type=checkbox][value]")].filter(box => box.checked).map(box => box.value);
+    const payload = {mode: document.getElementById("mode").value, strategies, min_evidence_grade: document.getElementById("grade").value, weekly_aim_percent: document.getElementById("aim").value, weekly_loss_limit_percent: document.getElementById("loss").value, risk_per_trade_percent: document.getElementById("risk").value, research_alerts: document.getElementById("research").checked, markets: ["BTCUSDT","ETHUSDT","XAUUSD"]};
+    const saved = await fetch("/api/plan", {method:"POST", credentials:"same-origin", headers:{"Content-Type":"application/json"}, body: JSON.stringify(payload)});
+    const result = await saved.json();
+    document.getElementById("plannote").textContent = saved.ok ? ((result.notes||[]).join(" ") || "Plan saved.") : "Your plan could not be saved. Please retry.";
+  };
+}
+async function inboxPage(){
+  const response = await fetch("/api/notifications", {credentials:"same-origin"});
+  if (response.status === 401) { view.innerHTML = `<article class="card"><h2>Sign in required</h2><p><a href="/login">Sign in</a> to see your inbox.</p></article>`; return; }
+  const body = await response.json();
+  const rows = body.items || [];
+  const list = rows.map(item => `<article class="card"><h2>${item.symbol || "Desk"} · ${item.label}</h2><p>${item.message || ""}</p><p class="muted">${item.kind} · ${item.strategy || "no strategy"} ${item.version || ""} · ${item.read ? "read" : "unread"} · ${item.created_ms ? new Date(item.created_ms).toISOString() : ""}</p>${item.actionable ? "" : "<p>Not an approved trade.</p>"}<button type="button" data-id="${item.id}">Mark read</button></article>`).join("");
+  view.innerHTML = `<p role="status">${body.unread || 0} unread.</p>${list || "<article class='card'><h2>No notifications</h2><p>A quiet scan is recorded once a day. A research note appears only if you opted in. Nothing here is a trade alert unless a strategy has been approved. None has.</p></article>"}<button id="readall" type="button">Mark all read</button>`;
+  const refresh = async (id) => { await fetch("/api/notifications/read", {method:"POST", credentials:"same-origin", headers:{"Content-Type":"application/json"}, body: JSON.stringify(id ? {id} : {})}); inboxPage(); };
+  document.getElementById("readall").onclick = () => refresh(null);
+  document.querySelectorAll("[data-id]").forEach(button => { button.onclick = () => refresh(button.dataset.id); });
+}
 async function load(){
+  if (path === "/notifications") return inboxPage();
+  if (path === "/plan") return planPage();
+  if (path === "/scanner") return scannerPage();
+  if (path === "/learn" || path === "/indicators") return learnPage();
   if (path === "/trading") return terminal();
   if (path === "/" || path === "/overview") return overview();
   if (path === "/signals") return signals();
@@ -1462,7 +1647,10 @@ async function load(){
   if (path === "/strategies") {
     const catalog = await fetch("/api/profiles").then(r=>r.json());
     const styles = (catalog.profiles||[]).map(p => `<article class="card"><h2>${p.name}</h2><p>${p.role}. ${p.purpose}</p><p class="muted">${p.confirmation} Risk cap ${p.risk_per_trade_percent}% per trade. Minimum reward/risk ${p.min_rr}. At most ${p.max_trades_per_day} trades a day in the Awuru account defaults. Not a promoted strategy.</p></article>`).join("");
-    view.innerHTML = `<article class="card"><h2>E1 Donchian-20</h2><p>Breakout on the prior 20 completed bars. Failed benchmark on BTC and ETH. Research observation only. Not promoted and not re-tuned.</p><p class="muted">Crypto decisions use completed 15m bars. Gold decisions use completed 1h XAUUSD chart OHLC. Daily history without an open is not used.</p></article><article class="card"><h2>Gate 3 candidates</h2><p>Trend pullback, volatility-normalized breakout, regime-filtered mean reversion, and a New York session gold pullback. Frozen research rules. A candidate is not an approved signal.</p></article><article class="card"><h2>SMA20 and RSI14</h2><p>Research observations only. They do not create paper orders. If E1 is WAIT, every style stays WAIT.</p></article>${styles}<p class="muted">${catalog.note||""} ${catalog.excluded||""}</p>`;
+    view.innerHTML = `<article class="card"><h2>E1 Donchian-20</h2><p>Breakout on the prior 20 completed bars. Failed benchmark on BTC and ETH. Research observation only. Not promoted and not re-tuned.</p></article><article class="card"><h2>Registered strategies</h2><div id="reg">Loading the registry.</div></article>${styles}<p class="muted">${catalog.note||""} ${catalog.excluded||""}</p>`;
+    const registry = await fetch("/api/registry", {credentials:"same-origin"}).then(r => r.ok ? r.json() : {strategies:[]});
+    const box = document.getElementById("reg");
+    if (box) box.innerHTML = (registry.strategies||[]).map(s => `<div class="row"><span>${s.name}</span><span>${s.research_status}</span></div><div class="muted">${s.instruments.join(", ")} · ${s.timeframe}. ${s.evidence} Promoted: no.</div>`).join("") || "<p>The registry could not be loaded.</p>";
     return;
   }
   if (path === "/risk") return riskPage();
@@ -1477,7 +1665,7 @@ async function paperPages(){
   const trades = (p.rows||[]).filter(r => r.side && !bias.has(r.side));
   const open = p.open && p.open.side && !bias.has(p.open.side) ? p.open : null;
   const observations = p.observations || [];
-  const obsNote = observations.length ? `<p class="muted">${observations.length} experimental research observation${observations.length===1?"":"s"} are in the book. ${label(observations[observations.length-1].side||"")} is not a holding and not an order.</p>` : "";
+  const obsNote = observations.length ? `<p class="muted">${observations.length} research observation${observations.length===1?"":"s"} saved. ${label(observations[observations.length-1].side||"")} is not a holding and not an order.</p>` : "";
   if (path === "/portfolio") {
     const body = open
       ? `<div class="row"><span>Paper position</span><span>${open.asset} ${open.side}</span></div><div class="row"><span>Entry</span><span>${open.entry_price}</span></div><p class="muted">Recorded paper order. ${p.label||""}</p>`
@@ -1491,12 +1679,14 @@ async function paperPages(){
 async function riskPage(){
   const me = await fetch("/api/me").then(r=>r.ok?r.json():null);
   const profile = (me && me.profile) || {};
-  view.innerHTML = `<article class="card"><h2>Risk</h2><div class="row"><span>Active style</span><span>${profile.signal_style_name||"Not selected"}</span></div><div class="row"><span>Risk posture</span><span>${profile.risk_mode||"unset"}</span></div><div class="row"><span>Max risk per trade</span><span>${profile.max_risk_pct==null?"Not set":profile.max_risk_pct+"%"}</span></div><div class="row"><span>Max daily loss</span><span>${profile.max_daily_loss_percent==null?"Not set":profile.max_daily_loss_percent+"%"}</span></div><div class="row"><span>Max open risk</span><span>${profile.max_open_risk_percent==null?"Not set":profile.max_open_risk_percent+"%"}</span></div><div class="row"><span>Minimum reward/risk</span><span>${profile.min_rr==null?"Not set":profile.min_rr}</span></div><p class="muted">These caps come from the selected Awuru account style. They do not guarantee protection from losses. Production remains WAIT_DEFAULT, so the desk is not placing risk-sized orders from this page.</p></article>`;
+  view.innerHTML = `<article class="card"><h2>Risk</h2><div class="row"><span>Active style</span><span>${profile.signal_style_name||"Not selected"}</span></div><div class="row"><span>Risk posture</span><span>${profile.risk_mode||"unset"}</span></div><div class="row"><span>Max risk per trade</span><span>${profile.max_risk_pct==null?"Not set":profile.max_risk_pct+"%"}</span></div><div class="row"><span>Max daily loss</span><span>${profile.max_daily_loss_percent==null?"Not set":profile.max_daily_loss_percent+"%"}</span></div><div class="row"><span>Max open risk</span><span>${profile.max_open_risk_percent==null?"Not set":profile.max_open_risk_percent+"%"}</span></div><div class="row"><span>Minimum reward/risk</span><span>${profile.min_rr==null?"Not set":profile.min_rr}</span></div><p class="muted">These caps come from the selected Awuru account style. Apex per-trade risk is 2.5%. A 4% figure, where shown, is the style's daily-loss ceiling, not the per-trade limit. Production remains WAIT_DEFAULT, so this page does not place an order.</p></article>`;
 }
 async function systemPage(){
   const h = await fetch("/health").then(r=>r.json());
   const row = (name, value) => `<div class="row"><span>${name}</span><span>${value}</span></div>`;
-  view.innerHTML = `<article class="card"><h2>System</h2>${row("Process", h.process||"unknown")}${row("Market data", h.market_data||"unknown")}${row("Notifications", h.notification||"unknown")}${row("Ledger", h.ledger||"unknown")}${row("Strategy", h.strategy_status||"unknown")}${row("Broker", String(h.broker))}${row("Worker heartbeat", h.worker && h.worker.last_beat_ms ? new Date(h.worker.last_beat_ms).toISOString() : "unknown")}</article><p class="muted">States come from /health. A missing field stays unknown rather than being marked online.</p>`;
+  const market = h.market_data && h.market_data.BTCUSDT ? h.market_data.BTCUSDT.status + " / " + (h.market_data.ETHUSDT ? h.market_data.ETHUSDT.status : "unknown") : (h.market_data || "unknown");
+  const note = h.notification && h.notification.pipeline ? h.notification.pipeline : (typeof h.notification === "string" ? h.notification : "unknown");
+  view.innerHTML = `<article class="card"><h2>System</h2>${row("Process", h.process||"unknown")}${row("BTC / ETH", market)}${row("Notifications", note)}${row("Ledger", h.ledger||"unknown")}${row("Strategy", h.strategy_status||"unknown")}${row("Broker", String(h.broker))}${row("Build", h.build_commit||"unknown")}${row("Worker heartbeat", h.worker && h.worker.last_beat_ms ? new Date(h.worker.last_beat_ms).toISOString() : "unknown")}</article><p class="muted">A missing field stays unknown. Trade alerts stay blocked while no strategy is approved.</p>`;
 }
 async function settings(){
   const me = await fetch("/api/me").then(r => r.ok ? r.json() : null);
