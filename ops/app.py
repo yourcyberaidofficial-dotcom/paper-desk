@@ -61,7 +61,7 @@ def _gate():
 ALLOWED_NEXT = {
     "/overview", "/signals", "/trading", "/strategies", "/indicators",
     "/research", "/portfolio", "/risk", "/activity", "/system", "/settings", "/onboarding",
-    "/scanner", "/learn", "/plan",
+    "/scanner", "/learn", "/plan", "/notifications",
 }
 
 
@@ -1033,11 +1033,36 @@ def scanner_api():
     body = scan(windows, now_ms=now_ms)
     if not body["markets"]:
         body["markets"] = [
-            {"symbol": "BTCUSDT", "status": "unavailable", "state": "DATA_UNAVAILABLE", "message": "BTCUSDT is not being scanned. The latest completed bar is missing or stale.", "approved": False},
-            {"symbol": "ETHUSDT", "status": "unavailable", "state": "DATA_UNAVAILABLE", "message": "ETHUSDT is not being scanned. The latest completed bar is missing or stale.", "approved": False},
-            {"symbol": "XAUUSD", "status": "unavailable", "state": "DATA_UNAVAILABLE", "message": "Gold scanning is temporarily unavailable. Last verified market update: unknown.", "approved": False},
+            {"symbol": "BTCUSDT", "status": "unavailable", "state": "DATA_UNAVAILABLE", "scanner_state": "BLOCKED", "message": "BTCUSDT is not being scanned. The latest completed bar is missing or stale.", "approved": False},
+            {"symbol": "ETHUSDT", "status": "unavailable", "state": "DATA_UNAVAILABLE", "scanner_state": "BLOCKED", "message": "ETHUSDT is not being scanned. The latest completed bar is missing or stale.", "approved": False},
+            {"symbol": "XAUUSD", "status": "unavailable", "state": "DATA_UNAVAILABLE", "scanner_state": "BLOCKED", "message": "Gold scanning is temporarily unavailable. Last verified market update: unknown.", "approved": False},
         ]
+    user_id = session.get("user_id")
+    if user_id:
+        from ops.inbox import record_scan
+        from ops.users import get
+        plan = (get(user_id) or {}).get("plan") or {}
+        record_scan(user_id, body, plan, now_ms)
     return jsonify(body)
+
+
+@app.get("/api/notifications")
+def notifications_api():
+    user_id = session.get("user_id")
+    if not user_id:
+        return jsonify({"error": "unauthorized"}), 401
+    from ops.inbox import items, unread_count
+    return jsonify({"items": items(user_id), "unread": unread_count(user_id)})
+
+
+@app.post("/api/notifications/read")
+def notifications_read():
+    user_id = session.get("user_id")
+    if not user_id:
+        return jsonify({"error": "unauthorized"}), 401
+    from ops.inbox import mark_read
+    event_id = (request.json or {}).get("id")
+    return jsonify(mark_read(user_id, event_id or None))
 
 
 @app.get("/overview")
@@ -1054,6 +1079,7 @@ def scanner_api():
 @app.get("/scanner")
 @app.get("/learn")
 @app.get("/plan")
+@app.get("/notifications")
 @app.get("/onboarding")
 def index():
     if not _gate():
@@ -1281,6 +1307,7 @@ main h1{margin:0;font-size:1.55rem}
     <a href="/signals" data-path="/signals">Live Signals</a>
     <a href="/learn" data-path="/learn">Academy</a>
     <a href="/plan" data-path="/plan">My Plan</a>
+    <a href="/notifications" data-path="/notifications">Inbox</a>
     <a href="/strategies" data-path="/strategies">Strategies</a>
     <a href="/portfolio" data-path="/portfolio">Portfolio</a>
     <a href="/activity" data-path="/activity">Orders & Trade History</a>
@@ -1295,7 +1322,7 @@ main h1{margin:0;font-size:1.55rem}
         <h1 id="title">Overview</h1>
         <div class="muted">Live market desk. Paper only. Broker off.</div>
       </div>
-      <div class="pills"><span class="pill">WAIT_DEFAULT</span><span class="pill">Paper only</span><span class="pill">Broker off</span><button id="signout" type="button">Sign out</button></div>
+      <div class="pills"><span class="pill">WAIT_DEFAULT</span><span class="pill">Paper only</span><span class="pill">Broker off</span><a href="/notifications" id="inboxlink">Inbox</a><button id="signout" type="button">Sign out</button></div>
     </header>
     <section id="view"></section>
   </main>
@@ -1311,7 +1338,7 @@ document.getElementById("signout").onclick = async () => {
 };
 const path = location.pathname === "/" ? "/overview" : location.pathname;
 document.querySelectorAll("aside a").forEach(a => { if (a.dataset.path === path) a.classList.add("active"); });
-const titles = {"/":"Overview","/signals":"Live Signals","/trading":"Trading Terminal","/strategies":"Strategies","/portfolio":"Portfolio","/risk":"Risk Management","/activity":"Orders & Trade History","/system":"System Status","/settings":"Account & Settings","/research":"Backtesting & Research","/onboarding":"Account setup","/scanner":"Live Scanner","/learn":"Academy","/indicators":"Academy","/plan":"My Trading Plan"};
+const titles = {"/":"Overview","/signals":"Live Signals","/trading":"Trading Terminal","/strategies":"Strategies","/portfolio":"Portfolio","/risk":"Risk Management","/activity":"Orders & Trade History","/system":"System Status","/settings":"Account & Settings","/research":"Backtesting & Research","/onboarding":"Account setup","/scanner":"Live Scanner","/learn":"Academy","/indicators":"Academy","/plan":"My Trading Plan","/notifications":"Inbox"};
 document.getElementById("title").textContent = titles[path] || "Aureon";
 document.title = (titles[path] || "Aureon") + " · Aureon Trading Lab";
 const view = document.getElementById("view");
@@ -1539,7 +1566,7 @@ async function researchLab(){
 }
 async function scannerPage(){
   const draw = (body) => {
-    const cards = (body.markets||[]).map(m => `<article class="card" data-symbol="${m.symbol}"><h2>${m.symbol}</h2><div class="row"><span>${m.interval||""} ${m.quote||""}</span><span>${m.price==null?"—":m.price}</span></div><div class="row"><span>Status</span><span>${m.status||"unknown"}</span></div><p>${m.message||"No qualifying setup yet."}</p><p class="muted">Evidence grade ${m.evidence_grade==null?"—":m.evidence_grade}/100. ${m.evidence_label||"Checklist score, not a probability of profit."} Updated ${m.updated_at||"unknown"}. Source ${m.source||"unknown"}.</p></article>`).join("");
+    const cards = (body.markets||[]).map(m => `<article class="card" data-symbol="${m.symbol}"><h2>${m.symbol}</h2><div class="row"><span>${m.interval||""} ${m.quote||""}</span><span>${m.price==null?"—":m.price}</span></div><div class="row"><span>Status</span><span>${m.status||"unknown"}</span></div><p>${m.message||"No qualifying setup yet."}</p><p class="muted">${m.scanner_state||m.state||"WAIT"}. Evidence grade ${m.evidence_grade==null?"—":m.evidence_grade}/100. ${m.evidence_label||"Checklist score, not a probability of profit."}</p></article>`).join("");
     view.innerHTML = `<p role="status">${body.notice||"No approved strategy is currently active; trade alerts are unavailable."}</p><div class="markets">${cards}</div><p class="muted">Scanned ${body.scanned_at||""}. Completed bars only. <a href="/learn">Why the scanner says this</a></p>`;
   };
   const loadScan = async () => {
@@ -1574,7 +1601,19 @@ async function planPage(){
     document.getElementById("plannote").textContent = saved.ok ? ((result.notes||[]).join(" ") || "Plan saved.") : "Your plan could not be saved. Please retry.";
   };
 }
+async function inboxPage(){
+  const response = await fetch("/api/notifications", {credentials:"same-origin"});
+  if (response.status === 401) { view.innerHTML = `<article class="card"><h2>Sign in required</h2><p><a href="/login">Sign in</a> to see your inbox.</p></article>`; return; }
+  const body = await response.json();
+  const rows = body.items || [];
+  const list = rows.map(item => `<article class="card"><h2>${item.symbol || "Desk"} · ${item.label}</h2><p>${item.message || ""}</p><p class="muted">${item.kind} · ${item.strategy || "no strategy"} ${item.version || ""} · ${item.read ? "read" : "unread"} · ${item.created_ms ? new Date(item.created_ms).toISOString() : ""}</p>${item.actionable ? "" : "<p>Not an approved trade.</p>"}<button type="button" data-id="${item.id}">Mark read</button></article>`).join("");
+  view.innerHTML = `<p role="status">${body.unread || 0} unread.</p>${list || "<article class='card'><h2>No notifications</h2><p>A quiet scan is recorded once a day. A research note appears only if you opted in. Nothing here is a trade alert unless a strategy has been approved. None has.</p></article>"}<button id="readall" type="button">Mark all read</button>`;
+  const refresh = async (id) => { await fetch("/api/notifications/read", {method:"POST", credentials:"same-origin", headers:{"Content-Type":"application/json"}, body: JSON.stringify(id ? {id} : {})}); inboxPage(); };
+  document.getElementById("readall").onclick = () => refresh(null);
+  document.querySelectorAll("[data-id]").forEach(button => { button.onclick = () => refresh(button.dataset.id); });
+}
 async function load(){
+  if (path === "/notifications") return inboxPage();
   if (path === "/plan") return planPage();
   if (path === "/scanner") return scannerPage();
   if (path === "/learn" || path === "/indicators") return learnPage();

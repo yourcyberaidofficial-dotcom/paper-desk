@@ -66,6 +66,32 @@ STRATEGIES = (
         "promoted": False,
         "live": True,
     },
+    {
+        "id": "spot-tsmom-1h-20261028",
+        "version": "spot-tsmom-1h-20261028",
+        "name": "Spot time-series momentum",
+        "instruments": ["BTCUSDT", "ETHUSDT"],
+        "timeframe": "1h",
+        "entry": "Long only after a higher 24-hour close that is also above the 20-bar average. Entry is the next bar open.",
+        "invalidation": "1.5 times the signal-bar ATR below the entry, or 24 bars.",
+        "research_status": "FAIL",
+        "evidence": "BTC 417 trades and ETH 420 trades, both negative after 11 bps per fill. Holdout was not opened. docs/SPOT_RESEARCH_RESULTS.json",
+        "promoted": False,
+        "live": True,
+    },
+    {
+        "id": "tight-range-long-1h-20261028",
+        "version": "tight-range-long-1h-20261028",
+        "name": "Tight-range long",
+        "instruments": ["BTCUSDT", "ETHUSDT"],
+        "timeframe": "1h",
+        "entry": "Long only near the bottom of a 20-bar range narrower than 1.5 percent. Disabled when the range is wider.",
+        "invalidation": "The range low. Spot shorts are not taken.",
+        "research_status": "FAIL",
+        "evidence": "BTC failed after costs. ETH had 9 trades and was blocked for sample size. docs/SPOT_RESEARCH_RESULTS.json",
+        "promoted": False,
+        "live": True,
+    },
 )
 
 BY_ID = {row["id"]: row for row in STRATEGIES}

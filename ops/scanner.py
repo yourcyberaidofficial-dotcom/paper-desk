@@ -27,6 +27,16 @@ def _when(ms):
     return datetime.fromtimestamp(ms / 1000, timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
 
 
+def _view_state(state):
+    return {
+        "DATA_UNAVAILABLE": "BLOCKED",
+        "WAIT": "WAIT",
+        "RESEARCH_OBSERVATION": "SETUP_WATCH",
+        "PAPER_CANDIDATE": "SIGNAL_CANDIDATE",
+        "APPROVED_SIGNAL": "APPROVED_SIGNAL",
+    }.get(state, "WAIT")
+
+
 def _headline(rows):
     for state in ("APPROVED_SIGNAL", "QUALIFIED_FOR_REVIEW", "PAPER_CANDIDATE", "RESEARCH_OBSERVATION"):
         for row in rows:
@@ -56,10 +66,10 @@ def present_window(window, now_ms):
         "alert": "unavailable",
     }
     if symbol == "XAUUSD" and not live:
-        base.update(status="unavailable", state="DATA_UNAVAILABLE", message=f"Gold scanning is temporarily unavailable. Last verified market update: {_when(updated)}.")
+        base.update(status="unavailable", state="DATA_UNAVAILABLE", scanner_state="BLOCKED", message=f"Gold scanning is temporarily unavailable. Last verified market update: {_when(updated)}.")
         return base
     if not live:
-        base.update(status="stale", state="DATA_UNAVAILABLE", message=f"{symbol} is not being scanned. The latest completed bar is missing or stale.")
+        base.update(status="stale", state="DATA_UNAVAILABLE", scanner_state="BLOCKED", message=f"{symbol} is not being scanned. The latest completed bar is missing or stale.")
         return base
     rows = evaluate_snapshot(symbol, bars, window.get("higher") or [], now_ms, interval)
     head = _headline(rows) or {}
@@ -71,7 +81,7 @@ def present_window(window, now_ms):
         message = PLAIN.get(head.get("reason"), "No qualifying setup yet.")
         status = "scanning"
     elif state == "RESEARCH_OBSERVATION":
-        message = PLAIN["benchmark_failed"]
+        message = "A condition matched a strategy that has not passed research. It is not an approved signal."
         status = "scanning"
     elif state == "PAPER_CANDIDATE":
         message = PLAIN["rules_complete_not_approved"]
@@ -97,6 +107,7 @@ def present_window(window, now_ms):
         event_id=head.get("event_id"),
         direction=head.get("direction") or "WAIT",
         invalidation=head.get("reason"),
+        scanner_state=_view_state(state),
         evidence_grade=grade["evidence_grade"],
         evidence_label=grade["label"],
         calibrated=False,
