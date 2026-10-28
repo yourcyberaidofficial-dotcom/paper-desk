@@ -1,0 +1,1882 @@
+{
+  "approved": [],
+  "base_branch": "gate3-signal-engine",
+  "base_commit": "3d58cfd0df786b554e7674b45fec3642bb0e2993",
+  "broker": false,
+  "crypto": {
+    "bars": {
+      "15m": 35039,
+      "1h": 8879
+    },
+    "coverage_endpoints": {
+      "15m": [
+        "2025-10-28T00:45:00+00:00",
+        "2026-10-28T00:29:59.999000+00:00"
+      ],
+      "1h": [
+        "2025-10-23T01:00:00+00:00",
+        "2026-10-27T23:59:59.999000+00:00"
+      ]
+    },
+    "rows": [
+      {
+        "base_mean": -0.00235462664228973,
+        "blocked": [],
+        "by_direction": {
+          "LONG": {
+            "mean": -0.0026506754846679806,
+            "n": 477
+          },
+          "SHORT": {
+            "mean": -0.0020541685618335054,
+            "n": 470
+          }
+        },
+        "by_regime": {
+          "LONG": {
+            "mean": -0.002099799769741881,
+            "n": 426
+          },
+          "SHORT": {
+            "mean": -0.002562987962261675,
+            "n": 521
+          }
+        },
+        "cost_label": null,
+        "end": "2026-06-04T00:30:00+00:00",
+        "equity": 0.10602660668296922,
+        "failed": [
+          "expectancy",
+          "uncertainty",
+          "flat",
+          "drawdown",
+          "streak",
+          "half_first",
+          "half_second"
+        ],
+        "judgment": "FAIL",
+        "max_drawdown": 0.8941239728751785,
+        "measured_bid_ask": false,
+        "normal_95_lower": -0.0026697553917749413,
+        "profit_factor": 0.3054777536977014,
+        "split": "development",
+        "start": "2025-10-28T00:45:00+00:00",
+        "strategy": "fail-break-20261028",
+        "stress_mean": -0.00315462664228973,
+        "symbol": "BTCUSDT",
+        "trades": 947,
+        "win_rate": 0.29778247096092925,
+        "worst_loss_streak": 16
+      },
+      {
+        "base_mean": -0.001856064028525312,
+        "blocked": [],
+        "by_direction": {
+          "LONG": {
+            "mean": -0.0020913211937421882,
+            "n": 172
+          },
+          "SHORT": {
+            "mean": -0.0015826570527327256,
+            "n": 148
+          }
+        },
+        "by_regime": {
+          "LONG": {
+            "mean": -0.001795487568783222,
+            "n": 148
+          },
+          "SHORT": {
+            "mean": -0.0019081879590010634,
+            "n": 172
+          }
+        },
+        "cost_label": null,
+        "end": "2026-08-16T00:30:00+00:00",
+        "equity": 0.5502588818805182,
+        "failed": [
+          "expectancy",
+          "uncertainty",
+          "flat",
+          "drawdown",
+          "streak",
+          "half_first",
+          "half_second"
+        ],
+        "judgment": "FAIL",
+        "max_drawdown": 0.4572511132817141,
+        "measured_bid_ask": false,
+        "normal_95_lower": -0.0023207533002472924,
+        "profit_factor": 0.3190427065814301,
+        "split": "validation",
+        "start": "2026-06-04T00:30:00+00:00",
+        "strategy": "fail-break-20261028",
+        "stress_mean": -0.0026560640285253115,
+        "symbol": "BTCUSDT",
+        "trades": 320,
+        "win_rate": 0.2875,
+        "worst_loss_streak": 16
+      },
+      {
+        "base_mean": null,
+        "blocked": [
+          "sample",
+          "half_first",
+          "half_second"
+        ],
+        "by_direction": {},
+        "by_regime": {},
+        "cost_label": null,
+        "end": "2026-06-04T00:30:00+00:00",
+        "equity": 1.0,
+        "failed": [],
+        "judgment": "BLOCKED",
+        "max_drawdown": 0.0,
+        "measured_bid_ask": false,
+        "normal_95_lower": null,
+        "profit_factor": null,
+        "split": "development",
+        "start": "2025-10-28T00:45:00+00:00",
+        "strategy": "quiet-expand-20261028",
+        "stress_mean": null,
+        "symbol": "BTCUSDT",
+        "trades": 0,
+        "win_rate": null,
+        "worst_loss_streak": 0
+      },
+      {
+        "base_mean": -0.007392524295200915,
+        "blocked": [
+          "sample",
+          "half_first",
+          "half_second"
+        ],
+        "by_direction": {
+          "LONG": {
+            "mean": -0.007392524295200915,
+            "n": 1
+          }
+        },
+        "by_regime": {
+          "LONG": {
+            "mean": -0.007392524295200915,
+            "n": 1
+          }
+        },
+        "cost_label": null,
+        "end": "2026-08-16T00:30:00+00:00",
+        "equity": 0.9926074757047991,
+        "failed": [],
+        "judgment": "BLOCKED",
+        "max_drawdown": 0.007392524295200875,
+        "measured_bid_ask": false,
+        "normal_95_lower": null,
+        "profit_factor": 0.0,
+        "split": "validation",
+        "start": "2026-06-04T00:30:00+00:00",
+        "strategy": "quiet-expand-20261028",
+        "stress_mean": -0.008192524295200915,
+        "symbol": "BTCUSDT",
+        "trades": 1,
+        "win_rate": 0.0,
+        "worst_loss_streak": 1
+      },
+      {
+        "base_mean": -0.0019268935246636975,
+        "blocked": [],
+        "by_direction": {
+          "LONG": {
+            "mean": -0.0019501899359907176,
+            "n": 513
+          },
+          "SHORT": {
+            "mean": -0.00190596347385676,
+            "n": 571
+          }
+        },
+        "by_regime": {
+          "LONG": {
+            "mean": -0.0019501899359907176,
+            "n": 513
+          },
+          "SHORT": {
+            "mean": -0.00190596347385676,
+            "n": 571
+          }
+        },
+        "cost_label": null,
+        "end": "2026-06-04T00:30:00+00:00",
+        "equity": 0.12057406551999,
+        "failed": [
+          "expectancy",
+          "uncertainty",
+          "flat",
+          "drawdown",
+          "streak",
+          "half_first",
+          "half_second"
+        ],
+        "judgment": "FAIL",
+        "max_drawdown": 0.8825272319487919,
+        "measured_bid_ask": false,
+        "normal_95_lower": -0.0023294932822127373,
+        "profit_factor": 0.46279036814176977,
+        "split": "development",
+        "start": "2025-10-28T00:45:00+00:00",
+        "strategy": "hour-close-drive-20261028",
+        "stress_mean": -0.0027268935246636972,
+        "symbol": "BTCUSDT",
+        "trades": 1084,
+        "win_rate": 0.2952029520295203,
+        "worst_loss_streak": 15
+      },
+      {
+        "base_mean": -0.0019003770012411586,
+        "blocked": [],
+        "by_direction": {
+          "LONG": {
+            "mean": -0.002121624729412282,
+            "n": 196
+          },
+          "SHORT": {
+            "mean": -0.0016581169189979169,
+            "n": 179
+          }
+        },
+        "by_regime": {
+          "LONG": {
+            "mean": -0.002121624729412282,
+            "n": 196
+          },
+          "SHORT": {
+            "mean": -0.0016581169189979169,
+            "n": 179
+          }
+        },
+        "cost_label": null,
+        "end": "2026-08-16T00:30:00+00:00",
+        "equity": 0.4875103720837552,
+        "failed": [
+          "expectancy",
+          "uncertainty",
+          "flat",
+          "drawdown",
+          "streak",
+          "half_first",
+          "half_second"
+        ],
+        "judgment": "FAIL",
+        "max_drawdown": 0.5139966456280959,
+        "measured_bid_ask": false,
+        "normal_95_lower": -0.002429940259568864,
+        "profit_factor": 0.3938306355131808,
+        "split": "validation",
+        "start": "2026-06-04T00:30:00+00:00",
+        "strategy": "hour-close-drive-20261028",
+        "stress_mean": -0.0027003770012411586,
+        "symbol": "BTCUSDT",
+        "trades": 375,
+        "win_rate": 0.2613333333333333,
+        "worst_loss_streak": 14
+      },
+      {
+        "base_mean": -0.0023473452938698805,
+        "blocked": [],
+        "by_direction": {
+          "LONG": {
+            "mean": -0.0026779065138938457,
+            "n": 403
+          },
+          "SHORT": {
+            "mean": -0.0019656370655900587,
+            "n": 349
+          }
+        },
+        "by_regime": {
+          "LONG": {
+            "mean": -0.0021283766177202226,
+            "n": 328
+          },
+          "SHORT": {
+            "mean": -0.0025167361565516916,
+            "n": 424
+          }
+        },
+        "cost_label": null,
+        "end": "2026-06-04T00:30:00+00:00",
+        "equity": 0.1675394006750284,
+        "failed": [
+          "expectancy",
+          "uncertainty",
+          "flat",
+          "drawdown",
+          "half_first",
+          "half_second"
+        ],
+        "judgment": "FAIL",
+        "max_drawdown": 0.8353927580777235,
+        "measured_bid_ask": false,
+        "normal_95_lower": -0.0028586317152725204,
+        "profit_factor": 0.43166860037096555,
+        "split": "development",
+        "start": "2025-10-28T00:45:00+00:00",
+        "strategy": "fail-break-20261028",
+        "stress_mean": -0.0031473452938698804,
+        "symbol": "ETHUSDT",
+        "trades": 752,
+        "win_rate": 0.3470744680851064,
+        "worst_loss_streak": 11
+      },
+      {
+        "base_mean": -0.0018569584795466903,
+        "blocked": [],
+        "by_direction": {
+          "LONG": {
+            "mean": -0.0023137020293524206,
+            "n": 164
+          },
+          "SHORT": {
+            "mean": -0.0012112175987868642,
+            "n": 116
+          }
+        },
+        "by_regime": {
+          "LONG": {
+            "mean": -0.0018468418940278417,
+            "n": 145
+          },
+          "SHORT": {
+            "mean": -0.0018678244417706389,
+            "n": 135
+          }
+        },
+        "cost_label": null,
+        "end": "2026-08-16T00:30:00+00:00",
+        "equity": 0.5918912345591688,
+        "failed": [
+          "expectancy",
+          "uncertainty",
+          "flat",
+          "drawdown",
+          "streak",
+          "half_first",
+          "half_second"
+        ],
+        "judgment": "FAIL",
+        "max_drawdown": 0.40982985941719163,
+        "measured_bid_ask": false,
+        "normal_95_lower": -0.0024835161479127214,
+        "profit_factor": 0.4055156619477434,
+        "split": "validation",
+        "start": "2026-06-04T00:30:00+00:00",
+        "strategy": "fail-break-20261028",
+        "stress_mean": -0.00265695847954669,
+        "symbol": "ETHUSDT",
+        "trades": 280,
+        "win_rate": 0.34285714285714286,
+        "worst_loss_streak": 13
+      },
+      {
+        "base_mean": -0.007006546911128233,
+        "blocked": [
+          "sample",
+          "half_first",
+          "half_second"
+        ],
+        "by_direction": {
+          "LONG": {
+            "mean": -0.006897741521801164,
+            "n": 1
+          },
+          "SHORT": {
+            "mean": -0.007115352300455303,
+            "n": 1
+          }
+        },
+        "by_regime": {
+          "LONG": {
+            "mean": -0.006897741521801164,
+            "n": 1
+          },
+          "SHORT": {
+            "mean": -0.007115352300455303,
+            "n": 1
+          }
+        },
+        "cost_label": null,
+        "end": "2026-06-04T00:30:00+00:00",
+        "equity": 0.9860359860387486,
+        "failed": [],
+        "judgment": "BLOCKED",
+        "max_drawdown": 0.013964013961251354,
+        "measured_bid_ask": false,
+        "normal_95_lower": -0.00721980547420929,
+        "profit_factor": 0.0,
+        "split": "development",
+        "start": "2025-10-28T00:45:00+00:00",
+        "strategy": "quiet-expand-20261028",
+        "stress_mean": -0.007806546911128233,
+        "symbol": "ETHUSDT",
+        "trades": 2,
+        "win_rate": 0.0,
+        "worst_loss_streak": 2
+      },
+      {
+        "base_mean": -0.006046936967997635,
+        "blocked": [
+          "sample",
+          "half_first",
+          "half_second"
+        ],
+        "by_direction": {
+          "LONG": {
+            "mean": -0.006046936967997635,
+            "n": 2
+          }
+        },
+        "by_regime": {
+          "LONG": {
+            "mean": -0.006046936967997635,
+            "n": 2
+          }
+        },
+        "cost_label": null,
+        "end": "2026-08-16T00:30:00+00:00",
+        "equity": 0.9878269486832844,
+        "failed": [],
+        "judgment": "BLOCKED",
+        "max_drawdown": 0.01680532102022858,
+        "measured_bid_ask": false,
+        "normal_95_lower": -0.027133369710370395,
+        "profit_factor": 0.28035448287849885,
+        "split": "validation",
+        "start": "2026-06-04T00:30:00+00:00",
+        "strategy": "quiet-expand-20261028",
+        "stress_mean": -0.0068469369679976366,
+        "symbol": "ETHUSDT",
+        "trades": 2,
+        "win_rate": 0.5,
+        "worst_loss_streak": 1
+      },
+      {
+        "base_mean": -0.0016230469540665124,
+        "blocked": [],
+        "by_direction": {
+          "LONG": {
+            "mean": -0.0017718688201344708,
+            "n": 448
+          },
+          "SHORT": {
+            "mean": -0.0014907608508949938,
+            "n": 504
+          }
+        },
+        "by_regime": {
+          "LONG": {
+            "mean": -0.0017718688201344708,
+            "n": 448
+          },
+          "SHORT": {
+            "mean": -0.0014907608508949938,
+            "n": 504
+          }
+        },
+        "cost_label": null,
+        "end": "2026-06-04T00:30:00+00:00",
+        "equity": 0.20488601379499527,
+        "failed": [
+          "expectancy",
+          "uncertainty",
+          "flat",
+          "drawdown",
+          "streak",
+          "half_first",
+          "half_second"
+        ],
+        "judgment": "FAIL",
+        "max_drawdown": 0.8013744790200136,
+        "measured_bid_ask": false,
+        "normal_95_lower": -0.0021988283233521436,
+        "profit_factor": 0.6124796254559054,
+        "split": "development",
+        "start": "2025-10-28T00:45:00+00:00",
+        "strategy": "hour-close-drive-20261028",
+        "stress_mean": -0.0024230469540665123,
+        "symbol": "ETHUSDT",
+        "trades": 952,
+        "win_rate": 0.32563025210084034,
+        "worst_loss_streak": 16
+      },
+      {
+        "base_mean": -0.0026251900432792425,
+        "blocked": [],
+        "by_direction": {
+          "LONG": {
+            "mean": -0.002340521267915558,
+            "n": 173
+          },
+          "SHORT": {
+            "mean": -0.0029349239938321822,
+            "n": 159
+          }
+        },
+        "by_regime": {
+          "LONG": {
+            "mean": -0.002340521267915558,
+            "n": 173
+          },
+          "SHORT": {
+            "mean": -0.0029349239938321822,
+            "n": 159
+          }
+        },
+        "cost_label": null,
+        "end": "2026-08-16T00:30:00+00:00",
+        "equity": 0.4139572190726802,
+        "failed": [
+          "expectancy",
+          "uncertainty",
+          "flat",
+          "drawdown",
+          "half_first",
+          "half_second"
+        ],
+        "judgment": "FAIL",
+        "max_drawdown": 0.5860427809273199,
+        "measured_bid_ask": false,
+        "normal_95_lower": -0.0034299045055499614,
+        "profit_factor": 0.3887855669387736,
+        "split": "validation",
+        "start": "2026-06-04T00:30:00+00:00",
+        "strategy": "hour-close-drive-20261028",
+        "stress_mean": -0.0034251900432792424,
+        "symbol": "ETHUSDT",
+        "trades": 332,
+        "win_rate": 0.2620481927710843,
+        "worst_loss_streak": 11
+      }
+    ],
+    "selection": {
+      "BTCUSDT": {
+        "holdout": "NOT_OPENED",
+        "reason": "no_validation_pass",
+        "selected": null
+      },
+      "ETHUSDT": {
+        "holdout": "NOT_OPENED",
+        "reason": "no_validation_pass",
+        "selected": null
+      }
+    }
+  },
+  "e1": "unchanged failed benchmark, not retuned",
+  "gate3_crypto_reproduction": {
+    "hashes": {
+      "BTCUSDT_15m": "0f51193e619c1c74a1743cba2e5652314d0cc32fb312e3eba65ac569b1d48a5b",
+      "BTCUSDT_1h": "bf4d15a203975c7e48b8013323625725629b102e69a4726a8a66d9530dcf1f88",
+      "ETHUSDT_15m": "3faf3216a1f7512521367d7422fdd6758a7e2f97e5070950e956527e982de752",
+      "ETHUSDT_1h": "406626c4eb833a607e973ad1b0abbad3d002ccf205abc060039ac6df87c0221e"
+    },
+    "holdout": "NOT_OPENED",
+    "match": true,
+    "method": "ops.research_cli OHLC sha256 on the recorded window",
+    "row_diffs_versus_GATE3_RESULTS": 0
+  },
+  "gate3_xaus_reproduction": {
+    "cause": "xaus.com range=1y is a moving window. The 2025-10-28 00:00 hour had rolled off by the rerun, and the 4h bucket that needed it dropped with it. GATE3_RESULTS was not overwritten or reclassified.",
+    "match": false,
+    "rerun_1h_bars": 5694,
+    "rerun_1h_sha256": "a5eafb5131a0564d286ecaf0a1db27fcedf44ab2e8c041e5d5744fd1a60f3e57",
+    "rerun_4h_bars": 1232,
+    "rerun_start": "2025-10-28T01:00:00+00:00",
+    "stored_1h_bars": 5695,
+    "stored_1h_sha256": "24cb98a8c1c6e207cfbf3d3962d0a9a2e6c176aba298c4dd43b81f272e3f7b2c",
+    "stored_4h_bars": 1233,
+    "stored_start": "2025-10-28T00:00:00+00:00"
+  },
+  "gold_assumed_cost_comparison": {
+    "can_pass": false,
+    "rows": [
+      {
+        "base_mean": -0.00025941825855163326,
+        "blocked": [
+          "no_measured_bid_ask"
+        ],
+        "by_direction": {
+          "LONG": {
+            "mean": -0.00045803349787424866,
+            "n": 37
+          },
+          "SHORT": {
+            "mean": 3.0375934103942485e-06,
+            "n": 28
+          }
+        },
+        "by_regime": {
+          "FLAT": {
+            "mean": 0.002399169287634134,
+            "n": 1
+          },
+          "LONG": {
+            "mean": 0.0008218254427280531,
+            "n": 37
+          },
+          "SHORT": {
+            "mean": -0.001839588795349195,
+            "n": 27
+          }
+        },
+        "cost_label": "assumed_0.50_1.50_usd_per_side_on_bid_ohlc_not_measured",
+        "end": "2026-06-03T14:00:00+00:00",
+        "equity": 0.9789976967523197,
+        "failed": [
+          "expectancy",
+          "uncertainty",
+          "flat",
+          "half_first",
+          "half_second"
+        ],
+        "judgment": "FAIL",
+        "max_drawdown": 0.08773691304167648,
+        "measured_bid_ask": false,
+        "normal_95_lower": -0.0030731837715110817,
+        "profit_factor": 0.9259965021642841,
+        "split": "development",
+        "start": "2025-10-28T00:00:00+00:00",
+        "strategy": "xau-london-range-20261028",
+        "stress_mean": -0.0007021258208329725,
+        "symbol": "XAUUSD",
+        "trades": 65,
+        "win_rate": 0.49230769230769234,
+        "worst_loss_streak": 5
+      },
+      {
+        "base_mean": 0.0016106088318970464,
+        "blocked": [
+          "sample",
+          "no_measured_bid_ask"
+        ],
+        "by_direction": {
+          "LONG": {
+            "mean": 0.0018276593484305812,
+            "n": 12
+          },
+          "SHORT": {
+            "mean": 0.0013935583153635116,
+            "n": 12
+          }
+        },
+        "by_regime": {
+          "LONG": {
+            "mean": 0.0017742765996499725,
+            "n": 13
+          },
+          "SHORT": {
+            "mean": 0.001417183288189043,
+            "n": 11
+          }
+        },
+        "cost_label": "assumed_0.50_1.50_usd_per_side_on_bid_ohlc_not_measured",
+        "end": "2026-08-14T19:00:00+00:00",
+        "equity": 1.0387813384704514,
+        "failed": [],
+        "judgment": "BLOCKED",
+        "max_drawdown": 0.0162306169157315,
+        "measured_bid_ask": false,
+        "normal_95_lower": -0.0012246490957044517,
+        "profit_factor": 1.7915048863155627,
+        "split": "validation",
+        "start": "2026-06-03T14:00:00+00:00",
+        "strategy": "xau-london-range-20261028",
+        "stress_mean": 0.0011297770516612465,
+        "symbol": "XAUUSD",
+        "trades": 24,
+        "win_rate": 0.5833333333333334,
+        "worst_loss_streak": 2
+      },
+      {
+        "base_mean": 0.0015881961239508312,
+        "blocked": [
+          "no_measured_bid_ask"
+        ],
+        "by_direction": {
+          "LONG": {
+            "mean": 0.0009729783010424198,
+            "n": 60
+          },
+          "SHORT": {
+            "mean": 0.0025595926864377962,
+            "n": 38
+          }
+        },
+        "by_regime": {
+          "FLAT": {
+            "mean": -0.007634065872616475,
+            "n": 1
+          },
+          "LONG": {
+            "mean": 0.001494460935203089,
+            "n": 60
+          },
+          "SHORT": {
+            "mean": 0.0019894494569625025,
+            "n": 37
+          }
+        },
+        "cost_label": "assumed_0.50_1.50_usd_per_side_on_bid_ohlc_not_measured",
+        "end": "2026-06-03T14:00:00+00:00",
+        "equity": 1.1611030607033686,
+        "failed": [
+          "uncertainty"
+        ],
+        "judgment": "FAIL",
+        "max_drawdown": 0.07604790291368982,
+        "measured_bid_ask": false,
+        "normal_95_lower": -0.0006497057909030221,
+        "profit_factor": 1.4968884096085955,
+        "split": "development",
+        "start": "2025-10-28T00:00:00+00:00",
+        "strategy": "xau-session-day-20261028",
+        "stress_mean": 0.0011480054400254522,
+        "symbol": "XAUUSD",
+        "trades": 98,
+        "win_rate": 0.5102040816326531,
+        "worst_loss_streak": 8
+      },
+      {
+        "base_mean": -0.0004950745832517311,
+        "blocked": [
+          "no_measured_bid_ask"
+        ],
+        "by_direction": {
+          "LONG": {
+            "mean": -0.0019575086467930615,
+            "n": 20
+          },
+          "SHORT": {
+            "mean": 0.0009673594802895995,
+            "n": 20
+          }
+        },
+        "by_regime": {
+          "LONG": {
+            "mean": 0.0005783959863473951,
+            "n": 22
+          },
+          "SHORT": {
+            "mean": -0.0018070941683173299,
+            "n": 18
+          }
+        },
+        "cost_label": "assumed_0.50_1.50_usd_per_side_on_bid_ohlc_not_measured",
+        "end": "2026-08-14T19:00:00+00:00",
+        "equity": 0.9787315640331115,
+        "failed": [
+          "expectancy",
+          "uncertainty",
+          "flat",
+          "half_second"
+        ],
+        "judgment": "FAIL",
+        "max_drawdown": 0.073883065953734,
+        "measured_bid_ask": false,
+        "normal_95_lower": -0.0033815597704728727,
+        "profit_factor": 0.8801739460408977,
+        "split": "validation",
+        "start": "2026-06-03T14:00:00+00:00",
+        "strategy": "xau-session-day-20261028",
+        "stress_mean": -0.0009758374578001787,
+        "symbol": "XAUUSD",
+        "trades": 40,
+        "win_rate": 0.5,
+        "worst_loss_streak": 4
+      },
+      {
+        "base_mean": -0.0037570634137855594,
+        "blocked": [
+          "sample",
+          "half_first",
+          "half_second",
+          "no_measured_bid_ask"
+        ],
+        "by_direction": {
+          "LONG": {
+            "mean": -0.0037570634137855594,
+            "n": 2
+          }
+        },
+        "by_regime": {
+          "LONG": {
+            "mean": -0.0037570634137855594,
+            "n": 2
+          }
+        },
+        "cost_label": "assumed_0.50_1.50_usd_per_side_on_bid_ohlc_not_measured",
+        "end": "2026-06-03T14:00:00+00:00",
+        "equity": 0.9924994023759506,
+        "failed": [],
+        "judgment": "BLOCKED",
+        "max_drawdown": 0.007500597624049421,
+        "measured_bid_ask": false,
+        "normal_95_lower": -0.005257868029225436,
+        "profit_factor": 0.0,
+        "split": "development",
+        "start": "2025-10-28T00:00:00+00:00",
+        "strategy": "xau-climax-fade-20261028",
+        "stress_mean": -0.004179490600441291,
+        "symbol": "XAUUSD",
+        "trades": 2,
+        "win_rate": 0.0,
+        "worst_loss_streak": 2
+      },
+      {
+        "base_mean": -0.0035180277500657677,
+        "blocked": [
+          "sample",
+          "half_first",
+          "half_second",
+          "no_measured_bid_ask"
+        ],
+        "by_direction": {
+          "SHORT": {
+            "mean": -0.0035180277500657677,
+            "n": 1
+          }
+        },
+        "by_regime": {
+          "SHORT": {
+            "mean": -0.0035180277500657677,
+            "n": 1
+          }
+        },
+        "cost_label": "assumed_0.50_1.50_usd_per_side_on_bid_ohlc_not_measured",
+        "end": "2026-08-14T19:00:00+00:00",
+        "equity": 0.9964819722499342,
+        "failed": [],
+        "judgment": "BLOCKED",
+        "max_drawdown": 0.003518027750065822,
+        "measured_bid_ask": false,
+        "normal_95_lower": null,
+        "profit_factor": 0.0,
+        "split": "validation",
+        "start": "2026-06-03T14:00:00+00:00",
+        "strategy": "xau-climax-fade-20261028",
+        "stress_mean": -0.004007662788349107,
+        "symbol": "XAUUSD",
+        "trades": 1,
+        "win_rate": 0.0,
+        "worst_loss_streak": 1
+      },
+      {
+        "base_mean": -0.000577101605401696,
+        "blocked": [
+          "no_measured_bid_ask"
+        ],
+        "by_direction": {
+          "LONG": {
+            "mean": -0.00043163290913953394,
+            "n": 78
+          },
+          "SHORT": {
+            "mean": -0.0007415444794371835,
+            "n": 69
+          }
+        },
+        "by_regime": {
+          "LONG": {
+            "mean": -0.00043163290913953394,
+            "n": 78
+          },
+          "SHORT": {
+            "mean": -0.0007415444794371835,
+            "n": 69
+          }
+        },
+        "cost_label": "assumed_0.50_1.50_usd_per_side_on_bid_ohlc_not_measured",
+        "end": "2026-06-03T14:00:00+00:00",
+        "equity": 0.9125910351706028,
+        "failed": [
+          "expectancy",
+          "uncertainty",
+          "flat",
+          "streak",
+          "half_first",
+          "half_second"
+        ],
+        "judgment": "FAIL",
+        "max_drawdown": 0.15952305843380526,
+        "measured_bid_ask": false,
+        "normal_95_lower": -0.002118633598929813,
+        "profit_factor": 0.85526312584228,
+        "split": "development",
+        "start": "2025-10-28T00:00:00+00:00",
+        "strategy": "tf-pullback-20261027",
+        "stress_mean": -0.001016882584086985,
+        "symbol": "XAUUSD",
+        "trades": 147,
+        "win_rate": 0.38095238095238093,
+        "worst_loss_streak": 13
+      },
+      {
+        "base_mean": -0.0004303950595001664,
+        "blocked": [
+          "no_measured_bid_ask"
+        ],
+        "by_direction": {
+          "LONG": {
+            "mean": 6.129178629398124e-05,
+            "n": 26
+          },
+          "SHORT": {
+            "mean": -0.0009417493791260799,
+            "n": 25
+          }
+        },
+        "by_regime": {
+          "LONG": {
+            "mean": 6.129178629398124e-05,
+            "n": 26
+          },
+          "SHORT": {
+            "mean": -0.0009417493791260799,
+            "n": 25
+          }
+        },
+        "cost_label": "assumed_0.50_1.50_usd_per_side_on_bid_ohlc_not_measured",
+        "end": "2026-08-14T19:00:00+00:00",
+        "equity": 0.9765740999310157,
+        "failed": [
+          "expectancy",
+          "uncertainty",
+          "flat",
+          "half_first"
+        ],
+        "judgment": "FAIL",
+        "max_drawdown": 0.08680516522546407,
+        "measured_bid_ask": false,
+        "normal_95_lower": -0.002729760089192768,
+        "profit_factor": 0.8881581168601341,
+        "split": "validation",
+        "start": "2026-06-03T14:00:00+00:00",
+        "strategy": "tf-pullback-20261027",
+        "stress_mean": -0.0009103459850219571,
+        "symbol": "XAUUSD",
+        "trades": 51,
+        "win_rate": 0.4117647058823529,
+        "worst_loss_streak": 6
+      },
+      {
+        "base_mean": -6.536402234957829e-05,
+        "blocked": [
+          "no_measured_bid_ask"
+        ],
+        "by_direction": {
+          "LONG": {
+            "mean": 0.0006333085694339983,
+            "n": 93
+          },
+          "SHORT": {
+            "mean": -0.0009678161200700313,
+            "n": 72
+          }
+        },
+        "by_regime": {
+          "FLAT": {
+            "mean": -0.007561328318641068,
+            "n": 1
+          },
+          "LONG": {
+            "mean": 9.817073388273883e-05,
+            "n": 91
+          },
+          "SHORT": {
+            "mean": -0.0001665379746899806,
+            "n": 73
+          }
+        },
+        "cost_label": "assumed_0.50_1.50_usd_per_side_on_bid_ohlc_not_measured",
+        "end": "2026-06-03T14:00:00+00:00",
+        "equity": 0.9778973415633916,
+        "failed": [
+          "expectancy",
+          "uncertainty",
+          "flat",
+          "half_first",
+          "half_second"
+        ],
+        "judgment": "FAIL",
+        "max_drawdown": 0.10884473853515993,
+        "measured_bid_ask": false,
+        "normal_95_lower": -0.0018858045586114644,
+        "profit_factor": 0.9860231986764811,
+        "split": "development",
+        "start": "2025-10-28T00:00:00+00:00",
+        "strategy": "vol-break-20261027",
+        "stress_mean": -0.0005013516104228355,
+        "symbol": "XAUUSD",
+        "trades": 165,
+        "win_rate": 0.36363636363636365,
+        "worst_loss_streak": 6
+      },
+      {
+        "base_mean": 0.0009505954112399205,
+        "blocked": [
+          "no_measured_bid_ask"
+        ],
+        "by_direction": {
+          "LONG": {
+            "mean": 9.249812618301265e-05,
+            "n": 33
+          },
+          "SHORT": {
+            "mean": 0.0018086926962968283,
+            "n": 33
+          }
+        },
+        "by_regime": {
+          "LONG": {
+            "mean": 0.002183291154613713,
+            "n": 32
+          },
+          "SHORT": {
+            "mean": -0.0002095888178177663,
+            "n": 34
+          }
+        },
+        "cost_label": "assumed_0.50_1.50_usd_per_side_on_bid_ohlc_not_measured",
+        "end": "2026-08-14T19:00:00+00:00",
+        "equity": 1.062203486969129,
+        "failed": [
+          "uncertainty"
+        ],
+        "judgment": "FAIL",
+        "max_drawdown": 0.04160213523385136,
+        "measured_bid_ask": false,
+        "normal_95_lower": -0.0011120395023851148,
+        "profit_factor": 1.2838631754654588,
+        "split": "validation",
+        "start": "2026-06-03T14:00:00+00:00",
+        "strategy": "vol-break-20261027",
+        "stress_mean": 0.00046966581907792747,
+        "symbol": "XAUUSD",
+        "trades": 66,
+        "win_rate": 0.3939393939393939,
+        "worst_loss_streak": 6
+      },
+      {
+        "base_mean": null,
+        "blocked": [
+          "sample",
+          "half_first",
+          "half_second",
+          "no_measured_bid_ask"
+        ],
+        "by_direction": {},
+        "by_regime": {},
+        "cost_label": "assumed_0.50_1.50_usd_per_side_on_bid_ohlc_not_measured",
+        "end": "2026-06-03T14:00:00+00:00",
+        "equity": 1.0,
+        "failed": [],
+        "judgment": "BLOCKED",
+        "max_drawdown": 0.0,
+        "measured_bid_ask": false,
+        "normal_95_lower": null,
+        "profit_factor": null,
+        "split": "development",
+        "start": "2025-10-28T00:00:00+00:00",
+        "strategy": "mr-range-20261027",
+        "stress_mean": null,
+        "symbol": "XAUUSD",
+        "trades": 0,
+        "win_rate": null,
+        "worst_loss_streak": 0
+      },
+      {
+        "base_mean": null,
+        "blocked": [
+          "sample",
+          "half_first",
+          "half_second",
+          "no_measured_bid_ask"
+        ],
+        "by_direction": {},
+        "by_regime": {},
+        "cost_label": "assumed_0.50_1.50_usd_per_side_on_bid_ohlc_not_measured",
+        "end": "2026-08-14T19:00:00+00:00",
+        "equity": 1.0,
+        "failed": [],
+        "judgment": "BLOCKED",
+        "max_drawdown": 0.0,
+        "measured_bid_ask": false,
+        "normal_95_lower": null,
+        "profit_factor": null,
+        "split": "validation",
+        "start": "2026-06-03T14:00:00+00:00",
+        "strategy": "mr-range-20261027",
+        "stress_mean": null,
+        "symbol": "XAUUSD",
+        "trades": 0,
+        "win_rate": null,
+        "worst_loss_streak": 0
+      },
+      {
+        "base_mean": -0.0004117644148293858,
+        "blocked": [
+          "no_measured_bid_ask"
+        ],
+        "by_direction": {
+          "LONG": {
+            "mean": -0.0012212616735175616,
+            "n": 38
+          },
+          "SHORT": {
+            "mean": 0.00046711832317491937,
+            "n": 35
+          }
+        },
+        "by_regime": {
+          "LONG": {
+            "mean": -0.0012212616735175616,
+            "n": 38
+          },
+          "SHORT": {
+            "mean": 0.00046711832317491937,
+            "n": 35
+          }
+        },
+        "cost_label": "assumed_0.50_1.50_usd_per_side_on_bid_ohlc_not_measured",
+        "end": "2026-06-03T14:00:00+00:00",
+        "equity": 0.9661434456464038,
+        "failed": [
+          "expectancy",
+          "uncertainty",
+          "flat",
+          "half_first",
+          "half_second"
+        ],
+        "judgment": "FAIL",
+        "max_drawdown": 0.08760584986779847,
+        "measured_bid_ask": false,
+        "normal_95_lower": -0.002956889812939922,
+        "profit_factor": 0.9018485878226079,
+        "split": "development",
+        "start": "2025-10-28T00:00:00+00:00",
+        "strategy": "xau-session-20261027",
+        "stress_mean": -0.000846334375708624,
+        "symbol": "XAUUSD",
+        "trades": 73,
+        "win_rate": 0.3698630136986301,
+        "worst_loss_streak": 7
+      },
+      {
+        "base_mean": -0.001336972433740395,
+        "blocked": [
+          "sample",
+          "no_measured_bid_ask"
+        ],
+        "by_direction": {
+          "LONG": {
+            "mean": -0.0015187619177050634,
+            "n": 17
+          },
+          "SHORT": {
+            "mean": -0.0010279303110004583,
+            "n": 10
+          }
+        },
+        "by_regime": {
+          "LONG": {
+            "mean": -0.0015187619177050634,
+            "n": 17
+          },
+          "SHORT": {
+            "mean": -0.0010279303110004583,
+            "n": 10
+          }
+        },
+        "cost_label": "assumed_0.50_1.50_usd_per_side_on_bid_ohlc_not_measured",
+        "end": "2026-08-14T19:00:00+00:00",
+        "equity": 0.9635517528151072,
+        "failed": [
+          "half_first",
+          "half_second"
+        ],
+        "judgment": "FAIL",
+        "max_drawdown": 0.07521203676089545,
+        "measured_bid_ask": false,
+        "normal_95_lower": -0.004658906111436424,
+        "profit_factor": 0.7099846755963523,
+        "split": "validation",
+        "start": "2026-06-03T14:00:00+00:00",
+        "strategy": "xau-session-20261027",
+        "stress_mean": -0.0018150426765263378,
+        "symbol": "XAUUSD",
+        "trades": 27,
+        "win_rate": 0.37037037037037035,
+        "worst_loss_streak": 5
+      }
+    ],
+    "selection": {
+      "holdout": "NOT_OPENED",
+      "reason": "assumed_cost_cannot_pass",
+      "selected": null
+    }
+  },
+  "gold_gate3_replay_measured": {
+    "note": "Comparison only. These rules cannot be selected.",
+    "rows": [
+      {
+        "base_mean": -0.0005086466772841,
+        "blocked": [],
+        "by_direction": {
+          "LONG": {
+            "mean": -0.00031951732657577435,
+            "n": 78
+          },
+          "SHORT": {
+            "mean": -0.0007193908109305199,
+            "n": 70
+          }
+        },
+        "by_regime": {
+          "LONG": {
+            "mean": -0.00031951732657577435,
+            "n": 78
+          },
+          "SHORT": {
+            "mean": -0.0007193908109305199,
+            "n": 70
+          }
+        },
+        "cost_label": null,
+        "end": "2026-06-03T14:00:00+00:00",
+        "equity": 0.9212720243569015,
+        "failed": [
+          "expectancy",
+          "uncertainty",
+          "flat",
+          "streak",
+          "half_first",
+          "half_second"
+        ],
+        "judgment": "FAIL",
+        "max_drawdown": 0.15765264329537543,
+        "measured_bid_ask": true,
+        "normal_95_lower": -0.0020504941134229116,
+        "profit_factor": 0.8716035659490352,
+        "split": "development",
+        "start": "2025-10-28T00:00:00+00:00",
+        "strategy": "tf-pullback-20261027",
+        "stress_mean": -0.0005965996603385995,
+        "symbol": "XAUUSD",
+        "trades": 148,
+        "win_rate": 0.3783783783783784,
+        "worst_loss_streak": 13
+      },
+      {
+        "base_mean": -0.0003067236958824081,
+        "blocked": [],
+        "by_direction": {
+          "LONG": {
+            "mean": 0.00018475111460291362,
+            "n": 26
+          },
+          "SHORT": {
+            "mean": -0.0008178574987871426,
+            "n": 25
+          }
+        },
+        "by_regime": {
+          "LONG": {
+            "mean": 0.00018475111460291362,
+            "n": 26
+          },
+          "SHORT": {
+            "mean": -0.0008178574987871426,
+            "n": 25
+          }
+        },
+        "cost_label": null,
+        "end": "2026-08-14T19:00:00+00:00",
+        "equity": 0.982704348482258,
+        "failed": [
+          "expectancy",
+          "uncertainty",
+          "flat",
+          "half_first"
+        ],
+        "judgment": "FAIL",
+        "max_drawdown": 0.08400555127489441,
+        "measured_bid_ask": true,
+        "normal_95_lower": -0.002640306607051888,
+        "profit_factor": 0.9196224746665239,
+        "split": "validation",
+        "start": "2026-06-03T14:00:00+00:00",
+        "strategy": "tf-pullback-20261027",
+        "stress_mean": -0.0004027037869790946,
+        "symbol": "XAUUSD",
+        "trades": 51,
+        "win_rate": 0.39215686274509803,
+        "worst_loss_streak": 6
+      },
+      {
+        "base_mean": -0.00011412976671844227,
+        "blocked": [],
+        "by_direction": {
+          "LONG": {
+            "mean": 0.0006381426217109833,
+            "n": 93
+          },
+          "SHORT": {
+            "mean": -0.0010858149351064504,
+            "n": 72
+          }
+        },
+        "by_regime": {
+          "FLAT": {
+            "mean": -0.007360330666131661,
+            "n": 1
+          },
+          "LONG": {
+            "mean": 0.00023974498018445917,
+            "n": 91
+          },
+          "SHORT": {
+            "mean": -0.0004559982745095492,
+            "n": 73
+          }
+        },
+        "cost_label": null,
+        "end": "2026-06-03T14:00:00+00:00",
+        "equity": 0.9701571975090981,
+        "failed": [
+          "expectancy",
+          "uncertainty",
+          "flat",
+          "half_first"
+        ],
+        "judgment": "FAIL",
+        "max_drawdown": 0.12300116627150111,
+        "measured_bid_ask": true,
+        "normal_95_lower": -0.0019268937961269272,
+        "profit_factor": 0.9754071771050563,
+        "split": "development",
+        "start": "2025-10-28T00:00:00+00:00",
+        "strategy": "vol-break-20261027",
+        "stress_mean": -0.0002013226493677484,
+        "symbol": "XAUUSD",
+        "trades": 165,
+        "win_rate": 0.3515151515151515,
+        "worst_loss_streak": 9
+      },
+      {
+        "base_mean": 0.0011322681697171768,
+        "blocked": [],
+        "by_direction": {
+          "LONG": {
+            "mean": 0.0002658733514824685,
+            "n": 33
+          },
+          "SHORT": {
+            "mean": 0.0019986629879518852,
+            "n": 33
+          }
+        },
+        "by_regime": {
+          "LONG": {
+            "mean": 0.0023647699697484136,
+            "n": 32
+          },
+          "SHORT": {
+            "mean": -2.773352442986948e-05,
+            "n": 34
+          }
+        },
+        "cost_label": null,
+        "end": "2026-08-14T19:00:00+00:00",
+        "equity": 1.0750039953646993,
+        "failed": [
+          "uncertainty"
+        ],
+        "judgment": "FAIL",
+        "max_drawdown": 0.03873321121826865,
+        "measured_bid_ask": true,
+        "normal_95_lower": -0.0009303488258563862,
+        "profit_factor": 1.349693658482056,
+        "split": "validation",
+        "start": "2026-06-03T14:00:00+00:00",
+        "strategy": "vol-break-20261027",
+        "stress_mean": 0.0010360943983655118,
+        "symbol": "XAUUSD",
+        "trades": 66,
+        "win_rate": 0.3939393939393939,
+        "worst_loss_streak": 6
+      },
+      {
+        "base_mean": null,
+        "blocked": [
+          "sample",
+          "half_first",
+          "half_second"
+        ],
+        "by_direction": {},
+        "by_regime": {},
+        "cost_label": null,
+        "end": "2026-06-03T14:00:00+00:00",
+        "equity": 1.0,
+        "failed": [],
+        "judgment": "BLOCKED",
+        "max_drawdown": 0.0,
+        "measured_bid_ask": true,
+        "normal_95_lower": null,
+        "profit_factor": null,
+        "split": "development",
+        "start": "2025-10-28T00:00:00+00:00",
+        "strategy": "mr-range-20261027",
+        "stress_mean": null,
+        "symbol": "XAUUSD",
+        "trades": 0,
+        "win_rate": null,
+        "worst_loss_streak": 0
+      },
+      {
+        "base_mean": null,
+        "blocked": [
+          "sample",
+          "half_first",
+          "half_second"
+        ],
+        "by_direction": {},
+        "by_regime": {},
+        "cost_label": null,
+        "end": "2026-08-14T19:00:00+00:00",
+        "equity": 1.0,
+        "failed": [],
+        "judgment": "BLOCKED",
+        "max_drawdown": 0.0,
+        "measured_bid_ask": true,
+        "normal_95_lower": null,
+        "profit_factor": null,
+        "split": "validation",
+        "start": "2026-06-03T14:00:00+00:00",
+        "strategy": "mr-range-20261027",
+        "stress_mean": null,
+        "symbol": "XAUUSD",
+        "trades": 0,
+        "win_rate": null,
+        "worst_loss_streak": 0
+      },
+      {
+        "base_mean": -0.00034154141464792846,
+        "blocked": [],
+        "by_direction": {
+          "LONG": {
+            "mean": -0.0011283992917004778,
+            "n": 38
+          },
+          "SHORT": {
+            "mean": 0.0005127614232948395,
+            "n": 35
+          }
+        },
+        "by_regime": {
+          "LONG": {
+            "mean": -0.0011283992917004778,
+            "n": 38
+          },
+          "SHORT": {
+            "mean": 0.0005127614232948395,
+            "n": 35
+          }
+        },
+        "cost_label": null,
+        "end": "2026-06-03T14:00:00+00:00",
+        "equity": 0.9710753611376565,
+        "failed": [
+          "expectancy",
+          "uncertainty",
+          "flat",
+          "half_first",
+          "half_second"
+        ],
+        "judgment": "FAIL",
+        "max_drawdown": 0.08672696503663178,
+        "measured_bid_ask": true,
+        "normal_95_lower": -0.0028974019416802225,
+        "profit_factor": 0.9181883807218517,
+        "split": "development",
+        "start": "2025-10-28T00:00:00+00:00",
+        "strategy": "xau-session-20261027",
+        "stress_mean": -0.00042844863731122436,
+        "symbol": "XAUUSD",
+        "trades": 73,
+        "win_rate": 0.3698630136986301,
+        "worst_loss_streak": 7
+      },
+      {
+        "base_mean": -0.0011897797680209894,
+        "blocked": [
+          "sample"
+        ],
+        "by_direction": {
+          "LONG": {
+            "mean": -0.0013808477876472943,
+            "n": 17
+          },
+          "SHORT": {
+            "mean": -0.0008649641346562712,
+            "n": 10
+          }
+        },
+        "by_regime": {
+          "LONG": {
+            "mean": -0.0013808477876472943,
+            "n": 17
+          },
+          "SHORT": {
+            "mean": -0.0008649641346562712,
+            "n": 10
+          }
+        },
+        "cost_label": null,
+        "end": "2026-08-14T19:00:00+00:00",
+        "equity": 0.9673660698438341,
+        "failed": [
+          "half_first",
+          "half_second"
+        ],
+        "judgment": "FAIL",
+        "max_drawdown": 0.07380905954640232,
+        "measured_bid_ask": true,
+        "normal_95_lower": -0.004559091780101105,
+        "profit_factor": 0.73896099882168,
+        "split": "validation",
+        "start": "2026-06-03T14:00:00+00:00",
+        "strategy": "xau-session-20261027",
+        "stress_mean": -0.0012853836667530366,
+        "symbol": "XAUUSD",
+        "trades": 27,
+        "win_rate": 0.37037037037037035,
+        "worst_loss_streak": 5
+      }
+    ],
+    "selection": {
+      "holdout": "NOT_OPENED",
+      "reason": "replay_not_selectable",
+      "selected": null
+    }
+  },
+  "gold_measured": {
+    "coverage": [
+      {
+        "bars": 6264,
+        "end": "2026-10-27T23:59:59.999000+00:00",
+        "fresh": false,
+        "interval": "1h",
+        "provider": "dukascopy",
+        "quote_semantics": "dukascopy_xauusd_bid_ask",
+        "sha256": "4068aa073764ae2a7b9cb573171fff467751daae4b5d8a1d5e945c60d489465f",
+        "start": "2025-10-28T00:00:00+00:00",
+        "symbol": "XAUUSD"
+      },
+      {
+        "bars": 1514,
+        "end": "2026-10-27T23:59:59.999000+00:00",
+        "fresh": false,
+        "interval": "4h",
+        "provider": "dukascopy",
+        "quote_semantics": "dukascopy_xauusd_bid_ask",
+        "sha256": "d5c217acb502aaa5c76be3414ff6f8b51c3d03e465bda99c94dcbbe6a9bc80b6",
+        "start": "2025-10-28T00:00:00+00:00",
+        "symbol": "XAUUSD"
+      }
+    ],
+    "gaps": {
+      "gaps": 52,
+      "unexpected_gaps": 0
+    },
+    "rows": [
+      {
+        "base_mean": -0.00024244257828427829,
+        "blocked": [],
+        "by_direction": {
+          "LONG": {
+            "mean": -0.00040539613630662986,
+            "n": 37
+          },
+          "SHORT": {
+            "mean": -2.7111090897599454e-05,
+            "n": 28
+          }
+        },
+        "by_regime": {
+          "FLAT": {
+            "mean": 0.002453794573415805,
+            "n": 1
+          },
+          "LONG": {
+            "mean": 0.0008374910069269319,
+            "n": 37
+          },
+          "SHORT": {
+            "mean": -0.0018222122006737176,
+            "n": 27
+          }
+        },
+        "cost_label": null,
+        "end": "2026-06-03T14:00:00+00:00",
+        "equity": 0.9800763501407339,
+        "failed": [
+          "expectancy",
+          "uncertainty",
+          "flat",
+          "half_first",
+          "half_second"
+        ],
+        "judgment": "FAIL",
+        "max_drawdown": 0.0875275927174245,
+        "measured_bid_ask": true,
+        "normal_95_lower": -0.003057375181654239,
+        "profit_factor": 0.9309099289352575,
+        "split": "development",
+        "start": "2025-10-28T00:00:00+00:00",
+        "strategy": "xau-london-range-20261028",
+        "stress_mean": -0.0003309772492560963,
+        "symbol": "XAUUSD",
+        "trades": 65,
+        "win_rate": 0.49230769230769234,
+        "worst_loss_streak": 5
+      },
+      {
+        "base_mean": 0.0016501873845007075,
+        "blocked": [
+          "sample"
+        ],
+        "by_direction": {
+          "LONG": {
+            "mean": 0.0018797707180892409,
+            "n": 12
+          },
+          "SHORT": {
+            "mean": 0.0014206040509121744,
+            "n": 12
+          }
+        },
+        "by_regime": {
+          "LONG": {
+            "mean": 0.001810745237017099,
+            "n": 13
+          },
+          "SHORT": {
+            "mean": 0.0014604371951631543,
+            "n": 11
+          }
+        },
+        "cost_label": null,
+        "end": "2026-08-14T19:00:00+00:00",
+        "equity": 1.0397663427402235,
+        "failed": [],
+        "judgment": "BLOCKED",
+        "max_drawdown": 0.01623616186197755,
+        "measured_bid_ask": true,
+        "normal_95_lower": -0.0011865494591329522,
+        "profit_factor": 1.8168733206713121,
+        "split": "validation",
+        "start": "2026-06-03T14:00:00+00:00",
+        "strategy": "xau-london-range-20261028",
+        "stress_mean": 0.0015540277145568904,
+        "symbol": "XAUUSD",
+        "trades": 24,
+        "win_rate": 0.5833333333333334,
+        "worst_loss_streak": 2
+      },
+      {
+        "base_mean": 0.00159232446697574,
+        "blocked": [],
+        "by_direction": {
+          "LONG": {
+            "mean": 0.000991289129131051,
+            "n": 60
+          },
+          "SHORT": {
+            "mean": 0.00254132763199367,
+            "n": 38
+          }
+        },
+        "by_regime": {
+          "FLAT": {
+            "mean": -0.007610355371069153,
+            "n": 1
+          },
+          "LONG": {
+            "mean": 0.0015128592528721322,
+            "n": 60
+          },
+          "SHORT": {
+            "mean": 0.001969908053036858,
+            "n": 37
+          }
+        },
+        "cost_label": null,
+        "end": "2026-06-03T14:00:00+00:00",
+        "equity": 1.1615669805364148,
+        "failed": [
+          "uncertainty"
+        ],
+        "judgment": "FAIL",
+        "max_drawdown": 0.07550846600392583,
+        "measured_bid_ask": true,
+        "normal_95_lower": -0.0006464753890710287,
+        "profit_factor": 1.4990493506941507,
+        "split": "development",
+        "start": "2025-10-28T00:00:00+00:00",
+        "strategy": "xau-session-day-20261028",
+        "stress_mean": 0.0015042955898730797,
+        "symbol": "XAUUSD",
+        "trades": 98,
+        "win_rate": 0.5102040816326531,
+        "worst_loss_streak": 8
+      },
+      {
+        "base_mean": -0.0005245279521166107,
+        "blocked": [],
+        "by_direction": {
+          "LONG": {
+            "mean": -0.001979870453867944,
+            "n": 20
+          },
+          "SHORT": {
+            "mean": 0.0009308145496347223,
+            "n": 20
+          }
+        },
+        "by_regime": {
+          "LONG": {
+            "mean": 0.000574018449729452,
+            "n": 22
+          },
+          "SHORT": {
+            "mean": -0.0018671957765951316,
+            "n": 18
+          }
+        },
+        "cost_label": null,
+        "end": "2026-08-14T19:00:00+00:00",
+        "equity": 0.9775666883252724,
+        "failed": [
+          "expectancy",
+          "uncertainty",
+          "flat",
+          "half_second"
+        ],
+        "judgment": "FAIL",
+        "max_drawdown": 0.07550733500795545,
+        "measured_bid_ask": true,
+        "normal_95_lower": -0.00342145251259208,
+        "profit_factor": 0.8740679456956721,
+        "split": "validation",
+        "start": "2026-06-03T14:00:00+00:00",
+        "strategy": "xau-session-day-20261028",
+        "stress_mean": -0.0006206704260652362,
+        "symbol": "XAUUSD",
+        "trades": 40,
+        "win_rate": 0.5,
+        "worst_loss_streak": 4
+      },
+      {
+        "base_mean": -0.0038570576660336073,
+        "blocked": [
+          "sample",
+          "half_first",
+          "half_second"
+        ],
+        "by_direction": {
+          "LONG": {
+            "mean": -0.0038570576660336073,
+            "n": 2
+          }
+        },
+        "by_regime": {
+          "LONG": {
+            "mean": -0.0038570576660336073,
+            "n": 2
+          }
+        },
+        "cost_label": null,
+        "end": "2026-06-03T14:00:00+00:00",
+        "equity": 0.9923001558774188,
+        "failed": [],
+        "judgment": "BLOCKED",
+        "max_drawdown": 0.007699844122581179,
+        "measured_bid_ask": true,
+        "normal_95_lower": -0.00538244188346892,
+        "profit_factor": 0.0,
+        "split": "development",
+        "start": "2025-10-28T00:00:00+00:00",
+        "strategy": "xau-climax-fade-20261028",
+        "stress_mean": -0.003941520305933814,
+        "symbol": "XAUUSD",
+        "trades": 2,
+        "win_rate": 0.0,
+        "worst_loss_streak": 2
+      },
+      {
+        "base_mean": -0.003322173734752432,
+        "blocked": [
+          "sample",
+          "half_first",
+          "half_second"
+        ],
+        "by_direction": {
+          "SHORT": {
+            "mean": -0.003322173734752432,
+            "n": 1
+          }
+        },
+        "by_regime": {
+          "SHORT": {
+            "mean": -0.003322173734752432,
+            "n": 1
+          }
+        },
+        "cost_label": null,
+        "end": "2026-08-14T19:00:00+00:00",
+        "equity": 0.9966778262652476,
+        "failed": [],
+        "judgment": "BLOCKED",
+        "max_drawdown": 0.0033221737347524094,
+        "measured_bid_ask": true,
+        "normal_95_lower": null,
+        "profit_factor": 0.0,
+        "split": "validation",
+        "start": "2026-06-03T14:00:00+00:00",
+        "strategy": "xau-climax-fade-20261028",
+        "stress_mean": -0.0034201007424090996,
+        "symbol": "XAUUSD",
+        "trades": 1,
+        "win_rate": 0.0,
+        "worst_loss_streak": 1
+      }
+    ],
+    "selection": {
+      "holdout": "NOT_OPENED",
+      "reason": "no_validation_pass",
+      "selected": null
+    },
+    "spread_open_usd": {
+      "max": 14.91399999999976,
+      "mean": 0.9253119412515957,
+      "median": 0.680000000000291,
+      "min": 0.0999999999994543,
+      "negative": 0
+    }
+  },
+  "holdout": "NOT_OPENED",
+  "pr_78": "3993c08bd3ad29a0548d1206d11157b19a6ad89d",
+  "production": "WAIT_DEFAULT",
+  "qualified_for_review": [],
+  "reason": "no_validation_pass",
+  "spec": "docs/GATE4_SPEC.md",
+  "spec_commit": "703aa08e891c32ee06bb678f5c6b053edb67d980",
+  "telegram_called": false
+}
