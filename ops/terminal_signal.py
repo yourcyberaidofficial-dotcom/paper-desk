@@ -7,6 +7,8 @@ from pathlib import Path
 
 from ops.bars import interval_ms
 from ops.hypotheses import _atr
+from ops.daily_rules import RULES as DAILY_RULES
+from ops.gold_live import snapshot_reason
 from ops.leaders import COMPRESS, CRYPTO_RULES, GOLD_RULES, LONDON, SWEEP
 from ops.plan import propose_size
 from ops.profiles import risk_cap
@@ -17,8 +19,20 @@ AUTO = {
     "ETHUSDT": SWEEP,
     "XAUUSD": LONDON,
 }
-RULES = {**CRYPTO_RULES, **GOLD_RULES}
+RULES = {**CRYPTO_RULES, **GOLD_RULES, **DAILY_RULES}
 CRYPTO_COST_BPS = 11
+DECISIONS = Path(__file__).resolve().parents[1] / "docs" / "MARKET_DECISIONS.json"
+
+
+def auto_strategy(symbol):
+    if DECISIONS.exists():
+        try:
+            row = json.loads(DECISIONS.read_text(encoding="utf-8"))["markets"][symbol]
+        except (KeyError, json.JSONDecodeError, OSError):
+            row = None
+        if row and row.get("strategy"):
+            return row["strategy"]
+    return AUTO.get(symbol)
 
 
 def _path(user_id):
@@ -101,8 +115,8 @@ def _levels(setup, price):
     return stop, target, reward
 
 
-def decide(symbol, interval, strategy, bars, now_ms, user, prior=None):
-    chosen = AUTO.get(symbol) if strategy in {None, "", "auto"} else strategy
+def decide(symbol, interval, strategy, bars, now_ms, user, prior=None, live_quote=None):
+    chosen = auto_strategy(symbol) if strategy in {None, "", "auto"} else strategy
     spec = BY_ID.get(chosen) or {}
     base = {
         "symbol": symbol,
@@ -123,6 +137,18 @@ def decide(symbol, interval, strategy, bars, now_ms, user, prior=None):
     if chosen not in RULES or symbol not in (spec.get("instruments") or []):
         return {**base, "decision": "WAIT", "reason": "That strategy is not eligible for this market.", "fresh": False, "reference_price": None}
     if not bars:
+        if symbol == "XAUUSD" and live_quote and live_quote.get("ok"):
+            return {
+                **base,
+                "decision": "WAIT",
+                "reason": snapshot_reason(live_quote),
+                "fresh": False,
+                "reference_price": None,
+                "blocked": "snapshot_not_candle",
+                "source_name": live_quote.get("provider"),
+                "quote": "bid_ask_snapshot",
+                "live_quote": live_quote,
+            }
         return {**base, "decision": "WAIT", "reason": "No completed candle was returned.", "fresh": False, "reference_price": None, "blocked": "missing_feed"}
     last = bars[-1]
     price = last.get("close")
@@ -138,7 +164,10 @@ def decide(symbol, interval, strategy, bars, now_ms, user, prior=None):
     if not fresh:
         return {**base, "decision": "WAIT", "reason": "The latest candle is missing, still forming, or too old to treat as live.", "blocked": "stale_or_incomplete"}
     if symbol == "XAUUSD" and (last.get("quote_semantics") != "dukascopy_xauusd_bid_ask" or last.get("ask_open") is None):
-        return {**base, "decision": "WAIT", "reason": "Gold is blocked. The available feed is not a verified bid/ask quote, so the London rule was not calculated.", "blocked": "quote_not_bid_ask"}
+        extra = ""
+        if live_quote and live_quote.get("ok"):
+            extra = " " + snapshot_reason(live_quote)
+        return {**base, "decision": "WAIT", "reason": "Gold is blocked. The candle feed is not verified bid/ask, so the London rule was not calculated." + extra, "blocked": "quote_not_bid_ask", "live_quote": live_quote}
     if interval != spec.get("timeframe"):
         return {**base, "decision": "WAIT", "reason": f"This rule is defined on {spec.get('timeframe')} candles. {interval} was not substituted.", "blocked": "timeframe"}
     if prior and prior.get("decision") == "BUY":
