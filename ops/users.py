@@ -1,5 +1,6 @@
 """Per-user store with password hashing. Isolation is by session user id."""
 
+import hashlib
 import json
 import os
 import secrets
@@ -58,13 +59,12 @@ def get(user_id: str) -> dict | None:
 
 
 def link_telegram(user_id: str, chat_id: str) -> dict | None:
-    path = _path(user_id)
-    if not path.exists():
-        return None
-    user = json.loads(path.read_text())
-    user["telegram"] = {"chat_id": str(chat_id), "linked_at": time.time()}
-    path.write_text(json.dumps(user))
-    return get(user_id)
+    """A typed chat id is not verification. The bot update path is the only one."""
+    return None
+
+
+def _token_hash(token: str) -> str:
+    return hashlib.sha256(token.encode()).hexdigest()
 
 
 def update_prefs(user_id: str, prefs: dict) -> dict | None:
@@ -75,14 +75,11 @@ def update_prefs(user_id: str, prefs: dict) -> dict | None:
     markets = [m for m in prefs.get("markets", []) if m in {"BTCUSDT", "ETHUSDT", "XAUUSD"}]
     user["prefs"] = {
         "markets": markets or ["BTCUSDT"],
-        "timeframes": {"BTCUSDT": "15m", "ETHUSDT": "15m", "XAUUSD": "1d"},
+        "timeframes": {"BTCUSDT": "15m", "ETHUSDT": "15m", "XAUUSD": "1h"},
     }
     path.write_text(json.dumps(user))
     return get(user_id)
 
-
-import secrets
-import time
 
 def update_profile(user_id: str, profile: dict) -> dict | None:
     from ops.profiles import CURRENCIES, get_profile, risk_cap
@@ -141,55 +138,59 @@ def update_profile(user_id: str, profile: dict) -> dict | None:
     return get(user_id)
 
 
-def start_telegram_link(user_id: str, claimed_id: str) -> dict | None:
+def start_telegram_link(user_id: str, claimed_id: str | None = None) -> dict | None:
+    """One-time token. A typed id is ignored and the raw token is not stored."""
     path = _path(user_id)
     if not path.exists():
         return None
     user = json.loads(path.read_text())
-    token = secrets.token_urlsafe(16)
+    token = secrets.token_urlsafe(24)
     user["telegram_pending"] = {
-        "token": token,
-        "claimed_id": str(claimed_id),
+        "token_hash": _token_hash(token),
         "expires": time.time() + 600,
     }
     path.write_text(json.dumps(user))
     return {"token": token, "expires_in": 600}
 
 
-def confirm_telegram_link(token: str, telegram_id: str) -> dict | None:
-    root = Path(os.environ.get("AUREON_DATA", "data")) / "users"
-    for path in root.glob("*.json"):
-        user = json.loads(path.read_text())
-        pending = user.get("telegram_pending") or {}
-        if pending.get("token") != token:
-            continue
-        if time.time() > pending.get("expires", 0):
-            return {"error": "expired"}
-        if str(pending.get("claimed_id")) != str(telegram_id):
-            return {"error": "id_mismatch"}
-        user["telegram"] = {"id": str(telegram_id), "verified": True}
-        user.pop("telegram_pending", None)
-        path.write_text(json.dumps(user))
-        return {"ok": True, "user_id": user["id"]}
-    return {"error": "not_found"}
+def confirm_telegram_link(token: str, telegram_id: str) -> dict:
+    return {"error": "typed_id_not_accepted"}
 
 
 def process_start_command(token: str, telegram_id: str, chat_id: str) -> dict:
+    if not token or not telegram_id or not chat_id:
+        return {"error": "incomplete_update"}
     root = Path(os.environ.get("AUREON_DATA", "data")) / "users"
+    digest = _token_hash(token)
+    owner = None
     for path in root.glob("*.json"):
         user = json.loads(path.read_text())
         pending = user.get("telegram_pending") or {}
-        if pending.get("token") != token:
+        if pending.get("token_hash") != digest:
             continue
         if time.time() > pending.get("expires", 0):
+            user.pop("telegram_pending", None)
+            path.write_text(json.dumps(user))
             return {"error": "expired"}
-        if str(pending.get("claimed_id")) != str(telegram_id):
-            return {"error": "id_mismatch"}
-        user["telegram"] = {"id": str(telegram_id), "chat_id": str(chat_id), "verified": True}
-        user.pop("telegram_pending", None)
-        path.write_text(json.dumps(user))
-        return {"ok": True, "user_id": user["id"]}
-    return {"error": "not_found"}
+        owner = (path, user)
+        break
+    if owner is None:
+        return {"error": "not_found"}
+    path, user = owner
+    for other_path in root.glob("*.json"):
+        other = json.loads(other_path.read_text())
+        current = other.get("telegram") or {}
+        if other.get("id") != user.get("id") and current.get("verified") and str(current.get("chat_id")) == str(chat_id):
+            return {"error": "destination_in_use"}
+    user["telegram"] = {
+        "id": str(telegram_id),
+        "chat_id": str(chat_id),
+        "verified": True,
+        "revoked": False,
+    }
+    user.pop("telegram_pending", None)
+    path.write_text(json.dumps(user))
+    return {"ok": True, "user_id": user["id"]}
 
 
 def unlink_telegram(user_id: str) -> bool:
@@ -197,7 +198,11 @@ def unlink_telegram(user_id: str) -> bool:
     if not path.exists():
         return False
     user = json.loads(path.read_text())
-    user.pop("telegram", None)
+    current = user.get("telegram") or {}
+    if current:
+        current["verified"] = False
+        current["revoked"] = True
+        user["telegram"] = current
     user.pop("telegram_pending", None)
     path.write_text(json.dumps(user))
     return True

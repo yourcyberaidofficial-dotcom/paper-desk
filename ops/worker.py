@@ -5,6 +5,7 @@ import time
 from pathlib import Path
 
 from ops.build_id import shadow_enabled
+from ops.delivery import authorize
 from ops.market import fetch_last_closed, fetch_klines
 from ops.notify import send_alert
 from ops.e1 import e1_side
@@ -157,7 +158,19 @@ class Worker:
             record["notification"] = {
                 "status": "NOT_SENT",
                 "delivered": False,
-                "reason": "production_wait_default",
+                "reason": authorize(
+                    {
+                        "state": "RESEARCH_OBSERVATION" if experimental else "WAIT",
+                        "symbol": symbol,
+                        "timeframe": prefs["interval"],
+                        "strategy": "E1-donchian-20",
+                        "version": "e1-20261016",
+                        "fresh": fresh,
+                        "complete": bool(fresh),
+                    },
+                    {"experimental_alerts": True, "telegram": {"verified": True, "chat_id": "blocked"}},
+                    now_ms=now_ms,
+                )["reason"],
             }
             self.ledger.append(record)
             over_cap = self._alerts_today(now_ms) >= int(prefs["max_alerts_per_day"])

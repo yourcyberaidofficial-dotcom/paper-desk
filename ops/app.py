@@ -100,23 +100,56 @@ def _expire():
 @app.get("/health")
 def health():
     markets = market_snapshot()
-    fresh = all(markets[s].get("fresh") for s in ("BTCUSDT", "ETHUSDT"))
-    telegram_set = bool(os.environ.get("TELEGRAM_BOT_TOKEN") and os.environ.get("TELEGRAM_CHAT_ID"))
+    report = _market_report(markets)
+    promoted = _promotion_state()
+    beat = worker.last_beat_ms or 0
     return jsonify({
-        "status": "ok" if fresh else "degraded",
+        "status": "ok" if report["BTCUSDT"]["status"] == "fresh" and report["ETHUSDT"]["status"] == "fresh" else "degraded",
         "process": "ok",
         "uptime_s": int(time.time() - STARTED),
-        "market_data": "fresh" if fresh else "stale",
-        "notification": "configured" if telegram_set else "not_configured",
+        "market_data": report,
+        "notification": {
+            "pipeline": "blocked" if promoted == "empty" else "armed_for_promoted_only",
+            "reason": "promotion_registry_empty" if promoted == "empty" else "promotion_record_present",
+            "global_chat_used_for_trades": False,
+        },
         "ledger": "ok" if LEDGER_PATH.parent.exists() else "missing",
         "strategy": engine.strategy.name,
-        "strategy_status": "WAIT_DEFAULT",
+        "strategy_status": "WAIT_DEFAULT" if promoted == "empty" else "PROMOTION_RECORD_PRESENT",
+        "promotion_registry": promoted,
         "build_commit": build_commit(),
         "shadow": "enabled" if shadow_enabled() else "disabled",
         "paper_only": True,
         "broker": False,
-        "worker": worker.status(),
+        "worker": {
+            "last_beat_ms": beat or None,
+            "heartbeat_age_ms": None if not beat else max(0, int(time.time() * 1000) - beat),
+            "status": "unknown" if not beat else "beating",
+        },
     })
+
+
+def _promotion_state():
+    from ops.delivery import load_promotions
+    return "present" if load_promotions() else "empty"
+
+
+def _market_report(snapshot):
+    out = {}
+    now_ms = int(time.time() * 1000)
+    for symbol in ("BTCUSDT", "ETHUSDT"):
+        row = (snapshot or {}).get(symbol) or {}
+        close_ms = row.get("close_time_ms")
+        checked = row.get("checked_at_ms") or now_ms
+        if not isinstance(close_ms, (int, float)):
+            status = "unknown"
+        elif checked - close_ms <= 15 * 60 * 1000 and close_ms < checked:
+            status = "fresh"
+        else:
+            status = "stale"
+        out[symbol] = {"status": status, "last_close_time_ms": close_ms, "source": row.get("source") or "unknown"}
+    out["XAUUSD"] = {"status": "not_checked", "reason": "health_does_not_treat_spot_as_a_candle", "source": "none"}
+    return out
 
 
 @app.get("/version")
@@ -497,7 +530,7 @@ def telegram_link():
     if not user_id:
         return jsonify({"error": "unauthorized"}), 401
     body = request.json or {}
-    result = start_telegram_link(user_id, str(body.get("telegram_id") or ""))
+    result = start_telegram_link(user_id)
     if not result:
         return jsonify({"error": "not_found"}), 404
     return jsonify(result)
@@ -506,6 +539,9 @@ def telegram_link():
 @app.post("/api/telegram/update")
 def telegram_update():
     from ops.users import process_start_command
+    secret = os.environ.get("TELEGRAM_WEBHOOK_SECRET")
+    if not secret or request.headers.get("X-Telegram-Bot-Api-Secret-Token") != secret:
+        return jsonify({"error": "webhook_disabled"}), 503
     update = request.json or {}
     msg = update.get("message") or {}
     text_body = str(msg.get("text") or "")
@@ -515,7 +551,8 @@ def telegram_update():
     from_user = msg.get("from") or {}
     chat = msg.get("chat") or {}
     result = process_start_command(token, str(from_user.get("id") or ""), str(chat.get("id") or ""))
-    return jsonify(result)
+    public = {"ok": bool(result.get("ok")), "error": result.get("error")}
+    return jsonify(public)
 
 
 @app.post("/api/telegram/unlink")
@@ -650,16 +687,9 @@ def get_user(user_id):
 
 @app.post("/api/users/<user_id>/telegram")
 def link_telegram(user_id):
-    from ops.users import link_telegram
     if session.get("user_id") != user_id:
         return jsonify({"error": "forbidden"}), 403
-    chat_id = (request.json or {}).get("chat_id")
-    if not chat_id:
-        return jsonify({"error": "chat_id required"}), 400
-    user = link_telegram(user_id, chat_id)
-    if not user:
-        return jsonify({"error": "not_found"}), 404
-    return jsonify({"id": user["id"], "telegram_linked": True})
+    return jsonify({"error": "typed_id_not_accepted"}), 400
 
 
 @app.get("/api/council")
@@ -1480,7 +1510,7 @@ async function settings(){
   const profile = me.profile || {};
   const styles = (catalog.profiles||[]).map(p => `<label><input type="radio" name="style" value="${p.key}" ${profile.signal_style===p.key?"checked":""}> ${p.name} — ${p.risk_mode}. ${p.confirmation}</label>`).join("");
   const currencies = (catalog.currencies||[]).map(c => `<option value="${c}" ${profile.currency===c?"selected":""}>${c}</option>`).join("");
-  view.innerHTML = `<article class="card"><h2>${path==="/onboarding"?"Choose a signal style":"Signal style"}</h2><p class="muted">${catalog.note||""}</p><div class="styles">${styles}</div></article><article class="card"><h2>Base currency and capital</h2><div class="field"><span>Currency</span><select id="currency"><option value="">Not set</option>${currencies}</select></div><div class="field"><span>Paper capital</span><input id="capital" type="number" min="0" step="any" value="${profile.capital??""}"></div><p class="muted">Saving a currency does not convert the stored amount. Market quotes stay in USDT or USD/oz.</p></article><article class="card"><h2>Markets</h2><div class="checks"><label><input type="checkbox" id="btc" ${has("BTCUSDT")}> BTCUSDT · 15m</label><label><input type="checkbox" id="eth" ${has("ETHUSDT")}> ETHUSDT · 15m</label><label><input type="checkbox" id="gold" ${has("XAUUSD")}> XAUUSD · 1h research</label></div></article><article class="card"><h2>Notifications and risk</h2><div class="checks"><label><input type="checkbox" id="exp" ${profile.experimental_alerts?"checked":""}> Experimental alerts</label><label><input type="checkbox" id="digest" ${profile.daily_report!==false?"checked":""}> Daily digest</label></div><div class="field"><span>Max risk per trade %</span><input id="risk" type="number" step="0.1" min="0" value="${profile.max_risk_pct??""}"></div><p class="muted">Risk cannot be set above the active style cap. These caps do not guarantee protection from losses. Production is WAIT_DEFAULT, so no trade alert is sent until a strategy is promoted. Turning experimental alerts on does not bypass that. Telegram is ${me.telegram_verified?"verified":"not verified"}.</p><div class="field"><span>Telegram numeric ID</span><input id="tgid" type="text" placeholder="Your Telegram user id"></div><button id="tglink" type="button">Generate verification link</button><p id="tglinkout" class="muted"></p></article><p><button id="saveall" type="button">Save</button> <button id="skip" type="button">Continue without optional alerts</button> <button id="out" type="button">Sign out</button></p><p id="savedp" class="muted"></p>`;
+  view.innerHTML = `<article class="card"><h2>${path==="/onboarding"?"Choose a signal style":"Signal style"}</h2><p class="muted">${catalog.note||""}</p><div class="styles">${styles}</div></article><article class="card"><h2>Base currency and capital</h2><div class="field"><span>Currency</span><select id="currency"><option value="">Not set</option>${currencies}</select></div><div class="field"><span>Paper capital</span><input id="capital" type="number" min="0" step="any" value="${profile.capital??""}"></div><p class="muted">Saving a currency does not convert the stored amount. Market quotes stay in USDT or USD/oz.</p></article><article class="card"><h2>Markets</h2><div class="checks"><label><input type="checkbox" id="btc" ${has("BTCUSDT")}> BTCUSDT · 15m</label><label><input type="checkbox" id="eth" ${has("ETHUSDT")}> ETHUSDT · 15m</label><label><input type="checkbox" id="gold" ${has("XAUUSD")}> XAUUSD · 1h research</label></div></article><article class="card"><h2>Notifications and risk</h2><div class="checks"><label><input type="checkbox" id="exp" ${profile.experimental_alerts?"checked":""}> Experimental alerts</label><label><input type="checkbox" id="digest" ${profile.daily_report!==false?"checked":""}> Daily digest</label></div><div class="field"><span>Max risk per trade %</span><input id="risk" type="number" step="0.1" min="0" value="${profile.max_risk_pct??""}"></div><p class="muted">Risk cannot be set above the active style cap. These caps do not guarantee protection from losses. Production is WAIT_DEFAULT, so no trade alert is sent until a strategy is promoted. Turning experimental alerts on does not bypass that. Telegram is ${me.telegram_verified?"verified":"not verified"}.</p><button id="tglink" type="button">Create a one-time Telegram link</button><p id="tglinkout" class="muted"></p></article><p><button id="saveall" type="button">Save</button> <button id="skip" type="button">Continue without optional alerts</button> <button id="out" type="button">Sign out</button></p><p id="savedp" class="muted"></p>`;
   async function save(go){
     const style = (document.querySelector("input[name=style]:checked") || {}).value;
     const markets = [];
@@ -1505,7 +1535,7 @@ async function settings(){
   document.getElementById("saveall").onclick = () => save(path === "/onboarding");
   document.getElementById("skip").onclick = () => { location.href = "/overview"; };
   document.getElementById("tglink").onclick = async () => {
-    const r = await fetch("/api/telegram/link", {method:"POST", headers:{"Content-Type":"application/json"}, credentials:"same-origin", body: JSON.stringify({telegram_id: document.getElementById("tgid").value})});
+    const r = await fetch("/api/telegram/link", {method:"POST", headers:{"Content-Type":"application/json"}, credentials:"same-origin", body: "{}"});
     const d = await r.json();
     document.getElementById("tglinkout").textContent = r.ok ? "Open Telegram and start the bot with the token. The link is ready." : "Link failed.";
     if (r.ok && d.token) document.getElementById("tglinkout").textContent = "Open: https://t.me/AureonLabBot?start=" + d.token;
@@ -1556,48 +1586,52 @@ def _digest_text(user):
     return "\n".join(lines)
 
 
+def _deliver_digest(user):
+    """A digest is not an approved signal. The empty registry blocks the send."""
+    from ops.delivery import authorize
+    from ops.users import record_digest
+
+    profile = user.get("profile") or {}
+    if not profile.get("daily_report", True):
+        return {"ok": False, "reason": "opted_out"}
+    day = _account_day(profile.get("timezone"))
+    if profile.get("last_digest_day") == day:
+        return {"ok": True, "duplicate": True, "day": day}
+    event = {
+        "state": "RESEARCH_OBSERVATION",
+        "symbol": "BTCUSDT",
+        "timeframe": "15m",
+        "strategy": "digest",
+        "version": "digest",
+        "fresh": False,
+        "event_id": f"digest:{user.get('id')}:{day}",
+        "text": _digest_text(user),
+    }
+    decision = authorize(event, user, now_ms=int(time.time() * 1000))
+    record_digest(user["id"], day, decision["reason"])
+    return {"ok": False, "delivered": False, "reason": decision["reason"], "day": day}
+
+
 @app.post("/api/digest")
 def digest():
     user_id = session.get("user_id")
     if not user_id:
         return jsonify({"error": "unauthorized"}), 401
-    from ops.users import get, record_digest
+    from ops.users import get
     user = get(user_id)
     if not user:
         return jsonify({"error": "not_found"}), 404
-    profile = user.get("profile") or {}
-    if not profile.get("daily_report", True):
-        return jsonify({"error": "opted_out"}), 400
-    tg = user.get("telegram") or {}
-    if not tg.get("verified") or not tg.get("chat_id"):
-        return jsonify({"error": "not_verified"}), 400
-    day = _account_day(profile.get("timezone"))
-    if profile.get("last_digest_day") == day:
-        return jsonify({"ok": True, "duplicate": True, "day": day})
-    text_body = _digest_text(user)
-    result = send_alert(text_body, chat_id=tg.get("chat_id"))
-    if result.get("delivered"):
-        record_digest(user_id, day, "DELIVERED")
-    return jsonify({"ok": bool(result.get("delivered")), "delivery": result, "day": day})
+    result = _deliver_digest(user)
+    status = 400 if result.get("reason") == "opted_out" else 200
+    return jsonify(result), status
 
 
 def _digest_loop():
     while True:
         try:
-            from ops.users import list_users, record_digest
+            from ops.users import list_users
             for user in list_users():
-                profile = user.get("profile") or {}
-                tg = user.get("telegram") or {}
-                if not (profile.get("daily_report") and tg.get("verified") and tg.get("chat_id")):
-                    continue
-                day = _account_day(profile.get("timezone"))
-                if profile.get("last_digest_day") == day:
-                    continue
-                result = send_alert(_digest_text(user), chat_id=tg.get("chat_id"))
-                if result.get("delivered"):
-                    record_digest(user["id"], day, "DELIVERED")
-                else:
-                    record_digest(user["id"], day, result.get("status") or "FAILED")
+                _deliver_digest(user)
         except Exception:
             pass
         time.sleep(3600)
