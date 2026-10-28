@@ -1094,40 +1094,9 @@ def terminal_signal():
     user_id = session.get("user_id")
     if not user_id or not _user_ok():
         return jsonify({"error": "unauthorized"}), 401
-    from ops.terminal_signal import AUTO, decide, open_idea, stamp
-    from ops.users import get
-    body = request.get_json(silent=True) or {}
-    symbol = body.get("symbol") or "BTCUSDT"
-    interval = body.get("interval") or "4h"
-    strategy = body.get("strategy") or "auto"
-    now_ms = int(time.time() * 1000)
-    bars = _terminal_bars(symbol, interval, now_ms)
-    if isinstance(bars, tuple):
-        return jsonify({"decision": "WAIT", "reason": bars[1], "approved": False, "fresh": False, "reference_price": None, "blocked": "feed_error"}), 200
-    user = get(user_id) or {}
-    chosen = AUTO.get(symbol) if strategy in {None, "", "auto"} else strategy
-    result = decide(symbol, interval, strategy, bars, now_ms, user, open_idea(user_id, symbol, chosen))
-    return jsonify(stamp(user_id, result))
-
-
-def _terminal_bars(symbol, interval, now_ms):
-    try:
-        if symbol in {"BTCUSDT", "ETHUSDT"}:
-            from ops.feeds import binance_bars
-            start = now_ms - 120 * 24 * 60 * 60 * 1000
-            loaded = binance_bars(symbol, interval, start, now_ms, now_ms)
-            if not loaded.get("ok"):
-                return None, loaded.get("reason") or "The market feed did not respond."
-            return loaded.get("bars") or []
-        if symbol == "XAUUSD":
-            from ops.feeds import xaus_chart
-            loaded = xaus_chart(interval, now_ms)
-            if not loaded.get("ok"):
-                return None, "Gold candles could not be loaded."
-            return loaded.get("bars") or []
-    except Exception:
-        return None, "The market feed could not be read."
-    return None, "This market is not supported."
+    from ops.terminal_route import handle_signal
+    status, payload = handle_signal(user_id, request.get_json(silent=True) or {})
+    return jsonify(payload), status
 
 
 @app.get("/api/terminal/history")
@@ -1569,7 +1538,7 @@ async function signals(){
   };
 }
 async function terminal(){
-  view.innerHTML = `<article class="card"><h2>Generate a signal</h2><div class="fieldrow"><label>Market <select id="sym"><option>BTCUSDT</option><option>ETHUSDT</option><option>XAUUSD</option></select></label><label>Timeframe <select id="tf"><option>15m</option><option>1h</option><option selected>4h</option><option>1d</option></select></label><label>Strategy <select id="mode"><option value="auto">Auto</option><option value="compress-break-4h-20261028">BTC compression breakout</option><option value="sweep-reclaim-4h-20261028">ETH failed-breakdown</option><option value="london-reclaim-1h-20261028">Gold London reclaim</option></select></label></div><button id="generate" type="button">Generate Signal</button><p id="termstatus" role="status"></p></article><div id="termout"></div><article class="card"><h2>Your requested evaluations</h2><div id="termhist"><p>No requested evaluation yet.</p></div></article>`;
+  view.innerHTML = `<article class="card"><h2>Generate a signal</h2><div class="fieldrow"><label>Market <select id="sym"><option>BTCUSDT</option><option>ETHUSDT</option><option>XAUUSD</option></select></label><label>Timeframe <select id="tf"><option>15m</option><option>1h</option><option selected>4h</option><option>1d</option></select></label><label>Strategy <select id="mode"><option value="auto">Auto</option><option value="compress-break-4h-20261028">BTC compression breakout</option><option value="sweep-reclaim-4h-20261028">ETH failed-breakdown</option><option value="london-reclaim-1h-20261028">Gold London reclaim</option><option value="dip-in-trend-1d-20261028">Daily dip in trend</option><option value="quiet-week-reversal-1d-20261028">Quiet week reversal</option></select></label></div><button id="generate" type="button">Generate Signal</button><p id="termstatus" role="status"></p></article><div id="termout"></div><article class="card"><h2>Your requested evaluations</h2><div id="termhist"><p>No requested evaluation yet.</p></div></article>`;
   document.getElementById("tf").innerHTML = `<option>15m</option><option>1h</option><option selected>4h</option><option>1d</option>`;
   async function history(){
     const response = await fetch("/api/terminal/history", {credentials:"same-origin"});
