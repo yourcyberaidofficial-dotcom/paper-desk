@@ -61,6 +61,7 @@ def _gate():
 ALLOWED_NEXT = {
     "/overview", "/signals", "/trading", "/strategies", "/indicators",
     "/research", "/portfolio", "/risk", "/activity", "/system", "/settings", "/onboarding",
+    "/scanner", "/learn",
 }
 
 
@@ -265,7 +266,7 @@ def deep_board_api():
     try:
         return jsonify(deep_board())
     except Exception as exc:
-        return jsonify({"error": type(exc).__name__}), 502
+        return jsonify({"error": "unavailable"}), 502
 
 
 @app.get("/api/leaderboard")
@@ -273,7 +274,7 @@ def leaderboard_api():
     try:
         return jsonify(leaderboard())
     except Exception as exc:
-        return jsonify({"error": type(exc).__name__}), 502
+        return jsonify({"error": "unavailable"}), 502
 
 
 @app.get("/api/period")
@@ -285,7 +286,7 @@ def period_api():
     try:
         return jsonify(period(symbol, interval, at_ms))
     except Exception as exc:
-        return jsonify({"error": type(exc).__name__}), 502
+        return jsonify({"error": "unavailable"}), 502
 
 
 @app.get("/api/replay")
@@ -297,7 +298,7 @@ def replay_api():
     try:
         return jsonify(replay(symbol, interval, at_ms))
     except Exception as exc:
-        return jsonify({"error": type(exc).__name__}), 502
+        return jsonify({"error": "unavailable"}), 502
 
 
 @app.get("/api/paper-status")
@@ -317,13 +318,13 @@ def paper_status():
                 "open": shown["open"],
                 "rows": shown["trades"][-10:],
                 "observations": shown["observations"][-8:],
-                "label": "EXPERIMENTAL PAPER — NOT VALIDATED",
+                "label": "Research notes are not orders.",
                 "broker": False,
                 "note": "A directional research observation is not a holding or an order.",
             })
         except Exception as exc:
-            return jsonify({"open": None, "rows": [], "label": "EXPERIMENTAL PAPER — NOT VALIDATED", "broker": False, "error": type(exc).__name__})
-    return jsonify({"open": None, "rows": [], "label": "EXPERIMENTAL PAPER — NOT VALIDATED", "broker": False})
+            return jsonify({"open": None, "rows": [], "label": "Research notes are not orders.", "broker": False, "error": "unavailable"})
+    return jsonify({"open": None, "rows": [], "label": "Research notes are not orders.", "broker": False})
 
 
 def _remember(key, ttl, loader):
@@ -538,21 +539,12 @@ def telegram_link():
 
 @app.post("/api/telegram/update")
 def telegram_update():
-    from ops.users import process_start_command
+    from ops.telegram_in import apply_update
     secret = os.environ.get("TELEGRAM_WEBHOOK_SECRET")
     if not secret or request.headers.get("X-Telegram-Bot-Api-Secret-Token") != secret:
-        return jsonify({"error": "webhook_disabled"}), 503
-    update = request.json or {}
-    msg = update.get("message") or {}
-    text_body = str(msg.get("text") or "")
-    if not text_body.startswith("/start "):
-        return jsonify({"ok": True, "ignored": True})
-    token = text_body.split(" ", 1)[1].strip()
-    from_user = msg.get("from") or {}
-    chat = msg.get("chat") or {}
-    result = process_start_command(token, str(from_user.get("id") or ""), str(chat.get("id") or ""))
-    public = {"ok": bool(result.get("ok")), "error": result.get("error")}
-    return jsonify(public)
+        return jsonify({"ok": True, "ignored": True, "reason": "polling_mode"})
+    result = apply_update(request.json or {})
+    return jsonify({"ok": bool(result.get("ok")), "ignored": bool(result.get("ignored") or result.get("duplicate")), "error": result.get("error")})
 
 
 @app.post("/api/telegram/unlink")
@@ -910,7 +902,7 @@ def research_signals():
 @require_token
 def experimental():
     rows = worker.book.read()
-    return jsonify({"rows": rows[-50:], "total": len(rows), "label": "EXPERIMENTAL PAPER — NOT VALIDATED"})
+    return jsonify({"rows": rows[-50:], "total": len(rows), "label": "Research notes are not orders."})
 
 
 @app.get("/api/prefs")
@@ -932,6 +924,19 @@ def _loop():
         except Exception:
             pass
         time.sleep(60)
+
+
+def _telegram_loop():
+    while True:
+        try:
+            from ops.telegram_in import poll_if_enabled
+            poll_if_enabled()
+        except Exception:
+            pass
+        time.sleep(3)
+
+
+threading.Thread(target=_telegram_loop, daemon=True).start()
 
 
 threading.Thread(target=_loop, daemon=True).start()
@@ -961,6 +966,27 @@ def register_page():
     return make_response(_auth_page("register", nxt))
 
 
+@app.get("/api/scanner")
+def scanner_api():
+    if not _user_ok() and not _owner_ok():
+        return jsonify({"error": "unauthorized"}), 401
+    from ops.scanner import scan
+    from ops.shadow_bridge import load_live_windows
+    now_ms = int(time.time() * 1000)
+    try:
+        windows = load_live_windows(now_ms)
+    except Exception:
+        windows = []
+    body = scan(windows, now_ms=now_ms)
+    if not body["markets"]:
+        body["markets"] = [
+            {"symbol": "BTCUSDT", "status": "unavailable", "state": "DATA_UNAVAILABLE", "message": "BTCUSDT is not being scanned. The latest completed bar is missing or stale.", "approved": False},
+            {"symbol": "ETHUSDT", "status": "unavailable", "state": "DATA_UNAVAILABLE", "message": "ETHUSDT is not being scanned. The latest completed bar is missing or stale.", "approved": False},
+            {"symbol": "XAUUSD", "status": "unavailable", "state": "DATA_UNAVAILABLE", "message": "Gold scanning is temporarily unavailable. Last verified market update: unknown.", "approved": False},
+        ]
+    return jsonify(body)
+
+
 @app.get("/overview")
 @app.get("/signals")
 @app.get("/trading")
@@ -972,6 +998,8 @@ def register_page():
 @app.get("/activity")
 @app.get("/system")
 @app.get("/settings")
+@app.get("/scanner")
+@app.get("/learn")
 @app.get("/onboarding")
 def index():
     if not _gate():
@@ -1194,8 +1222,10 @@ main h1{margin:0;font-size:1.55rem}
   <aside id="nav">
     <div class="brand">Aureon Trading Lab</div>
     <a href="/overview" data-path="/overview">Overview</a>
+    <a href="/scanner" data-path="/scanner">Live Scanner</a>
     <a href="/trading" data-path="/trading">Trading Terminal</a>
     <a href="/signals" data-path="/signals">Live Signals</a>
+    <a href="/learn" data-path="/learn">Academy</a>
     <a href="/strategies" data-path="/strategies">Strategies</a>
     <a href="/portfolio" data-path="/portfolio">Portfolio</a>
     <a href="/activity" data-path="/activity">Orders & Trade History</a>
@@ -1226,7 +1256,7 @@ document.getElementById("signout").onclick = async () => {
 };
 const path = location.pathname === "/" ? "/overview" : location.pathname;
 document.querySelectorAll("aside a").forEach(a => { if (a.dataset.path === path) a.classList.add("active"); });
-const titles = {"/":"Overview","/signals":"Live Signals","/trading":"Trading Terminal","/strategies":"Strategies","/portfolio":"Portfolio","/risk":"Risk Management","/activity":"Orders & Trade History","/system":"System Status","/settings":"Account & Settings","/research":"Backtesting & Research","/onboarding":"Account setup"};
+const titles = {"/":"Overview","/signals":"Live Signals","/trading":"Trading Terminal","/strategies":"Strategies","/portfolio":"Portfolio","/risk":"Risk Management","/activity":"Orders & Trade History","/system":"System Status","/settings":"Account & Settings","/research":"Backtesting & Research","/onboarding":"Account setup","/scanner":"Live Scanner","/learn":"Academy","/indicators":"Academy"};
 document.getElementById("title").textContent = titles[path] || "Aureon";
 document.title = (titles[path] || "Aureon") + " · Aureon Trading Lab";
 const view = document.getElementById("view");
@@ -1452,7 +1482,27 @@ async function researchLab(){
   const rows = (d.experiments||[]).map(e => `<div class="row"><span>${e.id}</span><span class="${cls(e.decision)}">${e.decision}</span></div><div class="muted">${e.name}. ${e.reason}</div>`).join("");
   view.innerHTML = `<article class="card"><h2>Promotion gates</h2><p>Promoted strategies: ${d.promoted_count}. Production: ${d.production}.</p>${gates}</article><article class="card"><h2>Experiment archive</h2>${rows}<p class="muted">${d.note}</p></article>`;
 }
+async function scannerPage(){
+  const draw = (body) => {
+    const cards = (body.markets||[]).map(m => `<article class="card" data-symbol="${m.symbol}"><h2>${m.symbol}</h2><div class="row"><span>${m.interval||""} ${m.quote||""}</span><span>${m.price==null?"—":m.price}</span></div><div class="row"><span>Status</span><span>${m.status||"unknown"}</span></div><p>${m.message||"No qualifying setup yet."}</p><p class="muted">Updated ${m.updated_at||"unknown"}. Source ${m.source||"unknown"}. State ${m.state||"WAIT"}. Not an approved signal.</p></article>`).join("");
+    view.innerHTML = `<p role="status">${body.notice||"No approved strategy is currently active; trade alerts are unavailable."}</p><div class="markets">${cards}</div><p class="muted">Scanned ${body.scanned_at||""}. Completed bars only. <a href="/learn">Why the scanner says this</a></p>`;
+  };
+  const loadScan = async () => {
+    const response = await fetch("/api/scanner", {credentials:"same-origin"});
+    if (response.status === 401) { view.innerHTML = `<article class="card"><h2>Sign in required</h2><p><a href="/login">Sign in</a></p></article>`; return; }
+    const body = await response.json().catch(()=>({notice:"The scanner could not be read. Please retry.", markets:[]}));
+    draw(body);
+  };
+  await loadScan();
+  if (window.__scanTimer) clearInterval(window.__scanTimer);
+  window.__scanTimer = setInterval(loadScan, 15000);
+}
+async function learnPage(){
+  view.innerHTML = `<article class="card"><h2>How to read the desk</h2><p>A candlestick shows the open, high, low and close of one completed period. A 15-minute candle is fifteen minutes of trades. A one-hour candle is one hour. The scanner uses only candles that have already closed.</p><p>E1 Donchian-20 compares the latest close with the highest high and lowest low of the previous 20 completed bars. SMA20 is the average of the last 20 closes. RSI14 is a momentum reading. They are research observations. If E1 is waiting, every account style waits.</p></article><article class="card"><h2>What a result means</h2><ul><li>No qualifying setup yet: the rule did not match.</li><li>Research observation: a condition was seen. It is not an order.</li><li>Paper candidate: the written rule is complete, and it is still not approved.</li><li>Approved signal: only after a promotion record exists. None exists now.</li><li>Paper trade: a simulated fill. Broker execution is off, so this desk does not send one.</li></ul><p>WAIT means the rule or the data does not justify an entry. It is the safe result, not a missing page.</p></article><article class="card"><h2>Accounts and alerts</h2><p>Apex Momentum caps risk at 2.5% of paper capital. Orion Precision caps it at 1.5%. Aegis Shield caps it at 0.8%. These are ceilings. Changing the base currency does not convert the stored amount.</p><p>Connect Telegram from Settings. The link is single-use. A connected chat can be removed, and a removed chat receives nothing. Trade alerts stay off until a strategy is explicitly approved.</p><p class="muted">Examples on this page are explanations of the implemented rules. They are not recorded trades and they are not a win rate.</p></article>`;
+}
 async function load(){
+  if (path === "/scanner") return scannerPage();
+  if (path === "/learn" || path === "/indicators") return learnPage();
   if (path === "/trading") return terminal();
   if (path === "/" || path === "/overview") return overview();
   if (path === "/signals") return signals();
@@ -1477,7 +1527,7 @@ async function paperPages(){
   const trades = (p.rows||[]).filter(r => r.side && !bias.has(r.side));
   const open = p.open && p.open.side && !bias.has(p.open.side) ? p.open : null;
   const observations = p.observations || [];
-  const obsNote = observations.length ? `<p class="muted">${observations.length} experimental research observation${observations.length===1?"":"s"} are in the book. ${label(observations[observations.length-1].side||"")} is not a holding and not an order.</p>` : "";
+  const obsNote = observations.length ? `<p class="muted">${observations.length} research observation${observations.length===1?"":"s"} saved. ${label(observations[observations.length-1].side||"")} is not a holding and not an order.</p>` : "";
   if (path === "/portfolio") {
     const body = open
       ? `<div class="row"><span>Paper position</span><span>${open.asset} ${open.side}</span></div><div class="row"><span>Entry</span><span>${open.entry_price}</span></div><p class="muted">Recorded paper order. ${p.label||""}</p>`
@@ -1496,7 +1546,9 @@ async function riskPage(){
 async function systemPage(){
   const h = await fetch("/health").then(r=>r.json());
   const row = (name, value) => `<div class="row"><span>${name}</span><span>${value}</span></div>`;
-  view.innerHTML = `<article class="card"><h2>System</h2>${row("Process", h.process||"unknown")}${row("Market data", h.market_data||"unknown")}${row("Notifications", h.notification||"unknown")}${row("Ledger", h.ledger||"unknown")}${row("Strategy", h.strategy_status||"unknown")}${row("Broker", String(h.broker))}${row("Worker heartbeat", h.worker && h.worker.last_beat_ms ? new Date(h.worker.last_beat_ms).toISOString() : "unknown")}</article><p class="muted">States come from /health. A missing field stays unknown rather than being marked online.</p>`;
+  const market = h.market_data && h.market_data.BTCUSDT ? h.market_data.BTCUSDT.status + " / " + (h.market_data.ETHUSDT ? h.market_data.ETHUSDT.status : "unknown") : (h.market_data || "unknown");
+  const note = h.notification && h.notification.pipeline ? h.notification.pipeline : (typeof h.notification === "string" ? h.notification : "unknown");
+  view.innerHTML = `<article class="card"><h2>System</h2>${row("Process", h.process||"unknown")}${row("BTC / ETH", market)}${row("Notifications", note)}${row("Ledger", h.ledger||"unknown")}${row("Strategy", h.strategy_status||"unknown")}${row("Broker", String(h.broker))}${row("Build", h.build_commit||"unknown")}${row("Worker heartbeat", h.worker && h.worker.last_beat_ms ? new Date(h.worker.last_beat_ms).toISOString() : "unknown")}</article><p class="muted">A missing field stays unknown. Trade alerts stay blocked while no strategy is approved.</p>`;
 }
 async function settings(){
   const me = await fetch("/api/me").then(r => r.ok ? r.json() : null);
