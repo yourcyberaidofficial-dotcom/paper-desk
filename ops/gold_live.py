@@ -61,3 +61,13 @@ def snapshot_reason(quote):
         f"at {moment}. Spread {quote['spread']}. This is one quote, not a completed hour, so the London rule was not calculated."
         + session_text
     )
+
+
+def completed_bid_ask_bar(bar):
+    """A gold rule may run only on a completed Dukascopy hour with both sides."""
+    return bool(
+        bar
+        and bar.get("complete")
+        and bar.get("quote_semantics") == "dukascopy_xauusd_bid_ask"
+        and bar.get("ask_open") is not None
+    )

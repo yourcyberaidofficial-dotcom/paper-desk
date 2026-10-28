@@ -82,6 +82,11 @@ def evaluate_snapshot(symbol, bars, higher, now_ms, interval):
     report = validate_series(bars, interval) if bars else {"ok": False, "bars": 0, "invalid": 1}
     if not bars:
         return [_blank("engine", symbol, interval, "DATA_UNAVAILABLE", "no_completed_bars")]
+    if symbol == "XAUUSD":
+        from ops.gold_live import completed_bid_ask_bar
+        last = bars[-1]
+        if not completed_bid_ask_bar(last):
+            return [_blank("engine", symbol, interval, "DATA_UNAVAILABLE", last.get("quote_semantics") or "missing_bid_ask")]
     if report.get("invalid"):
         return [_blank("engine", symbol, interval, "DATA_UNAVAILABLE", "invalid_bars")]
     if symbol == "XAUUSD":

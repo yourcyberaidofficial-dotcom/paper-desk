@@ -50,10 +50,31 @@ def test_scanner_keeps_gold_failure_specific_and_hides_internal_labels():
     assert btc["price"] == 100
     stale = present_window(gold, now)
     assert stale["status"] == "unavailable"
-    assert stale["message"].startswith("Gold scanning is temporarily unavailable. Last verified market update:")
+    assert stale["scanner_state"] == "BLOCKED"
+    assert "ohlc_not_bid_ask" in stale["message"]
+    assert stale["evidence_grade"] is None
     missing = present_window({**_window(), "ok": False, "bars": []}, now)
     assert missing["state"] == "DATA_UNAVAILABLE"
     assert "exception" not in missing["message"].lower()
+
+
+def test_scanner_ohlc_not_bid_ask_is_not_a_candidate():
+    window = _window("XAUUSD", "1h", fresh=True, count=80)
+    assert window["quote_semantics"] == "ohlc_not_bid_ask"
+    assert window["bars"][-1]["quote_semantics"] == "ohlc_not_bid_ask"
+    now = window["bars"][-1]["close_time_ms"] + 1000
+    row = present_window(window, now)
+    dumped = json.dumps(row)
+    assert row["scanner_state"] == "BLOCKED"
+    assert row["state"] == "DATA_UNAVAILABLE"
+    assert row["evaluated"] is False
+    assert row["evidence_grade"] is None
+    assert row["price"] is None
+    assert row["rule"] is None
+    assert "SIGNAL_CANDIDATE" not in dumped
+    assert "PAPER_CANDIDATE" not in dumped
+    assert "ohlc_not_bid_ask" in row["message"]
+    assert "London rule was not calculated" in row["message"]
 
 
 def test_telegram_update_links_once_and_a_public_post_does_not(tmp_path, monkeypatch):

@@ -63,8 +63,16 @@ def test_chart_keeps_the_real_open():
     assert to_chart_candles([bar]) == []
 
 
+def _bid_ask(bars):
+    for bar in bars:
+        bar["quote_semantics"] = "dukascopy_xauusd_bid_ask"
+        bar["ask_open"] = bar["open"] + 0.3
+        bar["bid_open"] = bar["open"]
+    return bars
+
+
 def test_closed_gold_market_waits():
-    bars = _bars(80, HOUR, START, price=2000, symbol="XAUUSD", interval="1h")
+    bars = _bid_ask(_bars(80, HOUR, START, price=2000, symbol="XAUUSD", interval="1h"))
     saturday = int(datetime(2026, 1, 10, 15, tzinfo=timezone.utc).timestamp() * 1000)
     rows = evaluate_snapshot("XAUUSD", bars, [], saturday, "1h")
     assert rows[0]["state"] == "WAIT"
@@ -74,14 +82,31 @@ def test_closed_gold_market_waits():
 
 def test_gold_cash_session_is_required():
     end_open = int(datetime(2026, 1, 15, 12, tzinfo=timezone.utc).timestamp() * 1000)
-    bars = _bars(80, HOUR, end_open - 79 * HOUR, price=2000, symbol="XAUUSD", interval="1h")
-    higher = _bars(30, 4 * HOUR, end_open - 40 * 4 * HOUR, price=2000, symbol="XAUUSD", interval="4h")
+    bars = _bid_ask(_bars(80, HOUR, end_open - 79 * HOUR, price=2000, symbol="XAUUSD", interval="1h"))
+    higher = _bid_ask(_bars(30, 4 * HOUR, end_open - 40 * 4 * HOUR, price=2000, symbol="XAUUSD", interval="4h"))
     now = bars[-1]["close_time_ms"] + 1000
     rows = evaluate_snapshot("XAUUSD", bars, higher, now, "1h")
     session = next(row for row in rows if row["strategy"] == "xau-session-20261027")
     assert session["state"] == "WAIT"
     assert session["reason"] == "OUTSIDE_SESSION"
     assert all(row["approved"] is False for row in rows)
+
+
+def test_ohlc_not_bid_ask_does_not_run_gold_rules(monkeypatch):
+    import ops.engine_eval as engine
+    called = []
+    monkeypatch.setattr(engine, "SETUP", {name: (lambda *args, _name=name, **kwargs: called.append(_name)) for name in engine.SETUP})
+    monkeypatch.setattr(engine, "e1_observation", lambda *args, **kwargs: called.append("e1"))
+    bars = _bars(80, HOUR, START, price=2000, symbol="XAUUSD", interval="1h")
+    for bar in bars:
+        bar["quote_semantics"] = "ohlc_not_bid_ask"
+    now = bars[-1]["close_time_ms"] + 1000
+    rows = evaluate_snapshot("XAUUSD", bars, bars[-30:], now, "1h")
+    assert called == []
+    assert len(rows) == 1
+    assert rows[0]["state"] == "DATA_UNAVAILABLE"
+    assert rows[0]["reason"] == "ohlc_not_bid_ask"
+    assert rows[0]["state"] != "PAPER_CANDIDATE"
 
 
 def test_invalid_ohlc_is_rejected():

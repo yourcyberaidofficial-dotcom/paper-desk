@@ -96,3 +96,51 @@ def test_handler_source_does_not_call_the_chart_or_a_sender():
     assert "handle_signal" in handler
     assert "xaus_chart" not in handler
     assert "_terminal_bars" not in handler
+
+
+def test_each_market_is_identified_and_a_mismatch_is_rejected(monkeypatch, tmp_path):
+    monkeypatch.setenv("AUREON_DATA", str(tmp_path))
+    now = 1_800_000_000_000
+
+    def bars_loader(symbol, interval, now_ms):
+        return _bars(symbol, now_ms)
+
+    _, btc = handle_signal("user-a", {"symbol": "BTCUSDT", "interval": "4h", "strategy": "auto", "request_id": "btc-1"}, now, bars_loader=bars_loader)
+    _, eth = handle_signal("user-a", {"symbol": "ETHUSDT", "interval": "4h", "strategy": "auto", "request_id": "eth-1"}, now, bars_loader=bars_loader)
+    _, gold = handle_signal(
+        "user-a",
+        {"symbol": "XAUUSD", "interval": "1h", "strategy": "auto", "request_id": "xau-1"},
+        now,
+        bars_loader=lambda *args: (_ for _ in ()).throw(AssertionError("chart")),
+        quote_loader=lambda now_ms: {"ok": False, "reason": "empty"},
+        session_loader=lambda now_ms: {"bid": "http_404", "ask": "http_404"},
+    )
+    assert btc["symbol"] == btc["requested_symbol"] == "BTCUSDT"
+    assert eth["symbol"] == eth["requested_symbol"] == "ETHUSDT"
+    assert gold["symbol"] == gold["requested_symbol"] == "XAUUSD"
+    assert btc["interval"] == "4h" and eth["interval"] == "4h" and gold["interval"] == "1h"
+    assert btc["requested_strategy"] == eth["requested_strategy"] == gold["requested_strategy"] == "auto"
+    assert gold["decision"] == "WAIT"
+    assert gold["blocked"] in {"snapshot_not_candle", "missing_feed", "quote_not_bid_ask"}
+    assert gold["approved"] is False
+    from ops.terminal_signal import read_history, response_matches
+    saved = read_history("user-a")
+    assert [(row["symbol"], row["request_id"]) for row in saved] == [("BTCUSDT", "btc-1"), ("ETHUSDT", "eth-1"), ("XAUUSD", "xau-1")]
+    assert response_matches({"symbol": "ETHUSDT", "interval": "4h", "request_id": "eth-1"}, eth)
+    assert response_matches({"symbol": "ETHUSDT", "interval": "4h", "request_id": "eth-2"}, btc) is False
+    assert response_matches({"symbol": "ETHUSDT", "interval": "4h", "request_id": "btc-1"}, btc) is False
+    swapped = dict(btc)
+    swapped["symbol"] = "BTCUSDT"
+    rejected = handle_signal("user-a", {"symbol": "ETHUSDT", "interval": "4h", "strategy": "auto", "request_id": "late"}, now, bars_loader=lambda *args: _bars("ETHUSDT", args[-1]))
+    assert rejected[1]["symbol"] == "ETHUSDT"
+    from ops.terminal_signal import attach_request
+    mismatch = attach_request({"symbol": "ETHUSDT", "interval": "4h", "strategy": "auto", "request_id": "late"}, btc)
+    assert mismatch["rejected"] == "market_mismatch"
+    assert mismatch["symbol"] == "ETHUSDT"
+    assert response_matches({"symbol": "ETHUSDT", "interval": "4h", "request_id": "late"}, mismatch) is False
+    page = inspect.getsource(app_module)
+    assert 'id="term-symbol"' in page
+    assert "Previous evaluation" in page
+    assert "request_id" in page
+    assert "No candidate evidence grade" in page
+    assert "ohlc_not_bid_ask" in page or "dukascopy_xauusd_bid_ask" in page
