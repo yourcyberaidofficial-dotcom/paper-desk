@@ -1,0 +1,232 @@
+"""Free market feeds. No API keys. No synthetic prices."""
+
+import json
+import lzma
+import struct
+import time
+import urllib.error
+import urllib.parse
+import urllib.request
+from datetime import datetime, timezone
+
+from ops.bars import drop_forming, interval_ms, make_bar
+from ops.sessions import gold_market_open
+
+BINANCE = "https://data-api.binance.vision/api/v3/klines"
+XAUS_CHART = "https://xaus.com/api/v1/chart"
+XAUS_SPOT = "https://xaus.com/api/v1/spot"
+DUKA = "https://datafeed.dukascopy.com/datafeed/XAUUSD"
+USER_AGENT = "aureon-paper-desk"
+
+
+def _get(url, timeout=20, attempts=3):
+    delay = 0.4
+    last = None
+    for attempt in range(attempts):
+        request = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
+        try:
+            with urllib.request.urlopen(request, timeout=timeout) as response:
+                return response.status, response.read()
+        except urllib.error.HTTPError as exc:
+            last = exc
+            if exc.code == 429 and attempt + 1 < attempts:
+                time.sleep(delay)
+                delay = min(delay * 2, 8)
+                continue
+            body = exc.read()
+            return exc.code, body
+        except Exception as exc:
+            last = exc
+            if attempt + 1 < attempts:
+                time.sleep(delay)
+                delay = min(delay * 2, 8)
+                continue
+            raise last
+    raise last
+
+
+def _binance_rows(symbol, interval, start_ms=None, end_ms=None, limit=1000):
+    params = {"symbol": symbol, "interval": interval, "limit": limit}
+    if start_ms is not None:
+        params["startTime"] = int(start_ms)
+    if end_ms is not None:
+        params["endTime"] = int(end_ms)
+    status, raw = _get(BINANCE + "?" + urllib.parse.urlencode(params))
+    if status == 429:
+        return {"ok": False, "reason": "rate_limited", "bars": []}
+    if status != 200:
+        return {"ok": False, "reason": f"http_{status}", "bars": []}
+    return {"ok": True, "rows": json.loads(raw.decode())}
+
+
+def binance_bars(symbol, interval, start_ms, end_ms, now_ms=None):
+    """Completed Binance spot klines. The forming candle is omitted."""
+    if symbol not in {"BTCUSDT", "ETHUSDT"}:
+        return {"ok": False, "reason": "symbol_not_allowed", "bars": []}
+    now_ms = int(now_ms if now_ms is not None else time.time() * 1000)
+    step = interval_ms(interval)
+    cursor = int(start_ms)
+    collected = []
+    pages = 0
+    while cursor < end_ms and pages < 80:
+        page = _binance_rows(symbol, interval, cursor, end_ms, 1000)
+        pages += 1
+        if not page.get("ok"):
+            return {"ok": False, "reason": page.get("reason"), "bars": [], "pages": pages}
+        rows = page["rows"]
+        if not rows:
+            break
+        for row in rows:
+            open_ms = int(row[0])
+            close_ms = int(row[6])
+            if open_ms < start_ms or close_ms > end_ms or close_ms > now_ms:
+                continue
+            collected.append(make_bar(
+                symbol=symbol,
+                instrument=symbol,
+                interval=interval,
+                open_time_ms=open_ms,
+                close_time_ms=close_ms,
+                open=float(row[1]),
+                high=float(row[2]),
+                low=float(row[3]),
+                close=float(row[4]),
+                volume=float(row[5]),
+                provider="binance-public",
+                source_type="spot_kline",
+                quote_semantics="last_trade",
+                retrieved_at_ms=now_ms,
+                complete=True,
+                fresh=now_ms - close_ms <= 2 * step,
+            ))
+        nxt = int(rows[-1][0]) + 1
+        if nxt <= cursor:
+            break
+        cursor = nxt
+        time.sleep(0.05)
+    unique = {bar["open_time_ms"]: bar for bar in collected}
+    ordered = [unique[key] for key in sorted(unique)]
+    kept, dropped = drop_forming(ordered, now_ms)
+    return {"ok": True, "bars": kept, "dropped_forming": dropped, "pages": pages, "provider": "binance-public"}
+
+
+def _chart_range(interval):
+    return {"15m": ("1mo", "15m"), "1h": ("1y", "1h"), "1d": ("5y", "1d")}.get(interval)
+
+
+def xaus_chart(interval, now_ms=None):
+    """XAUUSD chart OHLC. No open is invented. The unaligned live tail is dropped."""
+    spec = _chart_range(interval)
+    if spec is None:
+        return {"ok": False, "reason": "interval_not_available", "bars": []}
+    now_ms = int(now_ms if now_ms is not None else time.time() * 1000)
+    step = interval_ms(interval)
+    query = urllib.parse.urlencode({"symbol": "xau", "range": spec[0], "interval": spec[1]})
+    status, raw = _get(XAUS_CHART + "?" + query, timeout=30)
+    if status != 200:
+        return {"ok": False, "reason": f"http_{status}", "bars": [], "provider": "xaus.com"}
+    payload = json.loads(raw.decode())
+    state = payload.get("data_state") or {}
+    bars = []
+    partial = 0
+    for point in payload.get("points") or []:
+        open_ms = int(point["t"]) * 1000 if int(point["t"]) < 10_000_000_000 else int(point["t"])
+        if open_ms % step != 0:
+            partial += 1
+            continue
+        close_ms = open_ms + step - 1
+        if close_ms > now_ms:
+            partial += 1
+            continue
+        bar = make_bar(
+            symbol="XAUUSD",
+            instrument="XAUUSD_SPOT",
+            interval=interval,
+            open_time_ms=open_ms,
+            close_time_ms=close_ms,
+            open=point.get("o"),
+            high=point.get("h"),
+            low=point.get("l"),
+            close=point.get("c"),
+            volume=point.get("v"),
+            provider="xaus.com",
+            source_type="chart_ohlc",
+            quote_semantics="ohlc_not_bid_ask",
+            retrieved_at_ms=now_ms,
+            complete=True,
+            fresh=now_ms - close_ms <= 2 * step and gold_market_open(datetime.fromtimestamp(now_ms / 1000, timezone.utc)),
+        )
+        if bar["open"] is None:
+            partial += 1
+            continue
+        bars.append(bar)
+    kept, dropped = drop_forming(bars, now_ms)
+    return {
+        "ok": True,
+        "bars": kept,
+        "partial_dropped": partial + dropped,
+        "data_state": state,
+        "provider": "xaus.com",
+        "quote_semantics": "ohlc_not_bid_ask",
+        "range": spec[0],
+    }
+
+
+def xaus_spot(now_ms=None):
+    """Indicative mid. Never a candle and never a bid or ask."""
+    now_ms = int(now_ms if now_ms is not None else time.time() * 1000)
+    status, raw = _get(XAUS_SPOT + "?compact=1", timeout=15)
+    if status != 200:
+        return {"ok": False, "reason": f"http_{status}", "quote_semantics": "indicative_mid"}
+    payload = json.loads(raw.decode())
+    updated = payload.get("updated_at")
+    state = payload.get("data_state") or {}
+    age = state.get("age_seconds")
+    moment = datetime.fromtimestamp(now_ms / 1000, timezone.utc)
+    fresh = state.get("status") == "fresh" and isinstance(age, (int, float)) and age <= 15 * 60 and gold_market_open(moment)
+    return {
+        "ok": payload.get("spot_usd_oz") is not None,
+        "symbol": "XAUUSD",
+        "instrument": "XAUUSD_SPOT",
+        "price": payload.get("spot_usd_oz"),
+        "updated_at": updated,
+        "source": state.get("source") or payload.get("price_source"),
+        "quote_semantics": "indicative_mid",
+        "kind": "indicative_spot",
+        "fresh": fresh,
+        "market_open": gold_market_open(moment),
+        "not_a_candle": True,
+        "not_bid_ask": True,
+    }
+
+
+def decode_dukascopy_bi5(payload, hour_open_ms, point_scale=1000.0):
+    """Decode one Dukascopy tick hour. Scale is the feed's point size, not a price guess."""
+    raw = lzma.decompress(payload)
+    ticks = []
+    for offset in range(0, len(raw) - 19, 20):
+        millis, ask, bid, ask_vol, bid_vol = struct.unpack(">IIIff", raw[offset:offset + 20])
+        ticks.append({
+            "time_ms": hour_open_ms + millis,
+            "ask": ask / point_scale,
+            "bid": bid / point_scale,
+            "ask_volume": ask_vol,
+            "bid_volume": bid_vol,
+        })
+    return ticks
+
+
+def dukascopy_hour(year, month_index, day, hour, timeout=20):
+    """month_index is Dukascopy's zero-based month. HTTP 429 stays unavailable."""
+    url = f"{DUKA}/{year}/{month_index:02d}/{day:02d}/{hour:02d}h_ticks.bi5"
+    status, raw = _get(url, timeout=timeout, attempts=2)
+    if status == 429:
+        return {"ok": False, "reason": "provider_throttled", "provider": "dukascopy"}
+    if status != 200 or not raw or raw[:1] == b"{":
+        return {"ok": False, "reason": f"http_{status}", "provider": "dukascopy"}
+    hour_open = datetime(year, month_index + 1, day, hour, tzinfo=timezone.utc)
+    try:
+        ticks = decode_dukascopy_bi5(raw, int(hour_open.timestamp() * 1000))
+    except Exception as exc:
+        return {"ok": False, "reason": type(exc).__name__, "provider": "dukascopy"}
+    return {"ok": True, "ticks": ticks, "provider": "dukascopy", "quote_semantics": "bid_ask", "url": url}

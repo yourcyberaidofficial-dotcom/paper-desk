@@ -15,14 +15,11 @@ def candidates(states, symbol, candle_close_ms):
         out.append({
             "strategy": state["strategy"],
             "symbol": symbol,
-            "kind": "paper_candidate",
-            "eligible": True,
+            "kind": "research_observation",
+            "eligible": False,
             "direction": state["direction"],
             "source_candle_close_ms": candle_close_ms,
-            "entry": "next completed-candle open after the source close",
-            "exit": "opposite band or 8 bars, whichever comes first",
-            "sizing": "one unit notional",
-            "fees_bps_per_fill": 11,
+            "missing": "benchmark_failed",
             "validated": False,
         })
     return out
