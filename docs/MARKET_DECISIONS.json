@@ -1,0 +1,32 @@
+{
+  "holdout": "NOT_OPENED",
+  "approved": [],
+  "markets": {
+    "BTCUSDT": {
+      "strategy": "compress-break-4h-20261028",
+      "timeframe": "4h",
+      "validation_status": "FAIL",
+      "approved": false,
+      "live": true,
+      "median_fold_mean": -0.0018739268702522818,
+      "why": "The daily dip median was about -0.00505 and the quiet-week rule had only 9 trades. Neither replaced the preserved 4h compression result."
+    },
+    "ETHUSDT": {
+      "strategy": "sweep-reclaim-4h-20261028",
+      "timeframe": "4h",
+      "validation_status": "FAIL",
+      "approved": false,
+      "live": true,
+      "median_fold_mean": -0.0020641112122359753,
+      "why": "The daily dip median was about -0.00403 and the quiet-week rule had only 4 trades. The preserved 4h reclaim remains the least-bad rank."
+    },
+    "XAUUSD": {
+      "strategy": "london-reclaim-1h-20261028",
+      "timeframe": "1h",
+      "validation_status": "BLOCKED",
+      "approved": false,
+      "live": false,
+      "why": "Six historical trades are not enough. A live Swissquote bid/ask snapshot is not a completed hour, and Dukascopy did not publish both sides for the current session."
+    }
+  }
+}
