@@ -12,7 +12,6 @@ from ops.auth import RateLimit, api_token, require_token
 from ops.engine import PaperEngine
 from ops.ledger import Ledger
 from ops.signals import research_states
-from ops.paper_candidates import candidates
 from ops.experimental import ExperimentalBook, present_book
 from pathlib import Path
 from ops.replay import replay, yesterday_ms, period
@@ -28,6 +27,7 @@ ROOT = Path(__file__).resolve().parents[1]
 LEDGER_PATH = ROOT / "data" / "paper" / "ledger.jsonl"
 STARTED = time.time()
 LIMITER = RateLimit(60)
+_FEED_CACHE = {}
 
 app = Flask(__name__)
 app.secret_key = os.environ.get("DESK_SESSION_SECRET") or api_token() or "disabled"
@@ -279,23 +279,133 @@ def paper_status():
     return jsonify({"open": None, "rows": [], "label": "EXPERIMENTAL PAPER — NOT VALIDATED", "broker": False})
 
 
+def _remember(key, ttl, loader):
+    now = time.time()
+    hit = _FEED_CACHE.get(key)
+    if hit and now - hit[0] < ttl:
+        return hit[1]
+    value = loader()
+    _FEED_CACHE[key] = (now, value)
+    return value
+
+
+def _gold_bars(interval, now_ms):
+    from ops.bars import aggregate
+    from ops.feeds import xaus_chart
+
+    interval = interval if interval in {"15m", "1h", "4h", "1d"} else "1h"
+    if interval == "4h":
+        base = _remember(("xaus", "1h"), 60, lambda: xaus_chart("1h", now_ms))
+        if not base.get("ok"):
+            return base
+        return {
+            "ok": True,
+            "bars": aggregate(base.get("bars") or [], "1h", "4h"),
+            "provider": "xaus.com",
+            "quote_semantics": "ohlc_not_bid_ask",
+            "partial_dropped": base.get("partial_dropped"),
+            "interval": "4h",
+        }
+    series = _remember(("xaus", interval), 60, lambda: xaus_chart(interval, now_ms))
+    series = dict(series)
+    series["interval"] = interval
+    return series
+
+
+def _engine_view(symbol, now_ms=None):
+    from ops.engine_eval import evaluate_snapshot, headline
+    from ops.feeds import binance_bars
+
+    now_ms = int(now_ms if now_ms is not None else time.time() * 1000)
+    empty = {
+        "symbol": symbol,
+        "production": "WAIT_DEFAULT",
+        "approved": False,
+        "broker": False,
+        "validated": False,
+        "rows": [],
+    }
+    if symbol == "XAUUSD":
+        series = _gold_bars("1h", now_ms)
+        higher = _gold_bars("4h", now_ms) if series.get("ok") else {"bars": []}
+        if not series.get("ok") or not series.get("bars"):
+            empty.update(state="DATA_UNAVAILABLE", reason=series.get("reason") or "GOLD_FEED_UNAVAILABLE", interval="1h")
+            return empty
+        bars, higher_bars, interval = series["bars"], higher.get("bars") or [], "1h"
+    elif symbol in {"BTCUSDT", "ETHUSDT"}:
+        entry = _remember(
+            ("binance", symbol, "15m"),
+            30,
+            lambda: binance_bars(symbol, "15m", now_ms - 160 * 15 * 60 * 1000, now_ms, now_ms),
+        )
+        higher = _remember(
+            ("binance", symbol, "1h"),
+            30,
+            lambda: binance_bars(symbol, "1h", now_ms - 90 * 60 * 60 * 1000, now_ms, now_ms),
+        )
+        if not entry.get("ok") or not higher.get("ok") or not entry.get("bars"):
+            empty.update(state="DATA_UNAVAILABLE", reason=entry.get("reason") or higher.get("reason") or "DATA_UNAVAILABLE", interval="15m")
+            return empty
+        bars, higher_bars, interval = entry["bars"], higher.get("bars") or [], "15m"
+    else:
+        empty.update(state="DATA_UNAVAILABLE", reason="symbol_not_allowed")
+        return empty
+    rows = evaluate_snapshot(symbol, bars, higher_bars, now_ms, interval)
+    head = headline(rows)
+    empty.update(
+        interval=interval,
+        state=head.get("state"),
+        reason=head.get("reason"),
+        direction=head.get("direction"),
+        strategy=head.get("strategy"),
+        headline=head,
+        rows=rows,
+        quote_semantics=bars[-1].get("quote_semantics"),
+        bars=len(bars),
+    )
+    return empty
+
+
 def _gold():
+    from ops.feeds import xaus_spot
     from ops.gold_cache import load, save
     try:
-        with urllib.request.urlopen("https://xaus.com/api/v1/spot", timeout=10) as response:
-            spot = json.loads(response.read().decode())
-        price = spot.get("spot_usd_oz")
-        if price is not None:
-            payload = {"symbol": "XAUUSD", "source": "xaus.com", "kind": "spot", "price": price, "fresh": True, "note": "Gold spot USD/oz. Not a crypto exchange candle."}
-            save({"spot": payload})
-            return payload
+        spot = _remember(("xaus", "spot"), 15, xaus_spot)
     except Exception as exc:
-        cached = (load() or {}).get("spot")
-        if cached:
-            cached["fresh"] = False
-            cached["note"] = "Provider limited. Showing last known price."
-            return cached
-        return {"symbol": "XAUUSD", "source": "xaus.com", "status": "error", "error": type(exc).__name__, "fresh": False}
+        spot = {"ok": False, "reason": type(exc).__name__}
+    if spot.get("ok") and spot.get("price") is not None:
+        payload = {
+            "symbol": "XAUUSD",
+            "instrument": "XAUUSD_SPOT",
+            "source": "xaus.com",
+            "kind": "indicative_spot",
+            "quote_semantics": "indicative_mid",
+            "price": spot.get("price"),
+            "fresh": bool(spot.get("fresh")),
+            "market_open": spot.get("market_open"),
+            "updated_at": spot.get("updated_at"),
+            "not_bid_ask": True,
+            "not_a_candle": True,
+            "note": "Indicative mid-market USD/oz. Not an executable bid or ask and not a candle.",
+        }
+        save({"spot": payload})
+        return payload
+    cached = (load() or {}).get("spot")
+    if cached:
+        cached = dict(cached)
+        cached["fresh"] = False
+        cached["quote_semantics"] = "indicative_mid"
+        cached["note"] = "Provider limited. Last known indicative mid, not a live quote."
+        return cached
+    return {
+        "symbol": "XAUUSD",
+        "source": "xaus.com",
+        "status": "error",
+        "error": spot.get("reason") or "GOLD_FEED_UNAVAILABLE",
+        "fresh": False,
+        "quote_semantics": "indicative_mid",
+        "note": "GOLD_FEED_UNAVAILABLE",
+    }
 
 
 @app.get("/api/markets")
@@ -466,14 +576,10 @@ def _research_votes(symbol):
     fresh = False
     try:
         if symbol == "XAUUSD":
-            from ops.gold_cache import load
-            cached = load() or {}
-            candles = (cached.get("candles") or cached.get("daily") or [])
-            if len(candles) < 21:
-                with urllib.request.urlopen("https://xaus.com/api/v1/history", timeout=15) as response:
-                    points = json.loads(response.read().decode()).get("points") or []
-                candles = [{"high": p.get("h"), "low": p.get("l"), "close": p.get("c")} for p in points]
-            fresh = len(candles) >= 21
+            now_ms = int(time.time() * 1000)
+            series = _gold_bars("1h", now_ms)
+            candles = series.get("bars") or []
+            fresh = bool(series.get("ok") and candles and candles[-1].get("fresh"))
         else:
             data = fetch_klines(symbol, "15m", limit=80)
             candles = data.get("candles") or []
@@ -560,23 +666,24 @@ def api_council():
             "council": council(by.get("E1-donchian-20", "WAIT"), by.get("SMA20-state", "WAIT"), by.get("RSI14-state", "WAIT"), True, candle),
         })
     try:
-        with urllib.request.urlopen("https://xaus.com/api/v1/history", timeout=15) as response:
-            points = json.loads(response.read().decode()).get("points") or []
-        bars = [{"high": p["h"], "low": p["l"], "close": p["c"]} for p in points]
-        states = research_states(bars) if len(bars) >= 21 else []
+        series = _gold_bars("1h", int(time.time() * 1000))
+        bars = series.get("bars") or []
+        norm = [{"high": bar["high"], "low": bar["low"], "close": bar["close"]} for bar in bars]
+        states = research_states(norm) if len(norm) >= 21 else []
         by = {s["strategy"]: s["direction"] for s in states}
-        last = points[-1] if points else {}
+        last = bars[-1] if bars else {}
         out.append({
             "symbol": "XAUUSD",
-            "timeframe": "1d",
-            "fresh": True,
+            "timeframe": "1h",
+            "fresh": bool(series.get("ok") and last.get("fresh")),
             "history": len(bars),
+            "quote_semantics": "ohlc_not_bid_ask",
             "states": states,
-            "limitation": "Daily history only. Intraday gold candles are not available.",
-            "council": council(by.get("E1-donchian-20", "WAIT"), by.get("SMA20-state", "WAIT"), by.get("RSI14-state", "WAIT"), True, last.get("d")),
+            "limitation": "Completed XAUUSD chart OHLC. Not bid/ask. Not a daily close copied into the open. Weekend gaps are a closed market.",
+            "council": council(by.get("E1-donchian-20", "WAIT"), by.get("SMA20-state", "WAIT"), by.get("RSI14-state", "WAIT"), bool(last.get("fresh")), last.get("open_time_ms")),
         })
     except Exception as exc:
-        out.append({"symbol": "XAUUSD", "timeframe": "1d", "fresh": False, "error": type(exc).__name__})
+        out.append({"symbol": "XAUUSD", "timeframe": "1h", "fresh": False, "error": type(exc).__name__, "reason": "GOLD_FEED_UNAVAILABLE"})
     return jsonify({"markets": out, "source": "awuru-goal-signal-engine council idea, simplified"})
 
 
@@ -611,37 +718,70 @@ def notify_history():
 
 @app.get("/api/gold/signal")
 def gold_signal():
-    try:
-        with urllib.request.urlopen("https://xaus.com/api/v1/history", timeout=15) as response:
-            data = json.loads(response.read().decode())
-        points = data.get("points") or []
-        bars = [{"high": p["h"], "low": p["l"], "close": p["c"]} for p in points]
-        from ops.e1 import e1_side
-        side = e1_side(bars)
-        last = points[-1] if points else {}
-        return jsonify({"symbol": "XAUUSD", "interval": "1d", "strategy": "E1-donchian-20", "result": side, "source_date": last.get("d"), "close": last.get("c"), "validated": False, "note": "Evaluated on daily gold history. Not a paper order."})
-    except Exception as exc:
-        return jsonify({"error": type(exc).__name__}), 502
+    view = _engine_view("XAUUSD")
+    head = view.get("headline") or {}
+    return jsonify({
+        "symbol": "XAUUSD",
+        "interval": view.get("interval") or "1h",
+        "strategy": head.get("strategy"),
+        "state": view.get("state"),
+        "reason": view.get("reason"),
+        "result": head.get("direction") or "WAIT",
+        "direction": head.get("direction") or "WAIT",
+        "production": "WAIT_DEFAULT",
+        "approved": False,
+        "validated": False,
+        "broker": False,
+        "quote_semantics": view.get("quote_semantics") or "ohlc_not_bid_ask",
+        "rows": view.get("rows") or [],
+        "note": "Completed 1h XAUUSD chart OHLC. Not a paper order, not bid/ask, and not an approved signal.",
+    })
 
 
 @app.get("/api/gold/candles")
-
 def gold_candles():
-    try:
-        with urllib.request.urlopen("https://xaus.com/api/v1/history", timeout=15) as response:
-            data = json.loads(response.read().decode())
-        points = data.get("points") or []
-        candles = [{"t": p.get("d"), "o": p.get("c"), "h": p.get("h"), "l": p.get("l"), "c": p.get("c")} for p in points[-120:]]
-        return jsonify({"symbol": "XAUUSD", "interval": "1d", "source": "xaus.com", "kind": "daily_spot_history", "count": len(points), "candles": candles, "note": "Daily gold history. Open is not supplied, so open is shown as close."})
-    except Exception as exc:
-        return jsonify({"error": type(exc).__name__}), 502
+    from ops.bars import to_chart_candles
+
+    interval = request.args.get("interval", "1h")
+    series = _gold_bars(interval, int(time.time() * 1000))
+    if not series.get("ok"):
+        return jsonify({
+            "symbol": "XAUUSD",
+            "interval": interval,
+            "candles": [],
+            "error": series.get("reason") or "GOLD_FEED_UNAVAILABLE",
+            "quote_semantics": "ohlc_not_bid_ask",
+            "note": "No gold candle was invented.",
+        }), 502
+    candles = to_chart_candles(series.get("bars") or [])[-180:]
+    return jsonify({
+        "symbol": "XAUUSD",
+        "instrument": "XAUUSD_SPOT",
+        "interval": series.get("interval") or interval,
+        "source": "xaus.com",
+        "kind": "chart_ohlc",
+        "quote_semantics": "ohlc_not_bid_ask",
+        "count": len(candles),
+        "partial_dropped": series.get("partial_dropped"),
+        "candles": candles,
+        "note": "Completed XAUUSD chart OHLC. Open is the provider open. Not a live bid/ask quote.",
+    })
+
+
+@app.get("/api/engine")
+def engine_api():
+    symbol = request.args.get("symbol", "BTCUSDT")
+    view = _engine_view(symbol)
+    view.pop("headline", None)
+    return jsonify(view)
 
 
 @app.get("/api/research-lab")
 def research_lab():
-    return jsonify({
+    payload = {
         "promoted_count": 0,
         "production": "WAIT_DEFAULT",
+        "approved": [],
         "gates": [
             {"name": "Minimum trade count", "status": "FAIL", "evidence": "Sample sizes were insufficient or not met for promotion."},
             {"name": "Positive net expectancy after costs", "status": "FAIL", "evidence": "E1 and E2 negative after fees. G1-H4 totals small and unvalidated."},
@@ -654,38 +794,71 @@ def research_lab():
             {"id": "G0-H2", "name": "Volatility expansion", "decision": "FAILED", "reason": "Negative net expectancy under costs."},
             {"id": "G0-H3", "name": "Range fade", "decision": "FAILED", "reason": "Negative net expectancy under costs."},
             {"id": "G1-H4-r2", "name": "Trend continuation (corrected)", "decision": "NO_PROMOTION", "reason": "Positive point estimates but SPA/White/DSR/PBO not computed. ETH 20 rejected."},
-            {"id": "E1-donchian-20", "name": "Donchian 20 breakout", "decision": "REJECTED", "reason": "Negative expectancy after costs on BTC and ETH."},
+            {"id": "E1-donchian-20", "name": "Donchian 20 breakout", "decision": "REJECTED", "reason": "Failed benchmark on BTC and ETH after costs. Not re-tuned."},
             {"id": "E2", "name": "E2 candidate", "decision": "REJECTED", "reason": "Negative expectancy after costs. Profit factor below 1."},
+            {"id": "tf-pullback-20261027", "name": "Trend-following pullback", "decision": "NOT_PROMOTED", "reason": "Frozen rule. See docs/GATE3_SPEC.md. Not an approved signal."},
+            {"id": "vol-break-20261027", "name": "Volatility-normalized breakout", "decision": "NOT_PROMOTED", "reason": "Frozen rule. Distinct from raw E1. Not an approved signal."},
+            {"id": "mr-range-20261027", "name": "Regime-filtered mean reversion", "decision": "NOT_PROMOTED", "reason": "Disabled outside its range regime. Not an approved signal."},
+            {"id": "xau-session-20261027", "name": "Gold New York session pullback", "decision": "NOT_PROMOTED", "reason": "XAUUSD 1h research. Cannot pass promotion without measured bid/ask."},
         ],
         "note": "No strategy has passed promotion gates. Experimental observations are not validated signals.",
-    })
+    }
+    path = ROOT / "docs" / "GATE3_RESULTS.json"
+    if path.exists():
+        try:
+            report = json.loads(path.read_text())
+        except Exception:
+            report = None
+        if report:
+            grouped = {}
+            for row in report.get("rows") or []:
+                grouped.setdefault(row["strategy"], []).append(f"{row['symbol']} {row['split']} {row['judgment']} n={row.get('trades')}")
+            qualified = set(report.get("qualified_for_review") or [])
+            for item in payload["experiments"]:
+                bits = grouped.get(item["id"])
+                if not bits:
+                    continue
+                item["reason"] = "; ".join(bits) + ". Not an approved production signal."
+                if any(item["id"] + ":" in key or key.startswith(item["id"] + ":") for key in qualified):
+                    item["decision"] = "QUALIFIED_FOR_REVIEW"
+                elif any(" FAIL" in " " + bit or bit.endswith(" FAIL") or " FAIL " in bit for bit in bits):
+                    item["decision"] = "FAIL"
+                elif any(" BLOCKED" in bit for bit in bits):
+                    item["decision"] = "BLOCKED"
+            payload["qualified_for_review"] = sorted(qualified)
+            payload["approved"] = []
+            payload["note"] = "Gate 3 judgments are research results. Qualified for review is not production approval. Production remains WAIT_DEFAULT."
+    return jsonify(payload)
 
 
 @app.get("/api/research-signals")
-
-
 def research_signals():
     symbol = request.args.get("symbol", "BTCUSDT")
-    interval = request.args.get("interval", "15m")
-    data = fetch_klines(symbol, interval, limit=50)
-    bars = [{"high": c["h"], "low": c["l"], "close": c["c"]} for c in data.get("candles") or []]
-    candles = data.get("candles") or []
-    last = candles[-1] if candles else {}
-    steps = {"15m": 15 * 60 * 1000, "1h": 60 * 60 * 1000, "4h": 4 * 60 * 60 * 1000, "1d": 24 * 60 * 60 * 1000}
-    close_ms = last.get("t") + steps.get(interval, 0) if last else None
-    now_ms = int(time.time() * 1000)
-    fresh = bool(close_ms and now_ms - close_ms < 2 * steps.get(interval, 15 * 60 * 1000))
+    if symbol not in {"BTCUSDT", "ETHUSDT", "XAUUSD"}:
+        return jsonify({"error": "symbol_not_allowed"}), 400
+    view = _engine_view(symbol)
+    e1, sma, rsi, fresh = _research_votes(symbol)
+    states = [
+        {"strategy": "E1-donchian-20", "direction": e1, "classification": "research_observation", "validated": False, "evidence": "benchmark_failed"},
+        {"strategy": "SMA20-state", "direction": sma, "classification": "research_observation", "validated": False},
+        {"strategy": "RSI14-state", "direction": rsi, "classification": "research_observation", "validated": False},
+    ]
     return jsonify({
         "symbol": symbol,
-        "interval": interval,
+        "interval": view.get("interval"),
         "production": "WAIT_DEFAULT",
         "validated": False,
+        "approved": False,
+        "broker": False,
         "kind": "research_observation",
         "fresh": fresh,
-        "source_candle_close_ms": close_ms,
-        "states": research_states(bars) if bars else [],
-        "paper_candidates": candidates(research_states(bars) if bars else [], symbol, close_ms),
+        "states": states,
+        "engine": view.get("rows") or [],
+        "state": view.get("state"),
+        "reason": view.get("reason"),
+        "paper_candidates": [],
         "label": "RESEARCH OBSERVATION — NOT VALIDATED",
+        "note": "E1 is a failed benchmark. A paper candidate is not an order. Production remains WAIT_DEFAULT.",
     })
 
 
@@ -1089,7 +1262,7 @@ async function overview(){
     if (item.id === "GOLD") {
       const g = item.data || {};
       const price = g.price != null ? Number(g.price).toLocaleString(undefined,{maximumFractionDigits:2}) : "unavailable";
-      return `<article class="card" id="card-XAUUSD"><div class="muted">XAUUSD · Gold · USD/oz</div><div class="price">${price}</div><canvas id="spark-gold" class="spark"></canvas><div id="detail-XAUUSD" class="muted">${g.fresh===false?"Price is not fresh. ":" "}Research state loading.</div></article>`;
+      return `<article class="card" id="card-XAUUSD"><div class="muted">XAUUSD · indicative mid · USD/oz</div><div class="price">${price}</div><canvas id="spark-gold" class="spark"></canvas><div id="detail-XAUUSD" class="muted">${g.fresh===false?"Not a live quote. ":""}${g.note||"Indicative mid. Not bid/ask."} Research state loading.</div></article>`;
     }
     const price = item.data && item.data.close != null ? Number(item.data.close).toLocaleString() : "unavailable";
     const fresh = item.data && item.data.fresh === false ? "Feed is not fresh. " : "";
@@ -1100,11 +1273,11 @@ async function overview(){
     const sym = document.getElementById("sym").value, tf = document.getElementById("tf").value;
     const note = document.getElementById("chartnote");
     if (sym === "XAUUSD") {
-      const bars = await fetch("/api/gold/candles").then(r=>r.json());
-      const candles = (bars.candles||[]).map(c => ({o:+c.o,h:+c.h,l:+c.l,c:+c.c}));
-      if (!candles.length) { if (note) note.textContent = bars.error ? "Chart unavailable: " + bars.error : "No gold candles returned."; return; }
+      const bars = await fetch("/api/gold/candles?interval="+encodeURIComponent(tf)).then(r=>r.json());
+      const candles = (bars.candles||[]).filter(c => c.o != null && c.h != null && c.l != null && c.c != null).map(c => ({t:c.t, o:+c.o, h:+c.h, l:+c.l, c:+c.c}));
+      if (!candles.length) { if (note) note.textContent = bars.error ? "Chart unavailable: " + bars.error : (bars.note || "No completed gold candles."); return; }
       draw(candles);
-      if (note) note.textContent = "xaus.com daily history · USD per ounce";
+      if (note) note.textContent = (bars.interval || tf) + " · " + (bars.note || "XAUUSD chart OHLC") + (bars.quote_semantics ? " · " + bars.quote_semantics : "");
       return;
     }
     const bars = await fetch(`/api/klines?symbol=${sym}&interval=${tf}`).then(r=>r.json());
@@ -1129,9 +1302,9 @@ async function overview(){
     if (item.id === "GOLD") {
       fetch("/api/gold/signal").then(r=>r.json()).then(sig => {
         const box = document.getElementById("detail-XAUUSD");
-        if (box) box.innerHTML = `<div class="row"><span>E1 daily</span><span class="${cls(sig.result||"")}">${label(sig.result||"unavailable")}</span></div><div class="muted">Source ${sig.source_date||"not available"}. Not a paper order.</div>`;
+        if (box) box.innerHTML = `<div class="row"><span>${sig.interval||"1h"} ${sig.state||"WAIT"}</span><span class="${cls(sig.result||"")}">${label(sig.result||"unavailable")}</span></div><div class="muted">${sig.reason||""}. ${sig.note||"Not a paper order."}</div>`;
       }).catch(()=>{});
-      fetch("/api/gold/candles").then(r=>r.json()).then(g => spark("spark-gold", (g.candles||[]).map(c=>({c:+c.c})))).catch(()=>{});
+      fetch("/api/gold/candles?interval=1h").then(r=>r.json()).then(g => spark("spark-gold", (g.candles||[]).map(c=>({c:+c.c})))).catch(()=>{});
     } else {
       fetch(`/api/research-signals?symbol=${symbol}&interval=15m`).then(r=>r.json()).then(s => {
         const box = document.getElementById("detail-"+symbol);
@@ -1158,7 +1331,7 @@ async function signals(){
     let detail = "";
     if (symbol === "XAUUSD") {
       const gold = await fetch("/api/gold/signal").then(r=>r.json()).catch(()=>({}));
-      detail = `<div class="muted">Gold E1 daily ${label(gold.result||"unavailable")}. Source ${gold.source_date||"not available"}. Daily history only. Quote is USD/oz.</div>`;
+      detail = `<div class="muted">${gold.interval||"1h"} ${gold.state||"WAIT"} ${label(gold.result||"unavailable")}. ${gold.reason||""} ${gold.note||"Not an order. Quote is USD/oz chart OHLC, not bid/ask."}</div>`;
     } else {
       const s = await fetch("/api/research-signals?symbol="+symbol+"&interval=15m").then(r=>r.json()).catch(()=>({states:[]}));
       detail = (s.states||[]).map(st => `<div class="row"><span>${st.strategy}</span><span class="${cls(st.direction)}">${label(st.direction)}</span></div>`).join("");
@@ -1193,11 +1366,11 @@ async function terminal(){
     meta.innerHTML = "";
     try {
       if (sym === "XAUUSD") {
-        const bars = await fetch("/api/gold/candles").then(r=>r.json());
-        const candles = (bars.candles||[]).map(c => ({o:+c.o,h:+c.h,l:+c.l,c:+c.c}));
-        if (!candles.length) { note.textContent = bars.error ? "Gold chart unavailable: " + bars.error : "No gold candles returned."; return; }
+        const bars = await fetch("/api/gold/candles?interval="+encodeURIComponent(tf)).then(r=>r.json());
+        const candles = (bars.candles||[]).filter(c => c.o != null && c.h != null && c.l != null && c.c != null).map(c => ({t:c.t, o:+c.o, h:+c.h, l:+c.l, c:+c.c}));
+        if (!candles.length) { note.textContent = bars.error ? "Gold chart unavailable: " + bars.error : (bars.note || "No completed gold candles."); return; }
         draw(candles);
-        note.textContent = "xaus.com daily history · USD per ounce · open is not supplied, so it is drawn as the close";
+        note.textContent = (bars.interval || tf) + " · " + (bars.note || "XAUUSD chart OHLC");
       } else {
         const bars = await fetch(`/api/klines?symbol=${sym}&interval=${tf}`).then(r=>r.json());
         if (!bars.candles || !bars.candles.length) { note.textContent = bars.error ? "Chart unavailable: " + bars.error : "No closed candles returned."; return; }
@@ -1218,7 +1391,7 @@ async function terminal(){
 async function signalsLegacy(){
   const rows = await Promise.all(["BTCUSDT","ETHUSDT"].map(s=>fetch("/api/research-signals?symbol="+s+"&interval=15m").then(r=>r.json())));
   const gold = await fetch("/api/gold/signal").then(r=>r.json()).catch(()=>({}));
-  view.innerHTML = rows.map(d => `<article class="card"><h2>${d.symbol}</h2>${d.states.map(s => `<div class="row"><span>${s.strategy}</span><span class="${cls(s.direction)}">${s.direction}</span></div>`).join("")}</article>`).join("") + `<article class="card"><h2>XAUUSD</h2><div class="row"><span>E1 daily</span><span class="${cls(gold.result||"")}">${label(gold.result||"unavailable")}</span></div><div class="muted">Source ${gold.source_date||""}</div></article><article class="card"><h2>Research backtest</h2><button id="backtest">Run research backtest</button><pre id="backtestout">waiting</pre></article>`;
+  view.innerHTML = rows.map(d => `<article class="card"><h2>${d.symbol}</h2>${d.states.map(s => `<div class="row"><span>${s.strategy}</span><span class="${cls(s.direction)}">${s.direction}</span></div>`).join("")}</article>`).join("") + `<article class="card"><h2>XAUUSD</h2><div class="row"><span>${gold.state||"WAIT"}</span><span class="${cls(gold.result||"")}">${label(gold.result||"unavailable")}</span></div><div class="muted">${gold.reason||""} ${gold.note||""}</div></article><article class="card"><h2>Research backtest</h2><button id="backtest">Run research backtest</button><pre id="backtestout">waiting</pre></article>`;
   document.getElementById("backtest").onclick = async () => {
     const box = document.getElementById("backtestout");
     box.textContent = "loading";
@@ -1245,7 +1418,7 @@ async function load(){
   if (path === "/strategies") {
     const catalog = await fetch("/api/profiles").then(r=>r.json());
     const styles = (catalog.profiles||[]).map(p => `<article class="card"><h2>${p.name}</h2><p>${p.role}. ${p.purpose}</p><p class="muted">${p.confirmation} Risk cap ${p.risk_per_trade_percent}% per trade. Minimum reward/risk ${p.min_rr}. At most ${p.max_trades_per_day} trades a day in the Awuru account defaults. Not a promoted strategy.</p></article>`).join("");
-    view.innerHTML = `<article class="card"><h2>E1 Donchian-20</h2><p>Breakout on the prior 20 completed bars. Research observation. Entry and exit rules exist, but the strategy failed development after costs and is not promoted.</p><p class="muted">BTC and ETH 15m. Gold daily when candles exist.</p></article><article class="card"><h2>SMA20 and RSI14</h2><p>Research observations only. They do not create paper orders.</p></article>${styles}<p class="muted">${catalog.note||""} ${catalog.excluded||""}</p>`;
+    view.innerHTML = `<article class="card"><h2>E1 Donchian-20</h2><p>Breakout on the prior 20 completed bars. Failed benchmark on BTC and ETH. Research observation only. Not promoted and not re-tuned.</p><p class="muted">Crypto decisions use completed 15m bars. Gold decisions use completed 1h XAUUSD chart OHLC. Daily history without an open is not used.</p></article><article class="card"><h2>Gate 3 candidates</h2><p>Trend pullback, volatility-normalized breakout, regime-filtered mean reversion, and a New York session gold pullback. Frozen research rules. A candidate is not an approved signal.</p></article><article class="card"><h2>SMA20 and RSI14</h2><p>Research observations only. They do not create paper orders. If E1 is WAIT, every style stays WAIT.</p></article>${styles}<p class="muted">${catalog.note||""} ${catalog.excluded||""}</p>`;
     return;
   }
   if (path === "/risk") return riskPage();
@@ -1293,7 +1466,7 @@ async function settings(){
   const profile = me.profile || {};
   const styles = (catalog.profiles||[]).map(p => `<label><input type="radio" name="style" value="${p.key}" ${profile.signal_style===p.key?"checked":""}> ${p.name} — ${p.risk_mode}. ${p.confirmation}</label>`).join("");
   const currencies = (catalog.currencies||[]).map(c => `<option value="${c}" ${profile.currency===c?"selected":""}>${c}</option>`).join("");
-  view.innerHTML = `<article class="card"><h2>${path==="/onboarding"?"Choose a signal style":"Signal style"}</h2><p class="muted">${catalog.note||""}</p><div class="styles">${styles}</div></article><article class="card"><h2>Base currency and capital</h2><div class="field"><span>Currency</span><select id="currency"><option value="">Not set</option>${currencies}</select></div><div class="field"><span>Paper capital</span><input id="capital" type="number" min="0" step="any" value="${profile.capital??""}"></div><p class="muted">Saving a currency does not convert the stored amount. Market quotes stay in USDT or USD/oz.</p></article><article class="card"><h2>Markets</h2><div class="checks"><label><input type="checkbox" id="btc" ${has("BTCUSDT")}> BTCUSDT · 15m</label><label><input type="checkbox" id="eth" ${has("ETHUSDT")}> ETHUSDT · 15m</label><label><input type="checkbox" id="gold" ${has("XAUUSD")}> XAUUSD · 1d</label></div></article><article class="card"><h2>Notifications and risk</h2><div class="checks"><label><input type="checkbox" id="exp" ${profile.experimental_alerts?"checked":""}> Experimental alerts</label><label><input type="checkbox" id="digest" ${profile.daily_report!==false?"checked":""}> Daily digest</label></div><div class="field"><span>Max risk per trade %</span><input id="risk" type="number" step="0.1" min="0" value="${profile.max_risk_pct??""}"></div><p class="muted">Risk cannot be set above the active style cap. These caps do not guarantee protection from losses. Production is WAIT_DEFAULT, so no trade alert is sent until a strategy is promoted. Turning experimental alerts on does not bypass that. Telegram is ${me.telegram_verified?"verified":"not verified"}.</p><div class="field"><span>Telegram numeric ID</span><input id="tgid" type="text" placeholder="Your Telegram user id"></div><button id="tglink" type="button">Generate verification link</button><p id="tglinkout" class="muted"></p></article><p><button id="saveall" type="button">Save</button> <button id="skip" type="button">Continue without optional alerts</button> <button id="out" type="button">Sign out</button></p><p id="savedp" class="muted"></p>`;
+  view.innerHTML = `<article class="card"><h2>${path==="/onboarding"?"Choose a signal style":"Signal style"}</h2><p class="muted">${catalog.note||""}</p><div class="styles">${styles}</div></article><article class="card"><h2>Base currency and capital</h2><div class="field"><span>Currency</span><select id="currency"><option value="">Not set</option>${currencies}</select></div><div class="field"><span>Paper capital</span><input id="capital" type="number" min="0" step="any" value="${profile.capital??""}"></div><p class="muted">Saving a currency does not convert the stored amount. Market quotes stay in USDT or USD/oz.</p></article><article class="card"><h2>Markets</h2><div class="checks"><label><input type="checkbox" id="btc" ${has("BTCUSDT")}> BTCUSDT · 15m</label><label><input type="checkbox" id="eth" ${has("ETHUSDT")}> ETHUSDT · 15m</label><label><input type="checkbox" id="gold" ${has("XAUUSD")}> XAUUSD · 1h research</label></div></article><article class="card"><h2>Notifications and risk</h2><div class="checks"><label><input type="checkbox" id="exp" ${profile.experimental_alerts?"checked":""}> Experimental alerts</label><label><input type="checkbox" id="digest" ${profile.daily_report!==false?"checked":""}> Daily digest</label></div><div class="field"><span>Max risk per trade %</span><input id="risk" type="number" step="0.1" min="0" value="${profile.max_risk_pct??""}"></div><p class="muted">Risk cannot be set above the active style cap. These caps do not guarantee protection from losses. Production is WAIT_DEFAULT, so no trade alert is sent until a strategy is promoted. Turning experimental alerts on does not bypass that. Telegram is ${me.telegram_verified?"verified":"not verified"}.</p><div class="field"><span>Telegram numeric ID</span><input id="tgid" type="text" placeholder="Your Telegram user id"></div><button id="tglink" type="button">Generate verification link</button><p id="tglinkout" class="muted"></p></article><p><button id="saveall" type="button">Save</button> <button id="skip" type="button">Continue without optional alerts</button> <button id="out" type="button">Sign out</button></p><p id="savedp" class="muted"></p>`;
   async function save(go){
     const style = (document.querySelector("input[name=style]:checked") || {}).value;
     const markets = [];
