@@ -1,0 +1,10 @@
+{
+  "selection_policy": "approved_only",
+  "holdout": "NOT_OPENED",
+  "new_tournament": false,
+  "why_no_new_tournament": "The 2026-10-28 records already cover trend continuation, volatility compression, failed-breakdown reclaim, daily dip, quiet-week reversal, and gold London reclaim. They were frozen before scoring. None was approved. The same rules were not renamed or retuned.",
+  "records": ["docs/LEADER_RESULTS.json", "docs/DAILY_RESULTS.json", "docs/MARKET_DECISIONS.json"],
+  "auto": "Auto names the frozen rule for the market and does not turn a FAIL or BLOCKED result into a selected trade. An explicit strategy request can still show that rule's experimental match.",
+  "sell": "SELL is only an exit of a recorded long. Spot shorts are not simulated.",
+  "alert": "eligible_for_alert is false while the promotion registry is empty."
+}

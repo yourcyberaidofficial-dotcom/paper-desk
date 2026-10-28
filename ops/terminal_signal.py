@@ -116,6 +116,11 @@ def _levels(setup, price):
 
 
 def decide(symbol, interval, strategy, bars, now_ms, user, prior=None, live_quote=None):
+    explicit = strategy not in {None, "", "auto"}
+    return apply_auto_policy(_evaluate(symbol, interval, strategy, bars, now_ms, user, prior, live_quote), explicit)
+
+
+def _evaluate(symbol, interval, strategy, bars, now_ms, user, prior=None, live_quote=None):
     chosen = auto_strategy(symbol) if strategy in {None, "", "auto"} else strategy
     spec = BY_ID.get(chosen) or {}
     base = {
@@ -216,6 +221,44 @@ def decide(symbol, interval, strategy, bars, now_ms, user, prior=None, live_quot
         "costs": costs,
         "currency": profile.get("currency"),
     }
+
+
+def apply_auto_policy(result, explicit):
+    """Auto may name a frozen rule. It may not promote a failed or blocked one."""
+    result = dict(result)
+    result["eligible_for_alert"] = False
+    result["approved"] = False
+    result["selection_policy"] = "explicit_named_rule" if explicit else "approved_only"
+    result["evidence_semantics"] = "A checklist is not a probability of profit. No strategy is approved."
+    status = result.get("validation_status") or "unknown"
+    if not explicit and result.get("decision") == "BUY" and status != "PASS":
+        match = {
+            "decision": "BUY",
+            "label": "experimental_rule_match",
+            "reason": result.get("reason"),
+            "entry": result.get("entry"),
+            "stop": result.get("stop"),
+            "target": result.get("target"),
+            "reward_risk": result.get("reward_risk"),
+            "size": result.get("size"),
+            "approved": False,
+        }
+        result["experimental_match"] = match
+        result["decision"] = "WAIT"
+        result["reason"] = (
+            f"Auto did not select {result.get('strategy')}. Research status is {status}, so this is not a trade recommendation. "
+            f"The frozen rule would have matched a long. {match['reason']}"
+        )
+        result["entry"] = None
+        result["stop"] = None
+        result["target"] = None
+        result["reward_risk"] = None
+        result["size"] = {"ok": False, "reason": "not_selected", "order": False}
+        result["auto_selected"] = False
+    else:
+        result["auto_selected"] = bool(explicit is False and status == "PASS" and result.get("decision") == "BUY")
+    result["decision_label"] = "BLOCKED" if result.get("blocked") else result.get("decision")
+    return result
 
 
 def stamp(user_id, result):
