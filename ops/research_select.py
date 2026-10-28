@@ -3,7 +3,7 @@
 from ops.hypotheses import GATES, GOLD_COST
 
 
-def judge(summary, halves_summary, symbol):
+def judge(summary, halves_summary, symbol, measured_bid_ask=None):
     trades = summary.get("trades") or 0
     blocked = []
     failed = []
@@ -27,7 +27,8 @@ def judge(summary, halves_summary, symbol):
             blocked.append(f"half_{name}")
         elif not (part.get("base_mean") is not None and part["base_mean"] > 0):
             failed.append(f"half_{name}")
-    if symbol == "XAUUSD" and not GOLD_COST["measured_bid_ask"]:
+    measured = GOLD_COST["measured_bid_ask"] if measured_bid_ask is None else measured_bid_ask
+    if symbol == "XAUUSD" and not measured:
         blocked.append("no_measured_bid_ask")
     if failed:
         return "FAIL", failed, blocked
