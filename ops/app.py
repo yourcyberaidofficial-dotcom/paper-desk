@@ -1089,6 +1089,57 @@ def notifications_read():
     return jsonify(mark_read(user_id, event_id or None))
 
 
+@app.post("/api/terminal/signal")
+def terminal_signal():
+    user_id = session.get("user_id")
+    if not user_id or not _user_ok():
+        return jsonify({"error": "unauthorized"}), 401
+    from ops.terminal_signal import AUTO, decide, open_idea, stamp
+    from ops.users import get
+    body = request.get_json(silent=True) or {}
+    symbol = body.get("symbol") or "BTCUSDT"
+    interval = body.get("interval") or "4h"
+    strategy = body.get("strategy") or "auto"
+    now_ms = int(time.time() * 1000)
+    bars = _terminal_bars(symbol, interval, now_ms)
+    if isinstance(bars, tuple):
+        return jsonify({"decision": "WAIT", "reason": bars[1], "approved": False, "fresh": False, "reference_price": None, "blocked": "feed_error"}), 200
+    user = get(user_id) or {}
+    chosen = AUTO.get(symbol) if strategy in {None, "", "auto"} else strategy
+    result = decide(symbol, interval, strategy, bars, now_ms, user, open_idea(user_id, symbol, chosen))
+    return jsonify(stamp(user_id, result))
+
+
+def _terminal_bars(symbol, interval, now_ms):
+    try:
+        if symbol in {"BTCUSDT", "ETHUSDT"}:
+            from ops.feeds import binance_bars
+            start = now_ms - 120 * 24 * 60 * 60 * 1000
+            loaded = binance_bars(symbol, interval, start, now_ms, now_ms)
+            if not loaded.get("ok"):
+                return None, loaded.get("reason") or "The market feed did not respond."
+            return loaded.get("bars") or []
+        if symbol == "XAUUSD":
+            from ops.feeds import xaus_chart
+            loaded = xaus_chart(interval, now_ms)
+            if not loaded.get("ok"):
+                return None, "Gold candles could not be loaded."
+            return loaded.get("bars") or []
+    except Exception:
+        return None, "The market feed could not be read."
+    return None, "This market is not supported."
+
+
+@app.get("/api/terminal/history")
+def terminal_history():
+    user_id = session.get("user_id")
+    if not user_id or not _user_ok():
+        return jsonify({"error": "unauthorized"}), 401
+    from ops.terminal_signal import read_history
+    rows = list(reversed(read_history(user_id)))
+    return jsonify({"items": rows[:40]})
+
+
 @app.get("/overview")
 @app.get("/signals")
 @app.get("/trading")
@@ -1518,37 +1569,32 @@ async function signals(){
   };
 }
 async function terminal(){
-  view.innerHTML = `<article class="card"><h2>Market workspace</h2><div class="fieldrow"><label>Market <select id="sym"><option>BTCUSDT</option><option>ETHUSDT</option><option>XAUUSD</option></select></label><label>Timeframe <select id="tf"><option>15m</option><option>1h</option><option>4h</option><option>1d</option></select></label></div><canvas id="chart"></canvas><p class="muted" id="chartnote">Loading closed candles…</p><div id="termmeta"></div></article>`;
-  async function loadChart(){
-    const sym = document.getElementById("sym").value;
-    const tf = document.getElementById("tf").value;
-    const note = document.getElementById("chartnote");
-    const meta = document.getElementById("termmeta");
-    note.textContent = "Loading closed candles…";
-    meta.innerHTML = "";
-    try {
-      if (sym === "XAUUSD") {
-        const bars = await fetch("/api/gold/candles?interval="+encodeURIComponent(tf)).then(r=>r.json());
-        const candles = (bars.candles||[]).filter(c => c.o != null && c.h != null && c.l != null && c.c != null).map(c => ({t:c.t, o:+c.o, h:+c.h, l:+c.l, c:+c.c}));
-        if (!candles.length) { note.textContent = bars.error ? "Gold chart unavailable: " + bars.error : (bars.note || "No completed gold candles."); return; }
-        draw(candles);
-        note.textContent = (bars.interval || tf) + " · " + (bars.note || "XAUUSD chart OHLC");
-      } else {
-        const bars = await fetch(`/api/klines?symbol=${sym}&interval=${tf}`).then(r=>r.json());
-        if (!bars.candles || !bars.candles.length) { note.textContent = bars.error ? "Chart unavailable: " + bars.error : "No closed candles returned."; return; }
-        draw(bars.candles);
-        const last = bars.candles[bars.candles.length-1];
-        note.textContent = (bars.source || "market") + " · " + tf + " · last close " + last.c + (last.t ? " · " + new Date(last.t).toISOString() : "") + " · quote currency is the market's own";
-      }
-      const elig = await fetch("/api/eligibility?symbol="+encodeURIComponent(sym)).then(r=>r.ok?r.json():{decision:"WAIT", reason:"Eligibility unavailable"});
-      meta.innerHTML = `<div class="row"><span>Profile eligibility</span><span class="${cls(elig.decision||"WAIT")}">${label(elig.decision||"WAIT")}</span></div><div class="muted">${elig.name?elig.name+". ":""}${elig.reason||""} Not a trade.</div>`;
-    } catch (err) {
-      note.textContent = "Market data request failed.";
-    }
+  view.innerHTML = `<article class="card"><h2>Generate a signal</h2><div class="fieldrow"><label>Market <select id="sym"><option>BTCUSDT</option><option>ETHUSDT</option><option>XAUUSD</option></select></label><label>Timeframe <select id="tf"><option>15m</option><option>1h</option><option selected>4h</option><option>1d</option></select></label><label>Strategy <select id="mode"><option value="auto">Auto</option><option value="compress-break-4h-20261028">BTC compression breakout</option><option value="sweep-reclaim-4h-20261028">ETH failed-breakdown</option><option value="london-reclaim-1h-20261028">Gold London reclaim</option></select></label></div><button id="generate" type="button">Generate Signal</button><p id="termstatus" role="status"></p></article><div id="termout"></div><article class="card"><h2>Your requested evaluations</h2><div id="termhist"><p>No requested evaluation yet.</p></div></article>`;
+  document.getElementById("tf").innerHTML = `<option>15m</option><option>1h</option><option selected>4h</option><option>1d</option>`;
+  async function history(){
+    const response = await fetch("/api/terminal/history", {credentials:"same-origin"});
+    const body = response.ok ? await response.json() : {items:[]};
+    const rows = (body.items||[]).map(item => `<div class="row"><span>${item.decision}</span><span>${item.symbol} ${item.interval}</span></div><div class="muted">${item.source==="user_requested"?"Requested evaluation":"Historical replay"}. Validation ${item.validation_status||"unknown"}. Not delivered. Not filled. ${item.reason||""}</div>`).join("");
+    document.getElementById("termhist").innerHTML = rows || "<p>No requested evaluation yet.</p>";
   }
-  document.getElementById("sym").onchange = loadChart;
-  document.getElementById("tf").onchange = loadChart;
-  await loadChart();
+  document.getElementById("generate").onclick = async () => {
+    const status = document.getElementById("termstatus");
+    const out = document.getElementById("termout");
+    status.textContent = "Evaluating the latest completed candle.";
+    out.innerHTML = "";
+    try {
+      const response = await fetch("/api/terminal/signal", {method:"POST", credentials:"same-origin", headers:{"Content-Type":"application/json"}, body: JSON.stringify({symbol:document.getElementById("sym").value, interval:document.getElementById("tf").value, strategy:document.getElementById("mode").value})});
+      if (response.status === 401) { status.textContent = "Sign in to generate a signal."; return; }
+      const body = await response.json();
+      status.textContent = "";
+      const size = body.size && body.size.ok ? `${body.size.quantity} units, risk ${body.size.risk_budget} ${body.currency||""}. Informational only.` : (body.size && body.size.reason ? `Position size not calculated: ${body.size.reason}.` : "No position size on this result.");
+      out.innerHTML = `<article class="card"><h2>${body.decision||"WAIT"}</h2><p>${body.reason||""}</p><div class="row"><span>${body.symbol||""} ${body.interval||""}</span><span>${body.reference_price==null?"no price":body.reference_price}</span></div><p class="muted">${body.fresh?"Completed candle is fresh.":"Not a fresh live candle."} Source ${body.source_name||"unknown"}. Quote ${body.quote||"unknown"}. Candle ${body.bar_close_ms?new Date(body.bar_close_ms).toISOString():"unknown"}.</p><p>Validation: ${body.validation_status||"unknown"}. ${body.approved?"Approved.":"Not an approved strategy and not a claim of profit."}</p><p>Entry ${body.entry==null?"—":body.entry}. Stop ${body.stop==null?"—":body.stop}. Target ${body.target==null?"—":body.target}. Reward/risk ${body.reward_risk==null?"—":Number(body.reward_risk).toFixed(2)}.</p><p>${size}</p><p class="muted">${body.costs?body.costs.note||"":""} ${body.invalidation||""}</p></article>`;
+      history();
+    } catch (err) {
+      status.textContent = "The evaluation could not be completed. Please retry.";
+    }
+  };
+  history();
 }
 async function signalsLegacy(){
   const rows = await Promise.all(["BTCUSDT","ETHUSDT"].map(s=>fetch("/api/research-signals?symbol="+s+"&interval=15m").then(r=>r.json())));

@@ -1,0 +1,198 @@
+"""A requested terminal decision. It is not an approved alert and it does not trade."""
+
+import json
+import os
+import time
+from pathlib import Path
+
+from ops.bars import interval_ms
+from ops.hypotheses import _atr
+from ops.leaders import COMPRESS, CRYPTO_RULES, GOLD_RULES, LONDON, SWEEP
+from ops.plan import propose_size
+from ops.profiles import risk_cap
+from ops.registry import BY_ID
+
+AUTO = {
+    "BTCUSDT": COMPRESS,
+    "ETHUSDT": SWEEP,
+    "XAUUSD": LONDON,
+}
+RULES = {**CRYPTO_RULES, **GOLD_RULES}
+CRYPTO_COST_BPS = 11
+
+
+def _path(user_id):
+    text = str(user_id or "")
+    if not text or "/" in text or ".." in text:
+        return None
+    root = Path(os.environ.get("AUREON_DATA", "data"))
+    return root / "users" / text / "terminal.jsonl"
+
+
+def read_history(user_id):
+    path = _path(user_id)
+    if path is None or not path.exists():
+        return []
+    rows = []
+    for line in path.read_text(encoding="utf-8").splitlines():
+        if line.strip():
+            rows.append(json.loads(line))
+    return rows
+
+
+def open_idea(user_id, symbol, strategy):
+    latest = None
+    for row in read_history(user_id):
+        if row.get("symbol") == symbol and row.get("strategy") == strategy and row.get("decision") in {"BUY", "SELL"}:
+            latest = row
+    if latest and latest.get("decision") == "BUY":
+        return latest
+    return None
+
+
+def save_result(user_id, result):
+    path = _path(user_id)
+    if path is None:
+        return {"ok": False, "reason": "bad_user", "stored": False}
+    event_id = result.get("id")
+    rows = read_history(user_id)
+    if any(row.get("id") == event_id for row in rows):
+        return {"ok": True, "duplicate": True, "stored": False}
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("a", encoding="utf-8") as handle:
+        handle.write(json.dumps(result) + "\n")
+    return {"ok": True, "duplicate": False, "stored": True}
+
+
+def _checks(strategy, bars, index):
+    close = bars[index]["close"]
+    if strategy == COMPRESS and index >= 42:
+        quiet = _atr(bars, index - 1, 10)
+        slow = _atr(bars, index - 1, 40)
+        ceiling = max(bar["high"] for bar in bars[index - 10 : index])
+        failed = []
+        if quiet is None or slow is None or slow <= 0 or quiet >= 0.6 * slow:
+            failed.append("The short ATR is not below 60 percent of the 40-bar ATR.")
+        if close <= ceiling:
+            failed.append("The close has not broken the prior ten-bar high.")
+        return {"close": close, "quiet_atr": quiet, "slow_atr": slow, "prior_ten_high": ceiling, "failed": failed}
+    if strategy == SWEEP and index >= 7:
+        prior = bars[index - 6 : index]
+        prior_low = min(bar["low"] for bar in prior)
+        prior_high = max(bar["high"] for bar in prior)
+        failed = []
+        if not (bars[index]["low"] < prior_low and close > prior_low):
+            failed.append("Price did not pierce the prior six-bar low and close back above it.")
+        return {"close": close, "prior_low": prior_low, "prior_high": prior_high, "failed": failed}
+    if strategy == LONDON and index >= 5:
+        failed = ["The London reclaim conditions were not all true on this completed hour."]
+        return {"close": close, "failed": failed}
+    return {"close": close, "failed": ["There are not enough completed bars for this rule."]}
+
+
+def _levels(setup, price):
+    if setup.get("target_mode") == "atr":
+        stop = price - setup["stop_multiple"] * setup["atr"]
+        target = price + setup["target_multiple"] * setup["atr"]
+    else:
+        stop = setup.get("stop_price")
+        target = setup.get("target_price")
+    reward = None if stop is None or target is None or price <= stop else (target - price) / (price - stop)
+    return stop, target, reward
+
+
+def decide(symbol, interval, strategy, bars, now_ms, user, prior=None):
+    chosen = AUTO.get(symbol) if strategy in {None, "", "auto"} else strategy
+    spec = BY_ID.get(chosen) or {}
+    base = {
+        "symbol": symbol,
+        "interval": interval,
+        "strategy": chosen,
+        "version": spec.get("version") or chosen,
+        "validation_status": spec.get("research_status") or "unknown",
+        "approved": False,
+        "source": "user_requested",
+        "delivered": False,
+        "filled": False,
+        "pnl": None,
+        "order": False,
+        "evaluated_ms": int(now_ms),
+    }
+    if symbol not in AUTO:
+        return {**base, "decision": "WAIT", "reason": "This market is not supported.", "fresh": False, "reference_price": None}
+    if chosen not in RULES or symbol not in (spec.get("instruments") or []):
+        return {**base, "decision": "WAIT", "reason": "That strategy is not eligible for this market.", "fresh": False, "reference_price": None}
+    if not bars:
+        return {**base, "decision": "WAIT", "reason": "No completed candle was returned.", "fresh": False, "reference_price": None, "blocked": "missing_feed"}
+    last = bars[-1]
+    price = last.get("close")
+    fresh = bool(last.get("complete") and last.get("close_time_ms", 0) <= now_ms and now_ms - last["close_time_ms"] <= 2 * interval_ms(interval))
+    base.update({
+        "reference_price": price,
+        "bar_close_ms": last.get("close_time_ms"),
+        "bar_open_ms": last.get("open_time_ms"),
+        "source_name": last.get("provider"),
+        "quote": last.get("quote_semantics"),
+        "fresh": fresh,
+    })
+    if not fresh:
+        return {**base, "decision": "WAIT", "reason": "The latest candle is missing, still forming, or too old to treat as live.", "blocked": "stale_or_incomplete"}
+    if symbol == "XAUUSD" and (last.get("quote_semantics") != "dukascopy_xauusd_bid_ask" or last.get("ask_open") is None):
+        return {**base, "decision": "WAIT", "reason": "Gold is blocked. The available feed is not a verified bid/ask quote, so the London rule was not calculated.", "blocked": "quote_not_bid_ask"}
+    if interval != spec.get("timeframe"):
+        return {**base, "decision": "WAIT", "reason": f"This rule is defined on {spec.get('timeframe')} candles. {interval} was not substituted.", "blocked": "timeframe"}
+    if prior and prior.get("decision") == "BUY":
+        stop = prior.get("stop")
+        target = prior.get("target")
+        if stop is not None and price <= stop:
+            return {**base, "decision": "SELL", "reason": "The last close is at or below the recorded stop. This means exit the recorded research long. It is not a spot short, and no holding was invented.", "sell_meaning": "exit_recorded_long", "stop": stop, "target": target}
+        if target is not None and price >= target:
+            return {**base, "decision": "SELL", "reason": "The last close reached the recorded target. This is an exit of the recorded idea, not a filled trade.", "sell_meaning": "exit_recorded_long", "stop": stop, "target": target}
+        elapsed = sum(1 for bar in bars if bar["open_time_ms"] > prior.get("bar_open_ms", 0))
+        if elapsed > prior.get("hold_bars", 10**9):
+            return {**base, "decision": "SELL", "reason": "The rule's holding window has passed. Exit the recorded research long. No short was opened.", "sell_meaning": "exit_recorded_long", "stop": stop, "target": target}
+        return {**base, "decision": "WAIT", "reason": "A recorded research long is still open. Its stop, target and holding window have not been reached. This is not a new buy and not a spot short.", "stop": stop, "target": target}
+    setup = RULES[chosen](bars, len(bars) - 1, [], symbol)
+    checks = _checks(chosen, bars, len(bars) - 1)
+    if not setup:
+        return {**base, "decision": "WAIT", "reason": " ".join(checks.get("failed") or ["The entry conditions are not true."]), "checks": checks}
+    stop, target, reward = _levels(setup, price)
+    profile = (user or {}).get("profile") or {}
+    cap = risk_cap(profile.get("signal_style"))
+    plan = (user or {}).get("plan") or {}
+    risk = plan.get("risk_per_trade_percent")
+    if risk is None:
+        risk = cap
+    size = {"ok": False, "reason": "missing_inputs", "order": False}
+    if stop is None or stop >= price:
+        size = {"ok": False, "reason": "invalid_stop", "order": False}
+    elif profile.get("capital") and risk:
+        size = propose_size(profile["capital"], risk, price, stop)
+    costs = {"bps_per_fill": CRYPTO_COST_BPS, "fills": 2, "round_turn_bps": CRYPTO_COST_BPS * 2, "observed": False, "note": "Estimated from the research cost. Not a measured spread."} if symbol != "XAUUSD" else {"observed": False, "note": "A live gold spread was not available."}
+    return {
+        **base,
+        "decision": "BUY",
+        "reason": "The long-entry conditions are true on this completed candle. The frozen rule would enter the next candle's open. The levels below use the last close as a planning price, not a fill.",
+        "direction": "LONG",
+        "entry": price,
+        "entry_note": "Planning price only. Not an order.",
+        "stop": stop,
+        "target": target,
+        "reward_risk": reward,
+        "hold_bars": setup.get("hold_bars"),
+        "checks": checks,
+        "invalidation": spec.get("invalidation"),
+        "size": size,
+        "costs": costs,
+        "currency": profile.get("currency"),
+    }
+
+
+def stamp(user_id, result):
+    result = dict(result)
+    result["user_id"] = user_id
+    result["id"] = ":".join(str(result.get(key)) for key in ("symbol", "interval", "strategy", "bar_close_ms", "decision"))
+    result["requested_ms"] = int(time.time() * 1000)
+    saved = save_result(user_id, result)
+    result["duplicate"] = saved.get("duplicate", False)
+    return result
