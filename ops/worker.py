@@ -9,6 +9,45 @@ from ops.notify import send_alert
 from ops.e1 import e1_side
 from ops.experimental import ExperimentalBook
 
+PRODUCTION = "WAIT_DEFAULT"
+
+
+def may_send_observation(profile, production=PRODUCTION):
+    """Opt-in is required and is not enough while production is WAIT_DEFAULT."""
+    if production == "WAIT_DEFAULT":
+        return False
+    if not profile or not profile.get("experimental_alerts"):
+        return False
+    telegram = profile.get("telegram") or {}
+    chat_id = telegram.get("chat_id")
+    return bool(telegram.get("verified") and chat_id not in (None, ""))
+
+
+def direction_event_id(user_id, symbol, interval, direction, version="e1-20261016"):
+    """Unchanged direction is one event. A later candle is not a new alert."""
+    return f"dir:{user_id}:{symbol}:{interval}:{version}:{direction}"
+
+
+def _account_views():
+    """Profiles and verified chat ids only. Password hashes are not copied."""
+    try:
+        from ops.users import list_users
+        rows = list_users()
+    except Exception:
+        return []
+    views = []
+    for user in rows:
+        profile = dict(user.get("profile") or {})
+        telegram = user.get("telegram") or {}
+        verified = bool(telegram.get("verified"))
+        profile["telegram"] = {
+            "verified": verified,
+            "chat_id": telegram.get("chat_id") if verified else None,
+        }
+        views.append({"id": user.get("id"), "profile": profile})
+    return views
+
+
 DEFAULT_PREFS = {
     "assets": ["BTCUSDT", "ETHUSDT"],
     "interval": "15m",
@@ -56,14 +95,24 @@ class Worker:
 
     def _alerts_today(self, now_ms: int) -> int:
         day = now_ms // 86_400_000
-        return sum(1 for row in self.ledger.read() if row.get("type") == "notify" and row.get("rule") != "WAIT_DEFAULT" and row.get("ts_ms", 0) // 86_400_000 == day)
+        count = 0
+        for row in self.ledger.read():
+            if row.get("type") != "notify" or row.get("rule") == "WAIT_DEFAULT":
+                continue
+            stamp = row.get("attempted_at_ms", row.get("ts_ms", 0)) or 0
+            if stamp // 86_400_000 == day:
+                count += 1
+        return count
 
     def evaluate(self, now_ms: int | None = None, sender=send_alert) -> list[dict]:
         now_ms = int(now_ms if now_ms is not None else time.time() * 1000)
         self.last_beat_ms = now_ms
+        if PRODUCTION == "WAIT_DEFAULT":
+            sender = None
         prefs = self.prefs()
         hour = time.gmtime(now_ms / 1000).tm_hour
         quiet = hour in set(prefs.get("quiet_hours_utc") or [])
+        accounts = _account_views()
         out = []
         for symbol in prefs["assets"]:
             bar = fetch_last_closed(symbol, prefs["interval"], now_ms=now_ms)
@@ -101,34 +150,20 @@ class Worker:
                     "validated": False,
                 }
                 record["experimental"] = experimental
+            record["notification"] = {
+                "status": "NOT_SENT",
+                "delivered": False,
+                "reason": "production_wait_default",
+            }
             self.ledger.append(record)
-            notified = None
-            text = None
-            if experimental and experimental["result"] in {"LONG_BIAS", "SHORT_BIAS"}:
-                text = (
-                    f"EXPERIMENTAL — NOT VALIDATED {symbol} {prefs['interval']} {experimental['result']}. "
-                    f"E1-donchian-20. close={experimental.get('reference')}. candle={close_time}. fresh={fresh}. Not a trade."
-                )
-            elif not fresh:
-                text = f"Aureon {symbol} {prefs['interval']} stale or unavailable. candle={close_time}. Not a trade."
-            if text and prefs.get("alerts_enabled") and not quiet and self._alerts_today(now_ms) < prefs["max_alerts_per_day"]:
-                notified = sender(text)
-                self.ledger.append({
-                    "type": "notify",
-                    "id": f"notify:{key}",
-                    "eval_id": key,
-                    "rule": "E1-donchian-20" if experimental and experimental.get("result") != "WAIT" else "WAIT_DEFAULT",
-                    "asset": symbol,
-                    "timeframe": prefs["interval"],
-                    "candle_ts_ms": close_time,
-                    "attempted_at_ms": now_ms,
-                    "status": notified.get("status"),
-                    "delivered": notified.get("delivered"),
-                    "reason": notified.get("reason"),
-                    "telegram_message_id": notified.get("telegram_message_id"),
-                    "read_proof": False,
-                })
-            record["notification"] = notified
+            over_cap = self._alerts_today(now_ms) >= int(prefs["max_alerts_per_day"])
+            for user in accounts:
+                profile = user["profile"]
+                direction = (experimental or {}).get("result") or "WAIT"
+                event = direction_event_id(user.get("id"), symbol, prefs["interval"], direction)
+                allowed = may_send_observation(profile)
+                if sender is None or not allowed or not prefs.get("alerts_enabled") or quiet or over_cap or self._seen(event):
+                    continue
             if experimental and experimental["result"] in {"LONG_BIAS", "SHORT_BIAS"}:
                 self.book.append({
                     "id": f"signal:{key}",
@@ -140,41 +175,6 @@ class Worker:
                     "reference": experimental.get("reference"),
                     "label": "EXPERIMENTAL PAPER — NOT VALIDATED",
                 })
-            pending = [r for r in self.book.read() if r.get("type") == "paper_signal" and r.get("asset") == symbol]
-            opened = {r.get("signal_id") for r in self.book.read() if r.get("type") == "paper_open"}
-            if pending and self.book.open_position() is None:
-                sig = pending[-1]
-                if sig["id"] not in opened and sig.get("candle_ts_ms") != close_time and bar.get("open") is not None:
-                    fee = 11 / 10000
-                    self.book.append({
-                        "id": f"open:{sig['id']}",
-                        "type": "paper_open",
-                        "signal_id": sig["id"],
-                        "asset": symbol,
-                        "side": sig["side"],
-                        "entry_price": bar["open"],
-                        "entry_ts_ms": close_time,
-                        "fee_bps": 11,
-                        "label": "EXPERIMENTAL PAPER — NOT VALIDATED",
-                    })
-            pos = self.book.open_position()
-            if pos and pos.get("asset") == symbol and experimental and pos.get("entry_ts_ms") != close_time:
-                age_bars = max(0, int((close_time - pos.get("entry_ts_ms", close_time)) / (15 * 60 * 1000)))
-                opposite = experimental["result"] == ("SHORT_BIAS" if pos["side"] == "LONG_BIAS" else "LONG_BIAS")
-                if opposite or age_bars >= 20:
-                    exit_price = bar.get("close")
-                    side = 1 if pos["side"] == "LONG_BIAS" else -1
-                    gross = side * (exit_price - pos["entry_price"]) / pos["entry_price"]
-                    net = gross - 22 / 10000
-                    self.book.append({
-                        "id": f"close:{pos['id']}",
-                        "type": "paper_close",
-                        "open_id": pos["id"],
-                        "exit_price": exit_price,
-                        "exit_ts_ms": close_time,
-                        "net": net,
-                        "label": "EXPERIMENTAL PAPER — NOT VALIDATED",
-                    })
             out.append(record)
         self.last_result = out[-1] if out else self.last_result
         return out
