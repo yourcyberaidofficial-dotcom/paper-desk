@@ -21,22 +21,44 @@ def gold_session(now_ms, fetch=None):
     }
 
 
+_BAR_CACHE = {}
+
+
 def load_crypto_bars(symbol, interval, now_ms):
     try:
         if symbol in {"BTCUSDT", "ETHUSDT"}:
+            key = (symbol, interval)
+            cached = _BAR_CACHE.get(key)
+            if cached and now_ms - cached[0] < 30_000:
+                return cached[1]
+            from ops.bars import interval_ms
             from ops.feeds import binance_bars
-            span = 400 if interval == "1d" else 120
-            start = now_ms - span * 24 * 60 * 60 * 1000
-            loaded = binance_bars(symbol, interval, start, now_ms, now_ms)
+            count = 140 if interval == "1d" else 90
+            start = now_ms - (count + 2) * interval_ms(interval)
+            loaded = binance_bars(symbol, interval, start, now_ms, now_ms, timeout=8, attempts=1)
             if not loaded.get("ok"):
                 return None, loaded.get("reason") or "The market feed did not respond."
-            return loaded.get("bars") or []
+            bars = loaded.get("bars") or []
+            _BAR_CACHE[key] = (now_ms, bars)
+            return bars
     except Exception:
         return None, "The market feed could not be read."
     return None, "This market is not supported."
 
 
-def handle_signal(user_id, body, now_ms=None, bars_loader=None, quote_loader=None, session_loader=None):
+def load_gold_ohlc(interval, now_ms):
+    key = ("XAUUSD", interval)
+    cached = _BAR_CACHE.get(key)
+    if cached and now_ms - cached[0] < 30_000:
+        return cached[1]
+    from ops.feeds import xaus_chart
+    loaded = xaus_chart(interval, now_ms=now_ms, timeout=8, attempts=1)
+    bars = loaded.get("bars") or [] if isinstance(loaded, dict) else []
+    _BAR_CACHE[key] = (now_ms, bars)
+    return bars
+
+
+def handle_signal(user_id, body, now_ms=None, bars_loader=None, quote_loader=None, session_loader=None, ohlc_loader=None):
     from ops.terminal_signal import attach_request, auto_strategy, decide, open_idea, stamp
     from ops.users import get
 
@@ -53,8 +75,14 @@ def handle_signal(user_id, body, now_ms=None, bars_loader=None, quote_loader=Non
         live_quote = quote_loader(now_ms)
         if isinstance(live_quote, dict):
             live_quote = dict(live_quote)
-            live_quote["session"] = (session_loader or gold_session)(now_ms)
-        bars = []
+            if session_loader is not None:
+                live_quote["session"] = session_loader(now_ms)
+        try:
+            bars = (ohlc_loader or load_gold_ohlc)(interval, now_ms)
+        except Exception:
+            bars = []
+        if not isinstance(bars, list):
+            bars = []
     else:
         bars = (bars_loader or load_crypto_bars)(symbol, interval, now_ms)
     if isinstance(bars, tuple):

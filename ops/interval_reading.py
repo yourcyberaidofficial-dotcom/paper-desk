@@ -125,6 +125,41 @@ def _reclaim(bars):
     return {"side": side, "entry": last["close"], "stop": stop, "name": "Failed break", "checks": checks}
 
 
+def _watch_plan(bars, label):
+    """A long that has not triggered. Spot only. Not an entry."""
+    closes = [bar["close"] for bar in bars]
+    short = _ema(closes, 20)[-1]
+    longer = _ema(closes, 50)[-1]
+    if short <= longer:
+        return None
+    width = _atr(bars)
+    last = bars[-1]
+    recent_low = min(bar["low"] for bar in bars[-3:])
+    stop = min(recent_low, short) - width * 0.15
+    entry = short
+    if not _usable(entry, stop):
+        return None
+    target = entry + PAYOFF * abs(entry - stop)
+    return {
+        "decision": "WAIT",
+        "runtime_status": "watch",
+        "reason": (
+            f"Watch on this {label} candle. The shorter average, {short:.2f}, is above the longer one, {longer:.2f}, "
+            f"but the close {last['close']:.2f} has not completed the pullback. "
+            f"A long is not an entry until a close back through {entry:.2f}. "
+            f"If that happens, the plan would use a stop near {stop:.2f} and a target near {target:.2f}."
+        ),
+        "entry": None,
+        "stop": None,
+        "target": None,
+        "watch_entry": entry,
+        "watch_stop": stop,
+        "watch_target": target,
+        "reward_risk": None,
+        "rule": "Trend pullback",
+    }
+
+
 def read_interval(interval, bars):
     """Judge this exact candle series. Returns a match or the failed checks."""
     label = interval or "requested"
@@ -153,6 +188,9 @@ def read_interval(interval, bars):
         }
     found = _pullback(bars) or _reclaim(bars)
     if not found:
+        watch = _watch_plan(bars, label)
+        if watch:
+            return watch
         return {
             "decision": "WAIT",
             "reason": f"Wait on this {label} candle. Price did not tag the average and close back with it, and it did not fail a break. No size follows from that.",

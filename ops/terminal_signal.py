@@ -129,6 +129,8 @@ def decide(symbol, interval, strategy, bars, now_ms, user, prior=None, live_quot
     result = apply_persona(result, user)
     if result.get("runtime_status") == "experimental" and result.get("decision") == "BUY" and not result.get("blocked"):
         result["decision_label"] = "BUY · Experimental"
+    elif result.get("runtime_status") == "watch" and not result.get("blocked"):
+        result["decision_label"] = "WATCH"
     return result
 
 
@@ -182,6 +184,22 @@ def _evaluate(symbol, interval, strategy, bars, now_ms, user, prior=None, live_q
         return {**base, "decision": "WAIT", "reason": "The latest candle is missing, still forming, or too old to treat as live.", "blocked": "stale_or_incomplete"}
     if symbol == "XAUUSD" and not completed_bid_ask_bar(last):
         quote = last.get("quote_semantics") or "missing_bid_ask"
+        if strategy in {None, "", "auto"} and quote == "ohlc_not_bid_ask" and len(bars) >= 60:
+            reading = _requested_reading(base, symbol, interval, bars, user)
+            reading["gold_basis"] = "spot_ohlc"
+            reading["strategy"] = "gold-ohlc-reading"
+            reading["version"] = "gold-ohlc-reading"
+            note = "This is a spot chart candle, not a bid/ask hour. The London rule was not calculated."
+            if live_quote and live_quote.get("ok"):
+                note += (
+                    f" A separate quote is bid {live_quote.get('bid')} ask {live_quote.get('ask')}."
+                    " The candle close is not that executable price."
+                )
+            else:
+                note += " No fresh executable quote was attached, so any level is indicative."
+            reading["reason"] = note + " " + (reading.get("reason") or "")
+            reading["live_quote"] = live_quote
+            return reading
         extra = ""
         if live_quote and live_quote.get("ok"):
             extra = " " + snapshot_reason(live_quote)
@@ -251,6 +269,10 @@ def _requested_reading(base, symbol, interval, bars, user):
         "stop": reading["stop"],
         "target": reading["target"],
         "reward_risk": reading["reward_risk"],
+        "watch_entry": reading.get("watch_entry"),
+        "watch_stop": reading.get("watch_stop"),
+        "watch_target": reading.get("watch_target"),
+        "runtime_status": reading.get("runtime_status"),
         "hold_bars": 6,
         "invalidation": "The stop on this reading. A failed research rule was not relabeled as approved.",
     }
@@ -349,6 +371,8 @@ def apply_auto_policy(result, explicit):
     else:
         result["auto_selected"] = bool(explicit is False and status == "PASS" and result.get("decision") == "BUY")
     result["decision_label"] = "BLOCKED" if result.get("blocked") else result.get("decision")
+    if result.get("runtime_status") == "watch" and not result.get("blocked"):
+        result["decision_label"] = "WATCH"
     return result
 
 

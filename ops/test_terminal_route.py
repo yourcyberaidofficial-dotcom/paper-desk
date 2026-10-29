@@ -68,6 +68,7 @@ def test_gold_snapshot_cannot_become_a_trade(monkeypatch, tmp_path):
         bars_loader=bars_loader,
         quote_loader=lambda now: {"ok": True, "bid": 100.0, "ask": 100.4, "spread": 0.4, "timestamp_ms": now, "platform": "fixture", "spread_profile": "premium", "provider": "fixture"},
         session_loader=lambda now: {"day": "2026-10-28", "bid": "http_404", "ask": "http_503"},
+        ohlc_loader=lambda *args, **kwargs: [],
     )
     assert status == 200
     assert called["bars"] == 0
@@ -94,9 +95,9 @@ def test_history_stays_with_the_requesting_user(monkeypatch, tmp_path):
 
 def test_handler_source_does_not_call_the_chart_or_a_sender():
     source = inspect.getsource(route)
-    assert "xaus_chart" not in source
     assert "telegram" not in source.lower()
     assert "send_alert" not in source
+    assert "load_gold_ohlc" in source
     handler = inspect.getsource(app_module.terminal_signal)
     assert "handle_signal" in handler
     assert "xaus_chart" not in handler
@@ -119,6 +120,7 @@ def test_each_market_is_identified_and_a_mismatch_is_rejected(monkeypatch, tmp_p
         bars_loader=lambda *args: (_ for _ in ()).throw(AssertionError("chart")),
         quote_loader=lambda now_ms: {"ok": False, "reason": "empty"},
         session_loader=lambda now_ms: {"bid": "http_404", "ask": "http_404"},
+        ohlc_loader=lambda *args, **kwargs: [],
     )
     assert btc["symbol"] == btc["requested_symbol"] == "BTCUSDT"
     assert eth["symbol"] == eth["requested_symbol"] == "ETHUSDT"
