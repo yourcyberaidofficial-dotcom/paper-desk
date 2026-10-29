@@ -44,8 +44,13 @@ def test_crypto_requests_use_completed_bars_and_stay_unapproved(monkeypatch, tmp
     assert btc["order"] is False and btc["filled"] is False and btc["pnl"] is None
     short = handle_signal("user-a", {"symbol": "BTCUSDT", "interval": "15m", "strategy": "auto"}, now, bars_loader=bars_loader)
     assert short[1]["decision"] == "WAIT"
-    assert short[1]["blocked"] == "timeframe"
+    assert short[1].get("blocked") != "timeframe"
+    assert short[1]["strategy"] == "interval-reading"
+    assert "4h" in short[1]["reason"]
     assert short[1]["approved"] is False
+    assert short[1]["entry"] is None
+    named = handle_signal("user-a", {"symbol": "BTCUSDT", "interval": "15m", "strategy": "compress-break-4h-20261028"}, now, bars_loader=bars_loader)
+    assert named[1]["blocked"] == "timeframe"
 
 
 def test_gold_snapshot_cannot_become_a_trade(monkeypatch, tmp_path):
