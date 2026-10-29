@@ -1546,7 +1546,17 @@ async function overview(){
 }
 async function signals(){
   view.innerHTML = `<p role="status">Checking BTC, ETH and gold.</p>`;
-  const response = await fetch("/api/workspace", {credentials:"same-origin"});
+  const ctl = new AbortController();
+  const timer = setTimeout(() => ctl.abort(), 12000);
+  let response;
+  try {
+    response = await fetch("/api/workspace", {credentials:"same-origin", signal: ctl.signal});
+  } catch (err) {
+    clearTimeout(timer);
+    view.innerHTML = `<article class="card"><h2>Workspace timed out</h2><p>BTC, ETH and gold were not left on a blank checking screen. The desk did not answer within 12 seconds, so no prices or signals were invented.</p><p class="muted">Reload the page to try again. A timeout is not a trade.</p></article>`;
+    return;
+  }
+  clearTimeout(timer);
   if (response.status === 401) { view.innerHTML = `<article class="card"><h2>Sign in required</h2><p><a href="/login">Sign in</a> to see your signal workspace.</p></article>`; return; }
   const body = await response.json().catch(()=>({panels:[], history:[], strategies:[], notice:"The workspace could not be read. Please retry."}));
   const panels = (body.panels||[]).map(panel => `<article class="card" data-symbol="${panel.symbol}"><h2>${panel.symbol}</h2><div class="row"><span>${panel.scanner_state||"BLOCKED"}</span><span>${panel.price==null?"—":panel.price}</span></div><p>${panel.message||"No qualifying setup yet."}</p><p class="muted">${panel.interval||""} · ${panel.quote||""} ${panel.quote_note||""} Updated ${panel.updated_at||"unknown"}.</p></article>`).join("");
@@ -1611,8 +1621,9 @@ async function terminal(){
       status.textContent = "";
       const size = body.size && body.size.ok ? `${body.size.quantity} units, risk ${body.size.risk_budget != null ? body.size.risk_budget : body.size.risk_amount} ${body.currency||""}. Informational only. No order was sent.` : (body.size && body.size.reason ? `Position size not calculated: ${body.size.reason}.` : "No position size on this result.");
       const headline = body.decision_label || body.decision || "WAIT";
-      const experimental = body.experimental_match ? `Experimental match only: ${body.experimental_match.decision}. Not selected and not an alert.` : "";
-      out.innerHTML = `<article class="card" data-request="${requestId}" data-symbol="${body.symbol}" data-interval="${body.interval}"><p data-stale-note></p><h2>${headline}</h2><p>${body.reason||""}</p><p>${experimental}</p><div class="row"><span>${body.symbol||""} ${body.interval||""}</span><span>${body.reference_price==null?"no price":body.reference_price}</span></div><p class="muted">Request ${requestId}. Requested ${body.requested_symbol||""} ${body.requested_interval||""} ${body.requested_strategy||""}. Resolved strategy ${body.strategy||""}.</p><p class="muted">${body.fresh?"Completed candle is fresh.":"Not a fresh live candle."} Source ${body.source_name||"unknown"}. Quote ${body.quote||"unknown"}. Candle ${body.bar_close_ms?new Date(body.bar_close_ms).toISOString():"unknown"}.</p><p>Validation: ${body.validation_status||"unknown"}. ${body.approved?"Approved.":"Not an approved strategy and not a claim of profit."} ${body.eligible_for_alert?"Eligible for an alert.":"Not eligible for an official alert."}</p><p>Entry ${body.entry==null?"—":body.entry}. Stop ${body.stop==null?"—":body.stop}. Target ${body.target==null?"—":body.target}. Reward/risk ${body.reward_risk==null?"—":Number(body.reward_risk).toFixed(2)}.</p><p>${size}</p><p class="muted">${body.evidence_semantics||""} ${body.costs?body.costs.note||"":""} ${body.invalidation||""}</p></article>`;
+      const experimental = body.runtime_status === "experimental" ? "Experimental plan. Not approved, not an alert, and not a claim of profit." : (body.experimental_match ? `Recorded match: ${body.experimental_match.decision}. Not an approved alert.` : "");
+      const persona = body.persona_name ? `${body.persona_name}. ${body.persona_note || ""}` : "";
+      out.innerHTML = `<article class="card" data-request="${requestId}" data-symbol="${body.symbol}" data-interval="${body.interval}"><p data-stale-note></p><h2>${headline}</h2><p>${body.reason||""}</p><p>${experimental}</p><div class="row"><span>${body.symbol||""} ${body.interval||""}</span><span>${body.reference_price==null?"no price":body.reference_price}</span></div><p class="muted">Request ${requestId}. Requested ${body.requested_symbol||""} ${body.requested_interval||""} ${body.requested_strategy||""}. Resolved strategy ${body.strategy||""}.</p><p class="muted">${body.fresh?"Completed candle is fresh.":"Not a fresh live candle."} Source ${body.source_name||"unknown"}. Quote ${body.quote||"unknown"}. Candle ${body.bar_close_ms?new Date(body.bar_close_ms).toISOString():"unknown"}.</p><p>Validation: ${body.validation_status||"unknown"}. ${body.approved?"Approved.":"Not an approved strategy and not a claim of profit."} ${body.eligible_for_alert?"Eligible for an alert.":"Not eligible for an official alert."}</p><p>${persona}</p><p>Entry ${body.entry==null?"—":body.entry}. Stop ${body.stop==null?"—":body.stop}. Target ${body.target==null?"—":body.target}. Reward/risk ${body.reward_risk==null?"—":Number(body.reward_risk).toFixed(2)}.</p><p>${size}</p><p class="muted">${body.evidence_semantics||""} ${body.costs?body.costs.note||"":""} ${body.invalidation||""}</p></article>`;
       history();
     } catch (err) {
       if (mine !== ticket) return;

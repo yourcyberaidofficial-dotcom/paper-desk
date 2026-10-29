@@ -164,12 +164,26 @@ def read_interval(interval, bars):
         }
     risk = abs(found["entry"] - found["stop"])
     target = found["entry"] + PAYOFF * risk if found["side"] == "BUY" else found["entry"] - PAYOFF * risk
-    side_word = "Buy" if found["side"] == "BUY" else "Sell"
+    if found["side"] == "SELL":
+        return {
+            "decision": "WAIT",
+            "reason": (
+                f"A short reading matched on this {label} candle ({found['name']}). "
+                f"A stop near {found['stop']:.2f} and a target near {target:.2f} would belong to a short. "
+                "This desk is spot-only, so that is not a SELL and no short was opened."
+            ),
+            "entry": None,
+            "stop": None,
+            "target": None,
+            "reward_risk": None,
+            "rule": found["name"],
+            "spot_short_refused": True,
+        }
     details = " ".join(detail for _name, ok, detail in found["checks"] if ok)
     return {
-        "decision": found["side"],
+        "decision": "BUY",
         "reason": (
-            f"{side_word} on this {label} candle. {found['name']}. {details} "
+            f"Buy on this {label} candle. {found['name']}. {details} "
             "This is a reading of these candles. It is not an approved strategy, and no order was sent."
         ),
         "entry": found["entry"],

@@ -45,13 +45,13 @@ def _get(url, timeout=20, attempts=3):
     raise last
 
 
-def _binance_rows(symbol, interval, start_ms=None, end_ms=None, limit=1000):
+def _binance_rows(symbol, interval, start_ms=None, end_ms=None, limit=1000, timeout=20, attempts=3):
     params = {"symbol": symbol, "interval": interval, "limit": limit}
     if start_ms is not None:
         params["startTime"] = int(start_ms)
     if end_ms is not None:
         params["endTime"] = int(end_ms)
-    status, raw = _get(BINANCE + "?" + urllib.parse.urlencode(params))
+    status, raw = _get(BINANCE + "?" + urllib.parse.urlencode(params), timeout=timeout, attempts=attempts)
     if status == 429:
         return {"ok": False, "reason": "rate_limited", "bars": []}
     if status != 200:
@@ -59,7 +59,7 @@ def _binance_rows(symbol, interval, start_ms=None, end_ms=None, limit=1000):
     return {"ok": True, "rows": json.loads(raw.decode())}
 
 
-def binance_bars(symbol, interval, start_ms, end_ms, now_ms=None):
+def binance_bars(symbol, interval, start_ms, end_ms, now_ms=None, timeout=20, attempts=3):
     """Completed Binance spot klines. The forming candle is omitted."""
     if symbol not in {"BTCUSDT", "ETHUSDT"}:
         return {"ok": False, "reason": "symbol_not_allowed", "bars": []}
@@ -69,7 +69,7 @@ def binance_bars(symbol, interval, start_ms, end_ms, now_ms=None):
     collected = []
     pages = 0
     while cursor < end_ms and pages < 80:
-        page = _binance_rows(symbol, interval, cursor, end_ms, 1000)
+        page = _binance_rows(symbol, interval, cursor, end_ms, 1000, timeout=timeout, attempts=attempts)
         pages += 1
         if not page.get("ok"):
             return {"ok": False, "reason": page.get("reason"), "bars": [], "pages": pages}
@@ -114,7 +114,7 @@ def _chart_range(interval):
     return {"15m": ("1mo", "15m"), "1h": ("1y", "1h"), "1d": ("5y", "1d")}.get(interval)
 
 
-def xaus_chart(interval, now_ms=None):
+def xaus_chart(interval, now_ms=None, timeout=30, attempts=3):
     """XAUUSD chart OHLC. No open is invented. The unaligned live tail is dropped."""
     spec = _chart_range(interval)
     if spec is None:
@@ -122,7 +122,7 @@ def xaus_chart(interval, now_ms=None):
     now_ms = int(now_ms if now_ms is not None else time.time() * 1000)
     step = interval_ms(interval)
     query = urllib.parse.urlencode({"symbol": "xau", "range": spec[0], "interval": spec[1]})
-    status, raw = _get(XAUS_CHART + "?" + query, timeout=30)
+    status, raw = _get(XAUS_CHART + "?" + query, timeout=timeout, attempts=attempts)
     if status != 200:
         return {"ok": False, "reason": f"http_{status}", "bars": [], "provider": "xaus.com"}
     payload = json.loads(raw.decode())

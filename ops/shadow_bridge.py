@@ -47,8 +47,8 @@ def load_live_windows(now_ms):
 
 def _crypto_window(symbol, start_ms, now_ms, fetch):
     try:
-        entry = fetch(symbol, "15m", start_ms, now_ms, now_ms=now_ms)
-        higher = fetch(symbol, "1h", start_ms, now_ms, now_ms=now_ms)
+        entry = fetch(symbol, "15m", start_ms, now_ms, now_ms=now_ms, timeout=8, attempts=1)
+        higher = fetch(symbol, "1h", start_ms, now_ms, now_ms=now_ms, timeout=8, attempts=1)
     except Exception as exc:
         return _empty(symbol, "15m", "binance-public", "last_trade", type(exc).__name__)
     bars = entry.get("bars") or []
@@ -70,7 +70,7 @@ def _crypto_window(symbol, start_ms, now_ms, fetch):
 
 def _gold_window(now_ms, fetch):
     try:
-        chart = fetch("1h", now_ms=now_ms)
+        chart = fetch("1h", now_ms=now_ms, timeout=8, attempts=1)
     except Exception as exc:
         return _empty("XAUUSD", "1h", "xaus.com", "ohlc_not_bid_ask", type(exc).__name__)
     bars = chart.get("bars") or []
