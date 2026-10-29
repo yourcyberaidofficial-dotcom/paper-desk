@@ -121,13 +121,15 @@ def test_a_shorter_request_is_judged_on_those_candles():
     assert result["interval"] == "15m"
     assert result["strategy"] == "interval-reading"
     assert result.get("blocked") != "timeframe"
-    assert result["decision"] == "WAIT"
-    assert result["decision_label"] == "WAIT"
+    assert result["decision"] == "SELL"
+    assert result["decision_label"] == "SELL · Short idea"
+    assert result["sell_meaning"] == "short_idea"
     assert result["approved"] is False
     assert result["eligible_for_alert"] is False
-    assert result["entry"] is None
-    assert "spot-only" in result["reason"]
-    assert "not a SELL" in result["reason"]
+    assert result["order"] is False
+    assert result["stop"] > result["entry"] > result["target"]
+    assert "No broker order" in result["reason"]
+    assert "not an exit of a long" in result["reason"]
     assert "15m" in result["reason"]
 
 
@@ -162,6 +164,11 @@ def test_gold_spot_ohlc_is_read_and_london_is_not(now=None):
     named = decide("XAUUSD", "1h", "london-reclaim-1h-20261028", bars, now, _user(), live_quote=quote)
     assert named["blocked"] == "quote_not_bid_ask"
     assert named.get("entry") is None
+    far = dict(quote, bid=1900.0, ask=1900.4, spread=0.4)
+    diverged = decide("XAUUSD", "1h", "auto", bars, now, _user(), live_quote=far)
+    assert diverged["quote_alignment"] == "diverged"
+    assert "not treated as one price" in diverged["reason"]
+    assert diverged["reference_price"] != 1900
 
 
 def test_an_uptrend_without_a_trigger_is_a_watch_not_a_buy():
@@ -183,7 +190,23 @@ def test_an_uptrend_without_a_trigger_is_a_watch_not_a_buy():
             assert "not an entry" in result["reason"]
 
 
-def test_gold_chart_feed_is_blocked():
+def test_range_expansion_is_a_separate_long_plan():
+    bars = []
+    for index in range(70):
+        close = 100 + (0.2 if index % 2 else -0.2)
+        bars.append(_flat(index, close=close, high=101, low=99, interval="15m"))
+    bars[-1] = _flat(69, close=104, high=104.4, low=101.2, interval="15m")
+    now = bars[-1]["close_time_ms"] + 1000
+    result = decide("ETHUSDT", "15m", "auto", bars, now, _user())
+    assert result["decision"] == "BUY"
+    assert result["decision_label"] == "BUY · Experimental"
+    assert "Range expansion" in result["reason"]
+    assert result["stop"] < result["entry"] < result["target"]
+    assert result["approved"] is False
+    assert result["order"] is False
+
+
+def test_gold_chart_and_quote_are_not_forced_into_one_price():
     bar = _flat(0, interval="1h")
     bar["symbol"] = "XAUUSD"
     bar["quote_semantics"] = "ohlc_not_bid_ask"

@@ -1622,7 +1622,7 @@ async function terminal(){
       status.textContent = "";
       const size = body.size && body.size.ok ? `${body.size.quantity} units, risk ${body.size.risk_budget != null ? body.size.risk_budget : body.size.risk_amount} ${body.currency||""}. Informational only. No order was sent.` : (body.size && body.size.reason ? `Position size not calculated: ${body.size.reason}.` : "No position size on this result.");
       const headline = body.decision_label || body.decision || "WAIT";
-      const experimental = body.runtime_status === "experimental" ? "Experimental plan. Not approved, not an alert, and not a claim of profit." : (body.experimental_match ? `Recorded match: ${body.experimental_match.decision}. Not an approved alert.` : "");
+      const experimental = body.sell_meaning === "short_idea" ? "Short idea. Not a broker order, not an exit of a long, and not approved." : (body.runtime_status === "experimental" ? "Experimental plan. Not approved, not an alert, and not a claim of profit." : (body.experimental_match ? `Recorded match: ${body.experimental_match.decision}. Not an approved alert.` : ""));
       const watch = body.decision_label === "WATCH";
       const plan = watch
         ? `Watch, not an entry. Level ${body.watch_entry==null?"—":body.watch_entry}. Stop ${body.watch_stop==null?"—":body.watch_stop}. Target ${body.watch_target==null?"—":body.watch_target}.`

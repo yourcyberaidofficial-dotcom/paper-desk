@@ -182,7 +182,7 @@ def _shared_reading(symbol, interval, bars, now_ms, price):
     if evaluation.get("blocked"):
         card.update(status="unavailable", state="DATA_UNAVAILABLE", scanner_state="BLOCKED")
         return card
-    if evaluation.get("decision") == "BUY" and evaluation.get("entry") is not None:
+    if evaluation.get("decision") in {"BUY", "SELL"} and evaluation.get("entry") is not None and evaluation.get("runtime_status") == "experimental":
         card.update(
             status="scanning",
             state="PAPER_CANDIDATE",

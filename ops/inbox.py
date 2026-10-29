@@ -232,7 +232,7 @@ def deliver_evaluation(user_id, user, result):
         return {"stored": False, "duplicate": False, "reason": "experimental_off"}
     if kind != "status" and (result.get("fresh") is False or result.get("reference_price") is None):
         return {"stored": False, "duplicate": False, "reason": "incomplete"}
-    if kind != "status" and side == "BUY" and (payload.get("entry") is None or payload.get("stop") is None):
+    if kind != "status" and side in {"BUY", "SELL"} and (payload.get("entry") is None or payload.get("stop") is None or payload.get("target") is None):
         return {"stored": False, "duplicate": False, "reason": "incomplete"}
     from ops.delivery import load_promotions
     saved = offer(user_id, {
