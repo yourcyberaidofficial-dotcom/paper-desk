@@ -1326,14 +1326,14 @@ DASHBOARD = """<!doctype html>
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Aureon Trading Lab</title>
 <style>
-:root{--bg:#070b12;--panel:#101826;--panel2:#0d1420;--line:#1d2a3d;--text:#eef3fb;--muted:#8ea0b8;--blue:#4f7dff;--ok:#2fce8b;--bad:#ff5d6c;--warn:#e0b15a}
+:root{--bg:#070b12;--panel:#101826;--panel2:#0d1420;--line:#1d2a3d;--text:#eef3fb;--muted:#8ea0b8;--blue:#3dbebf;--ok:#2fce8b;--bad:#ff5d6c;--warn:#e0b15a}
 *{box-sizing:border-box}
 body{margin:0;font-family:Inter,system-ui,-apple-system,Segoe UI,sans-serif;background:var(--bg);color:var(--text)}
 .shell{display:grid;grid-template-columns:230px 1fr;min-height:100vh}
 aside{background:#0b1220;border-right:1px solid var(--line);padding:16px 12px}
 .brand{font-weight:700;letter-spacing:.02em;margin-bottom:14px}
 aside a{display:flex;align-items:center;gap:8px;color:var(--muted);text-decoration:none;padding:9px 10px;border-radius:10px;margin:2px 0}
-aside a.active{background:#17305c;color:#fff}
+aside a.active{background:#12363a;color:#fff}
 main{padding:16px}
 header{display:flex;justify-content:space-between;align-items:center;margin-bottom:14px}
 .pills{display:flex;gap:8px;flex-wrap:wrap}
@@ -1368,6 +1368,7 @@ main h1{margin:0;font-size:1.55rem}
   <button id="menu" aria-label="Open navigation" aria-expanded="false">☰ Menu</button>
   <aside id="nav">
     <div class="brand">Aureon Trading Lab</div>
+    <div class="muted" style="margin:-8px 10px 12px">by Cyber Aid</div>
     <a href="/overview" data-path="/overview">Overview</a>
     <a href="/scanner" data-path="/scanner">Live Scanner</a>
     <a href="/trading" data-path="/trading">Trading Terminal</a>
@@ -1387,7 +1388,7 @@ main h1{margin:0;font-size:1.55rem}
     <header>
       <div>
         <h1 id="title">Overview</h1>
-        <div class="muted">Live market desk. Paper only. Broker off.</div>
+        <div class="muted">Personalized paper desk. Experimental plans stay unapproved.</div>
       </div>
       <div class="pills"><span class="pill">WAIT_DEFAULT</span><span class="pill">Paper only</span><span class="pill">Broker off</span><a href="/notifications" id="inboxlink">Inbox</a><button id="signout" type="button">Sign out</button></div>
     </header>
@@ -1559,7 +1560,7 @@ async function signals(){
   clearTimeout(timer);
   if (response.status === 401) { view.innerHTML = `<article class="card"><h2>Sign in required</h2><p><a href="/login">Sign in</a> to see your signal workspace.</p></article>`; return; }
   const body = await response.json().catch(()=>({panels:[], history:[], strategies:[], notice:"The workspace could not be read. Please retry."}));
-  const panels = (body.panels||[]).map(panel => `<article class="card" data-symbol="${panel.symbol}"><h2>${panel.symbol}</h2><div class="row"><span>${panel.scanner_state||"BLOCKED"}</span><span>${panel.price==null?"—":panel.price}</span></div><p>${panel.message||"No qualifying setup yet."}</p><p class="muted">${panel.interval||""} · ${panel.quote||""} ${panel.quote_note||""} Updated ${panel.updated_at||"unknown"}.</p></article>`).join("");
+  const panels = (body.panels||[]).map(panel => `<article class="card" data-symbol="${panel.symbol}"><h2>${panel.symbol}</h2><div class="row"><span>${panel.decision_label||panel.scanner_state||"BLOCKED"}</span><span>${panel.price==null?"—":panel.price}</span></div><p>${panel.message||"No qualifying setup yet."}</p><p>Entry ${panel.entry==null?"—":panel.entry}. Stop ${panel.stop==null?"—":panel.stop}. Target ${panel.target==null?"—":panel.target}.</p><p class="muted">${panel.interval||""} · ${panel.quote||""} ${panel.quote_note||""} Updated ${panel.updated_at||"unknown"}. ${panel.approved?"Approved.":"Not approved."}</p></article>`).join("");
   const setups = (body.current||[]).map(item => `<article class="card"><h2>${item.what}</h2><p>${item.why}</p><p>${item.why_not||""}</p><p class="muted">${item.strategy}. ${item.learn||""}</p><p class="muted">Invalidation: ${item.invalidation||""} Position suggestion: ${item.account&&item.account.ok?item.account.quantity:"not calculated"}. ${item.account&&item.account.order===false?"No order was created.":""}</p></article>`).join("");
   const history = (body.history||[]).map(item => `<div class="row"><span>${item.label}</span><span>${item.symbol||""} ${item.scanner_state||""}</span></div><div class="muted">${item.message||""} Not delivered. Not filled.</div>`).join("");
   const intel = (body.strategies||[]).map(item => `<div class="row"><span>${item.name}</span><span>${item.research_status}</span></div><div class="muted">${(item.instruments||[]).join(", ")}. ${item.evidence||""}</div>`).join("");
@@ -1663,7 +1664,7 @@ async function scannerPage(){
         : m.evidence_grade == null
           ? "No evidence grade. The rule is not approved, and a checklist is not a probability."
           : `Evidence grade ${m.evidence_grade}/100. ${m.evidence_label||"Checklist score, not a probability of profit."}`;
-      return `<article class="card" data-symbol="${m.symbol}"><h2>${m.symbol}</h2><div class="row"><span>${m.interval||""} ${m.quote||""}</span><span>${m.price==null?"—":m.price}</span></div><div class="row"><span>Status</span><span>${m.status||"unknown"}</span></div><p>${m.message||"No qualifying setup yet."}</p><p class="muted">${stateText}. ${grade}</p></article>`;
+      return `<article class="card" data-symbol="${m.symbol}"><h2>${m.symbol}</h2><div class="row"><span>${m.interval||""} ${m.quote||""}</span><span>${m.price==null?"—":m.price}</span></div><div class="row"><span>${m.decision_label||stateText}</span><span>${m.status||"unknown"}</span></div><p>${m.message||"No qualifying setup yet."}</p><p>Entry ${m.entry==null?"—":m.entry}. Stop ${m.stop==null?"—":m.stop}. Target ${m.target==null?"—":m.target}.</p><p class="muted">${stateText}. ${grade} Updated ${m.updated_at||"unknown"}.</p></article>`;
     }).join("");
     view.innerHTML = `<p role="status">${body.notice||"No approved strategy is currently active; trade alerts are unavailable."}</p><div class="markets">${cards}</div><p class="muted">Scanned ${body.scanned_at||""}. Completed bars only. <a href="/learn">Why the scanner says this</a></p>`;
   };

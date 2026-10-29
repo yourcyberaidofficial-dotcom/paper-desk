@@ -88,6 +88,11 @@ def present_window(window, now_ms):
     if not live:
         base.update(status="stale", state="DATA_UNAVAILABLE", scanner_state="BLOCKED", message=f"{symbol} is not being scanned. The latest completed bar is missing or stale.")
         return base
+    if symbol in {"BTCUSDT", "ETHUSDT"}:
+        shared = _shared_reading(symbol, interval, bars, now_ms, price)
+        if shared is not None:
+            base.update(shared)
+            return base
     rows = evaluate_snapshot(symbol, bars, window.get("higher") or [], now_ms, interval)
     head = _headline(rows) or {}
     state = head.get("state") or "WAIT"
@@ -138,6 +143,48 @@ def present_window(window, now_ms):
         base["evidence_label"] = "not a probability of profit, and this rule is not approved"
         base["eligible_for_alert"] = False
     return base
+
+
+def _shared_reading(symbol, interval, bars, now_ms, price):
+    """The same decision the terminal uses. It does not write an inbox event."""
+    try:
+        from ops.terminal_signal import decide
+        evaluation = decide(symbol, interval, "auto", bars, now_ms, None)
+    except Exception:
+        return None
+    card = {
+        "decision": evaluation.get("decision"),
+        "decision_label": evaluation.get("decision_label"),
+        "entry": evaluation.get("entry"),
+        "stop": evaluation.get("stop"),
+        "target": evaluation.get("target"),
+        "reward_risk": evaluation.get("reward_risk"),
+        "rule": evaluation.get("strategy"),
+        "version": evaluation.get("version"),
+        "runtime_status": evaluation.get("runtime_status"),
+        "message": evaluation.get("reason") or "No qualifying setup yet.",
+        "approved": False,
+        "eligible_for_alert": False,
+        "evaluated": True,
+        "evidence_grade": None,
+        "evidence_label": "not a probability of profit",
+        "price": evaluation.get("reference_price") if evaluation.get("reference_price") is not None else price,
+        "direction": evaluation.get("decision") or "WAIT",
+    }
+    if evaluation.get("blocked"):
+        card.update(status="unavailable", state="DATA_UNAVAILABLE", scanner_state="BLOCKED")
+        return card
+    if evaluation.get("decision") == "BUY" and evaluation.get("entry") is not None:
+        card.update(
+            status="scanning",
+            state="PAPER_CANDIDATE",
+            scanner_state="EXPERIMENTAL",
+            direction="BUY",
+            evidence_label="experimental plan, not a probability of profit",
+        )
+        return card
+    card.update(status="scanning", state="WAIT", scanner_state="WAIT")
+    return card
 
 
 def scan(windows, now_ms=None):

@@ -126,7 +126,7 @@ def record_scan(user_id, body, plan, now_ms):
     stored = []
     day = time.strftime("%Y-%m-%d", time.gmtime(now_ms / 1000))
     markets = body.get("markets") or []
-    actionable = [row for row in markets if row.get("scanner_state") in {"SIGNAL_CANDIDATE", "SETUP_WATCH", "APPROVED_SIGNAL"}]
+    actionable = [row for row in markets if row.get("scanner_state") in {"SIGNAL_CANDIDATE", "SETUP_WATCH", "APPROVED_SIGNAL", "EXPERIMENTAL"}]
     for row in markets:
         if row.get("scanner_state") == "BLOCKED":
             result = offer(user_id, {
