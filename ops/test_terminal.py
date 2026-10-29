@@ -141,6 +141,48 @@ def test_a_named_4h_rule_is_not_run_on_15m():
     assert result["approved"] is False
 
 
+def test_gold_spot_ohlc_is_read_and_london_is_not(now=None):
+    bars = []
+    for index in range(80):
+        close = 2000 + index * 0.4
+        bars.append(_flat(index, close=close, high=close + 0.5, low=close - 0.5, interval="1h"))
+    for bar in bars:
+        bar["symbol"] = "XAUUSD"
+        bar["quote_semantics"] = "ohlc_not_bid_ask"
+    now = bars[-1]["close_time_ms"] + 1000
+    quote = {"ok": True, "bid": 2032.0, "ask": 2032.4, "spread": 0.4, "timestamp_ms": now, "platform": "fixture", "spread_profile": "premium", "provider": "fixture"}
+    result = decide("XAUUSD", "1h", "auto", bars, now, _user(), live_quote=quote)
+    assert result.get("blocked") != "quote_not_bid_ask"
+    assert result["strategy"] == "gold-ohlc-reading"
+    assert result["approved"] is False
+    assert result["eligible_for_alert"] is False
+    assert "London rule was not calculated" in result["reason"]
+    assert "spot chart" in result["reason"]
+    assert "2032" in result["reason"]
+    named = decide("XAUUSD", "1h", "london-reclaim-1h-20261028", bars, now, _user(), live_quote=quote)
+    assert named["blocked"] == "quote_not_bid_ask"
+    assert named.get("entry") is None
+
+
+def test_an_uptrend_without_a_trigger_is_a_watch_not_a_buy():
+    bars = []
+    for index in range(80):
+        close = 100 + index * 0.3
+        bars.append(_flat(index, close=close, high=close + 0.2, low=close - 0.2, interval="15m"))
+    now = bars[-1]["close_time_ms"] + 1000
+    result = decide("BTCUSDT", "15m", "auto", bars, now, _user())
+    assert result["decision"] in {"WAIT", "BUY"}
+    assert result["approved"] is False
+    if result["decision"] == "BUY":
+        assert result["stop"] < result["entry"] < result["target"]
+    else:
+        assert result["decision_label"] in {"WAIT", "WATCH"}
+        if result["decision_label"] == "WATCH":
+            assert result["entry"] is None
+            assert result["watch_stop"] < result["watch_entry"] < result["watch_target"]
+            assert "not an entry" in result["reason"]
+
+
 def test_gold_chart_feed_is_blocked():
     bar = _flat(0, interval="1h")
     bar["symbol"] = "XAUUSD"

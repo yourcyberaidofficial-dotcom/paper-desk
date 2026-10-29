@@ -70,6 +70,14 @@ def present_window(window, now_ms):
         quote = window.get("quote_semantics") or (last.get("quote_semantics") if last else None) or "missing_quote"
         if quote != "dukascopy_xauusd_bid_ask" or not completed_bid_ask_bar(last):
             shown = quote if quote != "dukascopy_xauusd_bid_ask" else "missing_bid_ask"
+            if quote == "ohlc_not_bid_ask" and last and last.get("complete") and last.get("fresh") and len(bars) >= 60:
+                shared = _shared_reading(symbol, interval, bars, now_ms, price)
+                if shared is not None:
+                    shared["quote"] = quote
+                    shared["message"] = "Spot chart OHLC, not a bid/ask hour. The London rule was not calculated. " + (shared.get("message") or "")
+                    base.update(shared)
+                    base["price"] = price
+                    return base
             base.update(
                 status="unavailable",
                 state="DATA_UNAVAILABLE",
