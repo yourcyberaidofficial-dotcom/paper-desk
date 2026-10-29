@@ -216,6 +216,102 @@ def _watch_plan(bars, label):
     }
 
 
+def read_spot_sample(interval, bars):
+    """Gold hours built from spot samples. Shorter averages, because about two days are available."""
+    label = interval or "1h"
+    if len(bars) < 24:
+        return {
+            "decision": "WAIT",
+            "reason": f"There are not enough completed {label} spot samples to judge gold. The Yahoo chart was not substituted.",
+            "entry": None,
+            "stop": None,
+            "target": None,
+            "reward_risk": None,
+            "rule": None,
+        }
+    closes = [bar["close"] for bar in bars]
+    short = _ema(closes, 8)[-1]
+    longer = _ema(closes, 21)[-1]
+    width = _atr(bars)
+    last = bars[-1]
+    recent_high = max(bar["high"] for bar in bars[-3:])
+    recent_low = min(bar["low"] for bar in bars[-3:])
+    down = short < longer
+    if down:
+        triggered = recent_high >= short * 0.999 and last["close"] < short
+        stop = max(recent_high, short) + max(width * 0.15, last["close"] * 0.0015)
+        side = "SELL"
+    else:
+        triggered = short > longer and recent_low <= short * 1.001 and last["close"] > short
+        stop = min(recent_low, short) - max(width * 0.15, last["close"] * 0.0015)
+        side = "BUY"
+    if not triggered or not _usable(last["close"], stop):
+        if down and _usable(short, max(recent_high, short) + last["close"] * 0.0015):
+            entry = short
+            watch_stop = max(recent_high, short) + max(width * 0.15, last["close"] * 0.0015)
+            watch_target = entry - PAYOFF * abs(watch_stop - entry)
+            return {
+                "decision": "WAIT",
+                "runtime_status": "watch",
+                "reason": (
+                    f"Watch on this {label} spot sample. The 8-sample average {short:.2f} is below the 21-sample average {longer:.2f}, "
+                    f"but the close {last['close']:.2f} has not finished back under {entry:.2f}. That is not an entry. "
+                    f"If it does, the plan would use a stop near {watch_stop:.2f} and a target near {watch_target:.2f}."
+                ),
+                "entry": None,
+                "stop": None,
+                "target": None,
+                "watch_entry": entry,
+                "watch_stop": watch_stop,
+                "watch_target": watch_target,
+                "reward_risk": None,
+                "rule": "Spot-sample pullback",
+                "watch_side": "SELL",
+            }
+        return {
+            "decision": "WAIT",
+            "reason": f"No setup on this {label} spot sample. The 8-sample and 21-sample averages did not complete a pullback.",
+            "entry": None,
+            "stop": None,
+            "target": None,
+            "reward_risk": None,
+            "rule": None,
+        }
+    risk = abs(last["close"] - stop)
+    target = last["close"] - PAYOFF * risk if side == "SELL" else last["close"] + PAYOFF * risk
+    if side == "SELL":
+        return {
+            "decision": "SELL",
+            "sell_meaning": "short_idea",
+            "reason": (
+                f"Short idea on this {label} spot sample. Spot-sample pullback. "
+                f"The 8-sample average {short:.2f} is below the 21-sample average {longer:.2f}, "
+                f"and the close {last['close']:.2f} finished back under it. "
+                f"Entry {last['close']:.2f}, stop {stop:.2f}, target {target:.2f}. "
+                "No broker order is sent. This is not an exit of a long, and it is not approved."
+            ),
+            "entry": last["close"],
+            "stop": stop,
+            "target": target,
+            "reward_risk": PAYOFF,
+            "rule": "Spot-sample pullback",
+        }
+    return {
+        "decision": "BUY",
+        "reason": (
+            f"Buy on this {label} spot sample. Spot-sample pullback. "
+            f"The 8-sample average {short:.2f} is above the 21-sample average {longer:.2f}, "
+            f"and the close {last['close']:.2f} finished back over it. "
+            "This is not an approved strategy, and no order was sent."
+        ),
+        "entry": last["close"],
+        "stop": stop,
+        "target": target,
+        "reward_risk": PAYOFF,
+        "rule": "Spot-sample pullback",
+    }
+
+
 def read_interval(interval, bars):
     """Judge this exact candle series. Returns a match or the failed checks."""
     label = interval or "requested"

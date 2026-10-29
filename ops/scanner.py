@@ -70,7 +70,7 @@ def present_window(window, now_ms):
         quote = window.get("quote_semantics") or (last.get("quote_semantics") if last else None) or "missing_quote"
         if quote != "dukascopy_xauusd_bid_ask" or not completed_bid_ask_bar(last):
             shown = quote if quote != "dukascopy_xauusd_bid_ask" else "missing_bid_ask"
-            if quote == "ohlc_not_bid_ask" and last and last.get("complete") and last.get("fresh") and len(bars) >= 60:
+            if quote in {"ohlc_not_bid_ask", "spot_sample_not_bid_ask"} and last and last.get("complete") and last.get("fresh") and len(bars) >= (24 if quote == "spot_sample_not_bid_ask" else 60):
                 live_quote = None
                 if last.get("source_type") != "fixture":
                     try:
@@ -81,7 +81,7 @@ def present_window(window, now_ms):
                 shared = _shared_reading(symbol, interval, bars, now_ms, price, live_quote)
                 if shared is not None:
                     shared["quote"] = quote
-                    shared["message"] = "Spot chart OHLC, not a bid/ask hour. The London rule was not calculated. " + (shared.get("message") or "")
+                    shared["message"] = ("First-party spot samples, not the Yahoo chart. " if quote == "spot_sample_not_bid_ask" else "Yahoo chart proxy, not a bid/ask hour. ") + "The London rule was not calculated. " + (shared.get("message") or "")
                     base.update(shared)
                     base["price"] = price
                     return base

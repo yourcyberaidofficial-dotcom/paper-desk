@@ -51,9 +51,12 @@ def load_gold_ohlc(interval, now_ms):
     cached = _BAR_CACHE.get(key)
     if cached and now_ms - cached[0] < 30_000:
         return cached[1]
-    from ops.feeds import xaus_chart
-    loaded = xaus_chart(interval, now_ms=now_ms, timeout=8, attempts=1)
+    from ops.feeds import xaus_chart, xaus_spot_bars
+    loaded = xaus_spot_bars(interval, now_ms=now_ms, timeout=8, attempts=1) if interval == "1h" else {"bars": []}
     bars = loaded.get("bars") or [] if isinstance(loaded, dict) else []
+    if len(bars) < 24:
+        loaded = xaus_chart(interval, now_ms=now_ms, timeout=8, attempts=1)
+        bars = loaded.get("bars") or [] if isinstance(loaded, dict) else []
     _BAR_CACHE[key] = (now_ms, bars)
     return bars
 

@@ -14,6 +14,7 @@ from ops.sessions import gold_market_open
 
 BINANCE = "https://data-api.binance.vision/api/v3/klines"
 XAUS_CHART = "https://xaus.com/api/v1/chart"
+XAUS_INTRADAY = "https://xaus.com/api/v1/intraday"
 XAUS_SPOT = "https://xaus.com/api/v1/spot"
 DUKA = "https://datafeed.dukascopy.com/datafeed/XAUUSD"
 USER_AGENT = "aureon-paper-desk"
@@ -169,6 +170,63 @@ def xaus_chart(interval, now_ms=None, timeout=30, attempts=3):
         "provider": "xaus.com",
         "quote_semantics": "ohlc_not_bid_ask",
         "range": spec[0],
+    }
+
+
+def xaus_spot_bars(interval="1h", now_ms=None, timeout=8, attempts=1):
+    """Hourly OHLC from XAUS first-party spot samples. Not the Yahoo chart."""
+    if interval != "1h":
+        return {"ok": False, "reason": "interval_not_available", "bars": [], "provider": "xaus.com"}
+    now_ms = int(now_ms if now_ms is not None else time.time() * 1000)
+    step = interval_ms(interval)
+    status, raw = _get(XAUS_INTRADAY + "?hours=48", timeout=timeout, attempts=attempts)
+    if status != 200:
+        return {"ok": False, "reason": f"http_{status}", "bars": [], "provider": "xaus.com"}
+    payload = json.loads(raw.decode())
+    buckets = {}
+    for point in payload.get("points") or []:
+        price = point.get("p")
+        if price is None:
+            continue
+        stamp = int(point["t"])
+        open_ms = (stamp if stamp > 10_000_000_000 else stamp * 1000)
+        open_ms -= open_ms % step
+        buckets.setdefault(open_ms, []).append(float(price))
+    bars = []
+    for open_ms in sorted(buckets):
+        close_ms = open_ms + step - 1
+        if close_ms > now_ms:
+            continue
+        prices = buckets[open_ms]
+        if len(prices) < 3:
+            continue
+        bar = make_bar(
+            symbol="XAUUSD",
+            instrument="XAUUSD_SPOT",
+            interval=interval,
+            open_time_ms=open_ms,
+            close_time_ms=close_ms,
+            open=prices[0],
+            high=max(prices),
+            low=min(prices),
+            close=prices[-1],
+            volume=len(prices),
+            provider="xaus.com",
+            source_type="spot_sample",
+            quote_semantics="spot_sample_not_bid_ask",
+            retrieved_at_ms=now_ms,
+            complete=True,
+            fresh=now_ms - close_ms <= 2 * step and gold_market_open(datetime.fromtimestamp(now_ms / 1000, timezone.utc)),
+        )
+        bars.append(bar)
+    return {
+        "ok": bool(bars),
+        "bars": bars,
+        "provider": "xaus.com",
+        "quote_semantics": "spot_sample_not_bid_ask",
+        "source": "xaus-intraday-spot-sample",
+        "note": "Built from the first-party spot sampler. Not the Yahoo Finance chart proxy.",
+        "samples": payload.get("count"),
     }
 
 

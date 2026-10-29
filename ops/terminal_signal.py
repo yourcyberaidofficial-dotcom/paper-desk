@@ -20,7 +20,7 @@ from ops.leaders import COMPRESS, CRYPTO_RULES, GOLD_RULES, LONDON, SWEEP
 from ops.plan import propose_size
 from ops.profiles import risk_cap
 from ops.registry import BY_ID
-from ops.interval_reading import read_interval
+from ops.interval_reading import read_interval, read_spot_sample
 
 AUTO = {
     "BTCUSDT": COMPRESS,
@@ -123,6 +123,33 @@ def _levels(setup, price):
     return stop, target, reward
 
 
+def _finish_gold(reading, base, live_quote, preface):
+    """0.08 percent is wider than the Swissquote spread and the usual gap between two spot feeds, and tighter than the Yahoo chart gap."""
+    note = preface
+    if live_quote and live_quote.get("ok") and live_quote.get("bid") is not None and live_quote.get("ask") is not None:
+        mid = (float(live_quote["bid"]) + float(live_quote["ask"])) / 2
+        close = float(base.get("reference_price") or 0)
+        gap = abs(close - mid) / mid if mid else 0
+        reading["quote_alignment"] = "diverged" if gap > 0.0008 else "aligned"
+        reading["quote_gap"] = gap
+        note += f" A separate quote is bid {live_quote.get('bid')} ask {live_quote.get('ask')}."
+        if reading["quote_alignment"] == "diverged":
+            note += f" They differ by {gap * 100:.2f} percent, so they are not treated as one price."
+        else:
+            note += f" They differ by {gap * 100:.2f} percent, inside the spot tolerance."
+    else:
+        note += " No fresh executable quote was attached, so any level is indicative."
+    reading["reason"] = note + " " + (reading.get("reason") or "")
+    reading["live_quote"] = live_quote
+    if reading.get("quote_alignment") == "diverged" and reading.get("decision") in {"BUY", "SELL"}:
+        reading["technical_side"] = reading["decision"]
+        reading["decision"] = "WAIT"
+        reading["runtime_status"] = "quote_divergence"
+        reading["size"] = {"ok": False, "reason": "quote_divergence", "order": False}
+        reading["reason"] += " The prices disagree, so this technical idea is not an actionable entry and is not sent as a trade."
+    return reading
+
+
 def decide(symbol, interval, strategy, bars, now_ms, user, prior=None, live_quote=None):
     explicit = strategy not in {None, "", "auto"}
     result = apply_auto_policy(_evaluate(symbol, interval, strategy, bars, now_ms, user, prior, live_quote), explicit)
@@ -188,36 +215,20 @@ def _evaluate(symbol, interval, strategy, bars, now_ms, user, prior=None, live_q
         return {**base, "decision": "WAIT", "reason": "The latest candle is missing, still forming, or too old to treat as live.", "blocked": "stale_or_incomplete"}
     if symbol == "XAUUSD" and not completed_bid_ask_bar(last):
         quote = last.get("quote_semantics") or "missing_bid_ask"
+        if strategy in {None, "", "auto"} and quote == "spot_sample_not_bid_ask" and len(bars) >= 24:
+            reading = _requested_reading(base, symbol, interval, bars, user, read_spot_sample)
+            reading["gold_basis"] = "spot_sample"
+            reading["strategy"] = "gold-spot-sample"
+            reading["version"] = "gold-spot-sample"
+            reading = _finish_gold(reading, base, live_quote, "First-party spot samples aggregated to this hour. Not the Yahoo chart and not a bid/ask hour. The London rule was not calculated.")
+            return reading
         if strategy in {None, "", "auto"} and quote == "ohlc_not_bid_ask" and len(bars) >= 60:
             reading = _requested_reading(base, symbol, interval, bars, user)
             reading["gold_basis"] = "spot_ohlc"
             reading["strategy"] = "gold-ohlc-reading"
             reading["version"] = "gold-ohlc-reading"
-            note = "This is a spot chart candle, not a bid/ask hour. The London rule was not calculated."
-            if live_quote and live_quote.get("ok") and live_quote.get("bid") is not None and live_quote.get("ask") is not None:
-                mid = (float(live_quote["bid"]) + float(live_quote["ask"])) / 2
-                close = float(base.get("reference_price") or 0)
-                gap = abs(close - mid) / mid if mid else 0
-                reading["quote_alignment"] = "diverged" if gap > 0.0015 else "aligned"
-                note += (
-                    f" A separate quote is bid {live_quote.get('bid')} ask {live_quote.get('ask')}."
-                    " The candle close is not that executable price."
-                )
-                if reading["quote_alignment"] == "diverged":
-                    note += f" They differ by {gap * 100:.2f} percent, so they are not treated as one price."
-            else:
-                note += " No fresh executable quote was attached, so any level is indicative."
-            reading["reason"] = note + " " + (reading.get("reason") or "")
-            reading["live_quote"] = live_quote
-            if reading.get("quote_alignment") == "diverged" and reading.get("decision") in {"BUY", "SELL"}:
-                reading["technical_side"] = reading["decision"]
-                reading["decision"] = "WAIT"
-                reading["runtime_status"] = "quote_divergence"
-                reading["size"] = {"ok": False, "reason": "quote_divergence", "order": False}
-                reading["reason"] = (
-                    (reading.get("reason") or "")
-                    + " The chart and the quote disagree, so this technical idea is not an actionable entry and is not sent as a trade."
-                )
+            note = "Yahoo chart proxy, not a first-party spot sample and not a bid/ask hour. The London rule was not calculated."
+            reading = _finish_gold(reading, base, live_quote, note)
             return reading
         extra = ""
         if live_quote and live_quote.get("ok"):
@@ -274,8 +285,8 @@ def _evaluate(symbol, interval, strategy, bars, now_ms, user, prior=None, live_q
     }
 
 
-def _requested_reading(base, symbol, interval, bars, user):
-    reading = read_interval(interval, bars)
+def _requested_reading(base, symbol, interval, bars, user, reader=None):
+    reading = (reader or read_interval)(interval, bars)
     result = {
         **base,
         "strategy": "interval-reading",
