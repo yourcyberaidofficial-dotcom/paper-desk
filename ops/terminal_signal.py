@@ -131,6 +131,8 @@ def decide(symbol, interval, strategy, bars, now_ms, user, prior=None, live_quot
         result["decision_label"] = "BUY · Experimental"
     elif result.get("runtime_status") == "experimental" and result.get("sell_meaning") == "short_idea" and not result.get("blocked"):
         result["decision_label"] = "SELL · Short idea"
+    elif result.get("runtime_status") == "quote_divergence" and not result.get("blocked"):
+        result["decision_label"] = "QUOTE DIVERGENCE"
     elif result.get("runtime_status") == "watch" and not result.get("blocked"):
         result["decision_label"] = "WATCH"
     return result
@@ -207,6 +209,15 @@ def _evaluate(symbol, interval, strategy, bars, now_ms, user, prior=None, live_q
                 note += " No fresh executable quote was attached, so any level is indicative."
             reading["reason"] = note + " " + (reading.get("reason") or "")
             reading["live_quote"] = live_quote
+            if reading.get("quote_alignment") == "diverged" and reading.get("decision") in {"BUY", "SELL"}:
+                reading["technical_side"] = reading["decision"]
+                reading["decision"] = "WAIT"
+                reading["runtime_status"] = "quote_divergence"
+                reading["size"] = {"ok": False, "reason": "quote_divergence", "order": False}
+                reading["reason"] = (
+                    (reading.get("reason") or "")
+                    + " The chart and the quote disagree, so this technical idea is not an actionable entry and is not sent as a trade."
+                )
             return reading
         extra = ""
         if live_quote and live_quote.get("ok"):
@@ -383,6 +394,8 @@ def apply_auto_policy(result, explicit):
     result["decision_label"] = "BLOCKED" if result.get("blocked") else result.get("decision")
     if result.get("runtime_status") == "watch" and not result.get("blocked"):
         result["decision_label"] = "WATCH"
+    if result.get("runtime_status") == "quote_divergence" and not result.get("blocked"):
+        result["decision_label"] = "QUOTE DIVERGENCE"
     return result
 
 

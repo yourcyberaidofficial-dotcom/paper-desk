@@ -65,6 +65,8 @@ def test_two_users_get_different_instructions_from_one_event():
     assert small["panels"][2]["quote_note"].startswith("Chart OHLC")
     assert small["current"][0]["account"]["quantity"] == 8
     assert large["current"][0]["account"]["quantity"] == 25
+    assert small["current"][0]["live"] is False
+    assert "not the current scan" in small["current"][0]["why_not"]
     assert small["current"][0]["qualifies"] is False
     assert small["history"][0]["pnl"] is None
     hidden = compose({"plan": {"mode": "selected", "strategies": ["xau-session-20261027"], "markets": ["XAUUSD"], "min_evidence_grade": 0}}, scan, history)
