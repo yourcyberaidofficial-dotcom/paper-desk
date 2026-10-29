@@ -48,19 +48,35 @@ def test_buy_is_labelled_unvalidated_and_sized():
     assert result["filled"] is False
 
 
-def test_auto_does_not_promote_a_failed_rule_match():
+def test_auto_shows_a_failed_rule_match_without_approving_it():
     bars = _compress_bars()
     now = bars[-1]["close_time_ms"] + 1000
     result = decide("BTCUSDT", "4h", "auto", bars, now, _user())
-    assert result["decision"] == "WAIT"
-    assert result["decision_label"] == "WAIT"
+    assert result["decision"] == "BUY"
+    assert result["decision_label"] == "BUY · Experimental"
+    assert result["runtime_status"] == "experimental"
     assert result["auto_selected"] is False
+    assert result["approved"] is False
     assert result["eligible_for_alert"] is False
-    assert result["experimental_match"]["decision"] == "BUY"
+    assert result["validation_status"] == "FAIL"
+    assert result["stop"] < result["entry"] < result["target"]
     assert result["experimental_match"]["approved"] is False
-    assert result["entry"] is None
     assert result["size"]["order"] is False
-    assert "not a trade recommendation" in result["reason"]
+    assert "not an approved trade" in result["reason"]
+    assert result["persona"] == "orion_precision"
+
+
+def test_aegis_keeps_the_plan_but_does_not_size_below_its_floor():
+    bars = _compress_bars()
+    now = bars[-1]["close_time_ms"] + 1000
+    result = decide("BTCUSDT", "4h", "auto", bars, now, _user(style="aegis_shield"))
+    assert result["decision"] == "BUY"
+    assert result["approved"] is False
+    assert result["entry"] is not None
+    assert result["persona_release"] is False
+    assert result["size"]["ok"] is False
+    assert result["size"]["order"] is False
+    assert "Aegis Shield" in result["reason"]
 
 
 def test_wait_explains_the_failed_condition_and_ignores_risk_style():
@@ -105,19 +121,14 @@ def test_a_shorter_request_is_judged_on_those_candles():
     assert result["interval"] == "15m"
     assert result["strategy"] == "interval-reading"
     assert result.get("blocked") != "timeframe"
-    assert result["decision"] == "SELL"
-    assert result["decision_label"] == "SELL"
+    assert result["decision"] == "WAIT"
+    assert result["decision_label"] == "WAIT"
     assert result["approved"] is False
     assert result["eligible_for_alert"] is False
-    assert result["validation_status"] == "FAIL"
-    assert result["entry"] == bars[-1]["close"]
-    assert result["stop"] > result["entry"] > result["target"]
-    assert result["size"]["ok"] is True
-    assert result["size"]["order"] is False
-    assert result["reference_price"] == bars[-1]["close"]
+    assert result["entry"] is None
+    assert "spot-only" in result["reason"]
+    assert "not a SELL" in result["reason"]
     assert "15m" in result["reason"]
-    assert "not an approved strategy" in result["reason"]
-    assert "4h" not in result["reason"]
 
 
 def test_a_named_4h_rule_is_not_run_on_15m():
@@ -175,11 +186,13 @@ def test_terminal_route_requires_a_user_and_uses_completed_bars(tmp_path, monkey
     response = client.post("/api/terminal/signal", json={"symbol": "BTCUSDT", "interval": "4h", "strategy": "auto"})
     body = response.get_json()
     assert response.status_code == 200
-    assert body["decision"] == "WAIT"
+    assert body["decision"] == "BUY"
+    assert body["decision_label"] == "BUY · Experimental"
     assert body["approved"] is False
     assert body["eligible_for_alert"] is False
     assert body["validation_status"] == "FAIL"
+    assert body["entry"] is not None
     assert body["experimental_match"]["decision"] == "BUY"
     history = client.get("/api/terminal/history").get_json()
-    assert history["items"][0]["decision"] == "WAIT"
+    assert history["items"][0]["decision"] == "BUY"
     assert history["items"][0]["source"] == "user_requested"

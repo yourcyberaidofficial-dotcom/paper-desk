@@ -1,4 +1,11 @@
-"""A requested terminal decision. It is not an approved alert and it does not trade."""
+"""One requested evaluation. Five facts stay separate.
+
+Data validity, the technical match, the trade plan, research validation,
+and inbox eligibility are not one score. A failed research rule can still
+show a calculated long plan. That plan stays unapproved. A spot desk does
+not open shorts. A persona changes the reward floor and the size, not the
+candle and not the approval.
+"""
 
 import json
 import os
@@ -118,7 +125,11 @@ def _levels(setup, price):
 
 def decide(symbol, interval, strategy, bars, now_ms, user, prior=None, live_quote=None):
     explicit = strategy not in {None, "", "auto"}
-    return apply_auto_policy(_evaluate(symbol, interval, strategy, bars, now_ms, user, prior, live_quote), explicit)
+    result = apply_auto_policy(_evaluate(symbol, interval, strategy, bars, now_ms, user, prior, live_quote), explicit)
+    result = apply_persona(result, user)
+    if result.get("runtime_status") == "experimental" and result.get("decision") == "BUY" and not result.get("blocked"):
+        result["decision_label"] = "BUY · Experimental"
+    return result
 
 
 def _evaluate(symbol, interval, strategy, bars, now_ms, user, prior=None, live_quote=None):
@@ -272,6 +283,39 @@ def _requested_reading(base, symbol, interval, bars, user):
     return result
 
 
+def apply_persona(result, user):
+    """A persona changes size and the reward floor. It does not invent a direction or an approval."""
+    from ops.profiles import canonical_style, get_profile
+
+    result = dict(result)
+    style = canonical_style(((user or {}).get("profile") or {}).get("signal_style"))
+    spec = get_profile(style)
+    if not spec:
+        result["persona_release"] = False
+        return result
+    result["persona"] = style
+    result["persona_name"] = spec["name"]
+    result["persona_min_rr"] = spec["min_rr"]
+    result["persona_risk_cap"] = spec["risk_per_trade_percent"]
+    if result.get("decision") != "BUY" or result.get("reward_risk") is None:
+        result["persona_release"] = False
+        result["persona_note"] = f"{spec['name']} does not create a direction when the rule did not."
+        return result
+    if float(result["reward_risk"]) + 1e-9 < float(spec["min_rr"]):
+        result["persona_release"] = False
+        result["size"] = {"ok": False, "reason": "below_persona_reward", "order": False}
+        result["persona_note"] = (
+            f"{spec['name']} leaves this plan unsized. Its reward floor is {spec['min_rr']}. The levels stay visible."
+        )
+        result["reason"] = f"{result.get('reason') or ''} {result['persona_note']}".strip()
+        return result
+    result["persona_release"] = True
+    result["persona_note"] = (
+        f"{spec['name']} can size this plan up to {spec['risk_per_trade_percent']}% . It is still not an approved strategy."
+    )
+    return result
+
+
 def apply_auto_policy(result, explicit):
     """Auto may name a frozen rule. It may not promote a failed or blocked one."""
     result = dict(result)
@@ -282,11 +326,10 @@ def apply_auto_policy(result, explicit):
     if result.get("reading"):
         result["auto_selected"] = False
         result["selection_policy"] = "requested_interval_reading"
-        result["decision_label"] = "BLOCKED" if result.get("blocked") else result.get("decision")
-        return result
     status = result.get("validation_status") or "unknown"
-    if not explicit and result.get("decision") == "BUY" and status != "PASS":
-        match = {
+    if not result.get("reading") and not explicit and result.get("decision") == "BUY" and status != "PASS":
+        result["runtime_status"] = "experimental"
+        result["experimental_match"] = {
             "decision": "BUY",
             "label": "experimental_rule_match",
             "reason": result.get("reason"),
@@ -297,18 +340,12 @@ def apply_auto_policy(result, explicit):
             "size": result.get("size"),
             "approved": False,
         }
-        result["experimental_match"] = match
-        result["decision"] = "WAIT"
         result["reason"] = (
-            f"Auto did not select {result.get('strategy')}. Research status is {status}, so this is not a trade recommendation. "
-            f"The frozen rule would have matched a long. {match['reason']}"
+            f"Experimental match on {result.get('strategy')}. Research status is {status}, so this is not an approved trade and not a claim of profit. "
+            f"{result['experimental_match']['reason']}"
         )
-        result["entry"] = None
-        result["stop"] = None
-        result["target"] = None
-        result["reward_risk"] = None
-        result["size"] = {"ok": False, "reason": "not_selected", "order": False}
         result["auto_selected"] = False
+        result["selection_policy"] = "experimental_visible"
     else:
         result["auto_selected"] = bool(explicit is False and status == "PASS" and result.get("decision") == "BUY")
     result["decision_label"] = "BLOCKED" if result.get("blocked") else result.get("decision")

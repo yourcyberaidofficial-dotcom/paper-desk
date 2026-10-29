@@ -63,12 +63,19 @@ def catalog():
     return list(PROFILES.values())
 
 
+ALIASES = {"orion_balance": "orion_precision"}
+
+
+def canonical_style(key):
+    return ALIASES.get(key, key)
+
+
 def get_profile(key):
-    return PROFILES.get(key)
+    return PROFILES.get(canonical_style(key))
 
 
 def risk_cap(key):
-    profile = PROFILES.get(key)
+    profile = get_profile(key)
     if not profile:
         return None
     return profile["risk_per_trade_percent"]
