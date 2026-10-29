@@ -69,7 +69,10 @@ class Worker:
         self.shadow = None
         self.shadow_loader = None
         self.last_beat_ms = 0
+        self.last_monitor_ms = 0
         self.last_result = None
+        self.last_monitor = None
+        self.last_monitor_error = None
 
     def prefs(self) -> dict:
         if not self.prefs_path.exists():
@@ -197,6 +200,72 @@ class Worker:
         self.last_result = out[-1] if out else self.last_result
         return out
 
+    def monitor(self, now_ms: int | None = None, windows=None) -> dict:
+        """Same decision as the terminal. A WAIT is not an inbox card. No Telegram."""
+        now_ms = int(now_ms if now_ms is not None else time.time() * 1000)
+        self.last_monitor_ms = now_ms
+        try:
+            summary = self._monitor(now_ms, windows)
+        except Exception as exc:
+            self.last_monitor_error = type(exc).__name__
+            summary = {"evaluated_at_ms": now_ms, "evaluations": [], "delivered": 0, "error": type(exc).__name__}
+        self.last_monitor = summary
+        return summary
+
+    def _monitor(self, now_ms, windows):
+        from ops.inbox import deliver_evaluation
+        from ops.terminal_signal import decide
+        from ops.users import list_users
+
+        if windows is None:
+            windows = self._monitor_windows(now_ms)
+        users = list_users()
+        evaluations = []
+        delivered = 0
+        for window in windows:
+            symbol = window.get("symbol")
+            interval = window.get("interval")
+            bars = window.get("bars") or []
+            if not bars:
+                evaluations.append({"symbol": symbol, "interval": interval, "decision": "DATA BLOCK", "reason": window.get("reason") or "missing_bars"})
+                continue
+            result = decide(symbol, interval, "auto", bars, now_ms, None, live_quote=window.get("live_quote"))
+            evaluations.append({
+                "symbol": result.get("symbol"),
+                "interval": result.get("interval"),
+                "decision": result.get("decision_label") or result.get("decision"),
+                "strategy": result.get("strategy"),
+                "bar_close_ms": result.get("bar_close_ms"),
+                "id": result.get("id") if result.get("id") else None,
+            })
+            if result.get("decision") not in {"BUY", "SELL"} or result.get("entry") is None or result.get("stop") is None or result.get("target") is None:
+                continue
+            for user in users:
+                outcome = deliver_evaluation(user.get("id"), user, result)
+                if outcome.get("stored"):
+                    delivered += 1
+        return {"evaluated_at_ms": now_ms, "evaluations": evaluations, "delivered": delivered, "error": None}
+
+    def _monitor_windows(self, now_ms):
+        from ops.terminal_route import load_crypto_bars, load_gold_ohlc
+
+        windows = []
+        for symbol, interval in (("BTCUSDT", "15m"), ("BTCUSDT", "4h"), ("ETHUSDT", "15m"), ("ETHUSDT", "4h")):
+            loaded = load_crypto_bars(symbol, interval, now_ms)
+            if isinstance(loaded, tuple):
+                windows.append({"symbol": symbol, "interval": interval, "bars": [], "reason": loaded[1]})
+            else:
+                windows.append({"symbol": symbol, "interval": interval, "bars": loaded or []})
+        quote = None
+        try:
+            from ops.gold_live import swissquote_xau
+            quote = swissquote_xau(now_ms)
+        except Exception:
+            quote = None
+        gold = load_gold_ohlc("1h", now_ms)
+        windows.append({"symbol": "XAUUSD", "interval": "1h", "bars": gold or [], "live_quote": quote, "reason": None if gold else "missing_bars"})
+        return windows
+
     def _shadow_book(self):
         if not shadow_enabled():
             return None
@@ -219,5 +288,8 @@ class Worker:
         return {
             "last_beat_ms": self.last_beat_ms,
             "last_result": self.last_result,
+            "last_monitor_ms": getattr(self, "last_monitor_ms", 0),
+            "last_monitor": self.last_monitor,
+            "last_monitor_error": self.last_monitor_error,
             "prefs": self.prefs(),
         }
