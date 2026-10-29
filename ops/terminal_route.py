@@ -78,4 +78,7 @@ def handle_signal(user_id, body, now_ms=None, bars_loader=None, quote_loader=Non
         symbol, interval, strategy, bars, now_ms, user,
         open_idea(user_id, symbol, chosen), live_quote=live_quote,
     )
-    return 200, stamp(user_id, attach_request(body, result))
+    stamped = stamp(user_id, attach_request(body, result))
+    from ops.inbox import deliver_evaluation
+    stamped["inbox_delivery"] = deliver_evaluation(user_id, user, stamped)
+    return 200, stamped
