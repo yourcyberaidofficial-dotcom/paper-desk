@@ -77,6 +77,29 @@ def test_scanner_ohlc_not_bid_ask_is_not_a_candidate():
     assert "London rule was not calculated" in row["message"]
 
 
+def test_scanner_shows_the_same_experimental_plan_as_the_terminal():
+    from ops.terminal_signal import decide
+    window = _window("BTCUSDT", "4h", fresh=True, count=50)
+    bars = window["bars"]
+    for index, bar in enumerate(bars):
+        if index < 38:
+            bar["high"], bar["low"], bar["close"], bar["open"] = 110, 90, 100, 100
+        else:
+            bar["high"], bar["low"], bar["close"], bar["open"] = 100.4, 99.8, 100, 100
+    bars[-1]["high"], bars[-1]["low"], bars[-1]["close"], bars[-1]["open"] = 107, 100, 106, 100
+    now = bars[-1]["close_time_ms"] + 1000
+    row = present_window(window, now)
+    terminal = decide("BTCUSDT", "4h", "auto", bars, now, None)
+    assert row["scanner_state"] == "EXPERIMENTAL"
+    assert row["decision"] == terminal["decision"] == "BUY"
+    assert row["entry"] == terminal["entry"]
+    assert row["stop"] == terminal["stop"]
+    assert row["target"] == terminal["target"]
+    assert row["approved"] is False
+    assert row["eligible_for_alert"] is False
+    assert "EXPERIMENTAL — NOT VALIDATED" not in json.dumps(row)
+
+
 def test_telegram_update_links_once_and_a_public_post_does_not(tmp_path, monkeypatch):
     monkeypatch.setenv("AUREON_DATA", str(tmp_path))
     monkeypatch.delenv("TELEGRAM_WEBHOOK_SECRET", raising=False)
