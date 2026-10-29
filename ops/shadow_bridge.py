@@ -34,15 +34,16 @@ def promotion_ids(path=None):
 
 def load_live_windows(now_ms):
     """Completed public bars only. A failure is an empty window, not a price."""
+    from concurrent.futures import ThreadPoolExecutor
     from ops.feeds import binance_bars, xaus_chart
 
     now_ms = int(now_ms)
-    windows = []
     crypto_start = now_ms - 50 * 60 * 60 * 1000
-    for symbol in ("BTCUSDT", "ETHUSDT"):
-        windows.append(_crypto_window(symbol, crypto_start, now_ms, binance_bars))
-    windows.append(_gold_window(now_ms, xaus_chart))
-    return windows
+    with ThreadPoolExecutor(max_workers=3) as pool:
+        btc = pool.submit(_crypto_window, "BTCUSDT", crypto_start, now_ms, binance_bars)
+        eth = pool.submit(_crypto_window, "ETHUSDT", crypto_start, now_ms, binance_bars)
+        gold = pool.submit(_gold_window, now_ms, xaus_chart)
+        return [btc.result(), eth.result(), gold.result()]
 
 
 def _crypto_window(symbol, start_ms, now_ms, fetch):

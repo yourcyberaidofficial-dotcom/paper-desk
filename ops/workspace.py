@@ -25,11 +25,12 @@ def _instruction(event, user):
         why_not = ""
     return {
         "id": event.get("id"),
-        "what": f"{event.get('symbol')} {event.get('interval') or ''} {event.get('direction') or 'WAIT'}".strip(),
+        "what": f"Saved observation · {event.get('symbol')} {event.get('interval') or ''} {event.get('direction') or 'WAIT'}".strip(),
+        "live": False,
         "strategy": spec.get("name") or event.get("strategy") or "No single strategy",
         "why": event.get("message") or "The rule did not produce a setup.",
-        "qualifies": approved and gate.get("trade_alert") is True,
-        "why_not": why_not,
+        "qualifies": False,
+        "why_not": "This is a saved research observation. It is not the current scan. " + (why_not or "It is not a trade instruction."),
         "account": size,
         "currency": profile.get("currency"),
         "invalidation": spec.get("invalidation") or "The setup is invalid when the recorded condition no longer holds.",

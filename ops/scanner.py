@@ -71,7 +71,14 @@ def present_window(window, now_ms):
         if quote != "dukascopy_xauusd_bid_ask" or not completed_bid_ask_bar(last):
             shown = quote if quote != "dukascopy_xauusd_bid_ask" else "missing_bid_ask"
             if quote == "ohlc_not_bid_ask" and last and last.get("complete") and last.get("fresh") and len(bars) >= 60:
-                shared = _shared_reading(symbol, interval, bars, now_ms, price)
+                live_quote = None
+                if last.get("source_type") != "fixture":
+                    try:
+                        from ops.gold_live import swissquote_xau
+                        live_quote = swissquote_xau(now_ms)
+                    except Exception:
+                        live_quote = None
+                shared = _shared_reading(symbol, interval, bars, now_ms, price, live_quote)
                 if shared is not None:
                     shared["quote"] = quote
                     shared["message"] = "Spot chart OHLC, not a bid/ask hour. The London rule was not calculated. " + (shared.get("message") or "")
@@ -153,11 +160,11 @@ def present_window(window, now_ms):
     return base
 
 
-def _shared_reading(symbol, interval, bars, now_ms, price):
+def _shared_reading(symbol, interval, bars, now_ms, price, live_quote=None):
     """The same decision the terminal uses. It does not write an inbox event."""
     try:
         from ops.terminal_signal import decide
-        evaluation = decide(symbol, interval, "auto", bars, now_ms, None)
+        evaluation = decide(symbol, interval, "auto", bars, now_ms, None, live_quote=live_quote)
     except Exception:
         return None
     card = {

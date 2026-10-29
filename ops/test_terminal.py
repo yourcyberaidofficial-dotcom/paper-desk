@@ -169,6 +169,11 @@ def test_gold_spot_ohlc_is_read_and_london_is_not(now=None):
     assert diverged["quote_alignment"] == "diverged"
     assert "not treated as one price" in diverged["reason"]
     assert diverged["reference_price"] != 1900
+    if diverged.get("technical_side") in {"BUY", "SELL"}:
+        assert diverged["decision"] == "WAIT"
+        assert diverged["decision_label"] == "QUOTE DIVERGENCE"
+        assert diverged["entry"] is not None
+        assert diverged["size"]["order"] is False
 
 
 def test_an_uptrend_without_a_trigger_is_a_watch_not_a_buy():
@@ -214,6 +219,33 @@ def test_gold_chart_and_quote_are_not_forced_into_one_price():
     result = decide("XAUUSD", "1h", "auto", [bar], now, _user())
     assert result["decision"] == "WAIT"
     assert result["blocked"] == "quote_not_bid_ask"
+
+
+def test_a_divergent_gold_quote_is_not_an_inbox_trade():
+    bars = []
+    for index in range(80):
+        close = 200 - index * 0.15
+        bar = _flat(index, close=close, high=close + 0.3, low=close - 0.3, interval="1h")
+        bar["symbol"] = "XAUUSD"
+        bar["quote_semantics"] = "ohlc_not_bid_ask"
+        bars.append(bar)
+    last = bars[-1]["close"]
+    bars[-1] = _flat(79, close=last - 0.05, high=last + 2, low=last - 0.4, interval="1h")
+    bars[-1]["symbol"] = "XAUUSD"
+    bars[-1]["quote_semantics"] = "ohlc_not_bid_ask"
+    now = bars[-1]["close_time_ms"] + 1000
+    quote = {"ok": True, "bid": 100.0, "ask": 100.4, "spread": 0.4, "timestamp_ms": now, "platform": "fixture", "spread_profile": "premium", "provider": "fixture"}
+    result = decide("XAUUSD", "1h", "auto", bars, now, _user(), live_quote=quote)
+    assert result["quote_alignment"] == "diverged"
+    assert result["decision_label"] == "QUOTE DIVERGENCE"
+    assert result["decision"] == "WAIT"
+    assert result["technical_side"] == "SELL"
+    assert result["stop"] > result["entry"] > result["target"]
+    assert result["approved"] is False
+    from ops.inbox import deliver_evaluation
+    delivery = deliver_evaluation("nobody", {"inbox_delivery": {"experimental": True, "sell": True, "wait_notices": False}}, result)
+    assert delivery["stored"] is False
+    assert delivery["reason"] == "wait_suppressed"
 
 
 def test_history_is_private_and_the_same_bar_is_not_duplicated(tmp_path, monkeypatch):

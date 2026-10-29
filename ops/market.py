@@ -8,7 +8,7 @@ import urllib.request
 STALE_MS = 15 * 60 * 1000
 
 
-def fetch_last_closed(symbol: str, interval: str = "15m", now_ms: int | None = None) -> dict:
+def fetch_last_closed(symbol: str, interval: str = "15m", now_ms: int | None = None, timeout: int = 6) -> dict:
     now_ms = int(now_ms if now_ms is not None else time.time() * 1000)
     query = urllib.parse.urlencode({"symbol": symbol, "interval": interval, "limit": 2})
     request = urllib.request.Request(
@@ -16,7 +16,7 @@ def fetch_last_closed(symbol: str, interval: str = "15m", now_ms: int | None = N
         headers={"User-Agent": "paper-desk"},
     )
     try:
-        with urllib.request.urlopen(request, timeout=15) as response:
+        with urllib.request.urlopen(request, timeout=timeout) as response:
             rows = json.loads(response.read().decode())
     except Exception as exc:
         return {"symbol": symbol, "fresh": False, "error": type(exc).__name__, "checked_at_ms": now_ms}
@@ -71,8 +71,12 @@ def fetch_klines(symbol: str, interval: str = "15m", limit: int = 100, now_ms: i
 
 
 def snapshot(now_ms: int | None = None) -> dict:
-    return {
-        "BTCUSDT": fetch_last_closed("BTCUSDT", now_ms=now_ms),
-        "ETHUSDT": fetch_last_closed("ETHUSDT", now_ms=now_ms),
-        "gold": {"symbol": "XAU", "status": "observation_only", "signal": False},
-    }
+    from concurrent.futures import ThreadPoolExecutor
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        btc = pool.submit(fetch_last_closed, "BTCUSDT", "15m", now_ms, 6)
+        eth = pool.submit(fetch_last_closed, "ETHUSDT", "15m", now_ms, 6)
+        return {
+            "BTCUSDT": btc.result(),
+            "ETHUSDT": eth.result(),
+            "gold": {"symbol": "XAU", "status": "observation_only", "signal": False},
+        }
