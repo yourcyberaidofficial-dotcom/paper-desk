@@ -70,16 +70,26 @@ def _crypto_window(symbol, start_ms, now_ms, fetch):
 
 
 def _gold_window(now_ms, fetch):
+    chart = None
     try:
-        chart = fetch("1h", now_ms=now_ms, timeout=8, attempts=1)
-    except Exception as exc:
-        return _empty("XAUUSD", "1h", "xaus.com", "ohlc_not_bid_ask", type(exc).__name__)
+        from ops.feeds import xaus_spot_bars
+        spot = xaus_spot_bars("1h", now_ms=now_ms, timeout=8, attempts=1)
+        if len(spot.get("bars") or []) >= 24:
+            chart = spot
+    except Exception:
+        chart = None
+    if chart is None:
+        try:
+            chart = fetch("1h", now_ms=now_ms, timeout=8, attempts=1)
+        except Exception as exc:
+            return _empty("XAUUSD", "1h", "xaus.com", "ohlc_not_bid_ask", type(exc).__name__)
     bars = chart.get("bars") or []
+    quote = chart.get("quote_semantics") or (bars[-1].get("quote_semantics") if bars else "ohlc_not_bid_ask")
     try:
         higher = aggregate(bars, "1h", "4h") if bars else []
-    except ValueError as exc:
-        return _empty("XAUUSD", "1h", "xaus.com", "ohlc_not_bid_ask", type(exc).__name__)
-    ok = bool(chart.get("ok") and bars and higher)
+    except ValueError:
+        higher = []
+    ok = bool(chart.get("ok") and bars)
     return {
         "symbol": "XAUUSD",
         "interval": "1h",
@@ -87,8 +97,8 @@ def _gold_window(now_ms, fetch):
         "reason": None if ok else (chart.get("reason") or "GOLD_FEED_UNAVAILABLE"),
         "bars": bars,
         "higher": higher,
-        "provider": "xaus.com",
-        "quote_semantics": "ohlc_not_bid_ask",
+        "provider": chart.get("provider") or "xaus.com",
+        "quote_semantics": quote,
         "source_kind": "prospective",
     }
 

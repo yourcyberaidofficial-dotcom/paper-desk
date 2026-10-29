@@ -159,7 +159,7 @@ def test_gold_spot_ohlc_is_read_and_london_is_not(now=None):
     assert result["approved"] is False
     assert result["eligible_for_alert"] is False
     assert "London rule was not calculated" in result["reason"]
-    assert "spot chart" in result["reason"]
+    assert "Yahoo chart proxy" in result["reason"]
     assert "2032" in result["reason"]
     named = decide("XAUUSD", "1h", "london-reclaim-1h-20261028", bars, now, _user(), live_quote=quote)
     assert named["blocked"] == "quote_not_bid_ask"
@@ -209,6 +209,37 @@ def test_range_expansion_is_a_separate_long_plan():
     assert result["stop"] < result["entry"] < result["target"]
     assert result["approved"] is False
     assert result["order"] is False
+
+
+def test_an_aligned_spot_sample_short_keeps_its_plan():
+    bars = []
+    price = 4100.0
+    for index in range(30):
+        price -= 1.2
+        bar = _flat(index, close=price, high=price + 2, low=price - 2, interval="1h")
+        bar["symbol"] = "XAUUSD"
+        bar["quote_semantics"] = "spot_sample_not_bid_ask"
+        bar["source_type"] = "spot_sample"
+        bars.append(bar)
+    last = bars[-1]["close"]
+    bars[-1] = _flat(29, close=last - 3, high=last + 4, low=last - 4, interval="1h")
+    bars[-1]["symbol"] = "XAUUSD"
+    bars[-1]["quote_semantics"] = "spot_sample_not_bid_ask"
+    bars[-1]["source_type"] = "spot_sample"
+    now = bars[-1]["close_time_ms"] + 1000
+    close = bars[-1]["close"]
+    quote = {"ok": True, "bid": close - 0.3, "ask": close + 0.3, "spread": 0.6, "timestamp_ms": now, "platform": "fixture", "spread_profile": "premium", "provider": "fixture"}
+    result = decide("XAUUSD", "1h", "auto", bars, now, _user(), live_quote=quote)
+    assert result["strategy"] == "gold-spot-sample"
+    assert result["quote_alignment"] == "aligned"
+    assert result["decision"] == "SELL"
+    assert result["decision_label"] == "SELL · Short idea"
+    assert result["stop"] > result["entry"] > result["target"]
+    assert result["order"] is False
+    far = dict(quote, bid=close - 80, ask=close - 79)
+    held = decide("XAUUSD", "1h", "auto", bars, now, _user(), live_quote=far)
+    assert held["decision_label"] == "QUOTE DIVERGENCE"
+    assert held["decision"] == "WAIT"
 
 
 def test_gold_chart_and_quote_are_not_forced_into_one_price():
