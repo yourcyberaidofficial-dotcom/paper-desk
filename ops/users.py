@@ -58,6 +58,36 @@ def get(user_id: str) -> dict | None:
     return user
 
 
+def save_inbox_delivery(user_id: str, incoming: dict) -> dict | None:
+    """Store inbox filters only. Existing plan, profile, and history stay as they are."""
+    path = _path(user_id)
+    if not path.exists():
+        return None
+    user = json.loads(path.read_text())
+    current = user.get("inbox_delivery") if isinstance(user.get("inbox_delivery"), dict) else {}
+    incoming = incoming or {}
+    if "markets" in incoming:
+        markets = [item for item in incoming.get("markets") or [] if item in {"BTCUSDT", "ETHUSDT", "XAUUSD"}]
+    else:
+        markets = [item for item in current.get("markets", ["BTCUSDT", "ETHUSDT", "XAUUSD"]) if item in {"BTCUSDT", "ETHUSDT", "XAUUSD"}]
+    if "timeframes" in incoming:
+        timeframes = [item for item in incoming.get("timeframes") or [] if item in {"15m", "1h", "4h", "1d"}]
+    else:
+        timeframes = [item for item in current.get("timeframes", ["15m", "1h", "4h", "1d"]) if item in {"15m", "1h", "4h", "1d"}]
+    saved = {
+        "enabled": bool(incoming["enabled"]) if "enabled" in incoming else bool(current.get("enabled", True)),
+        "markets": markets,
+        "timeframes": timeframes,
+        "buy": bool(incoming["buy"]) if "buy" in incoming else bool(current.get("buy", True)),
+        "sell": bool(incoming["sell"]) if "sell" in incoming else bool(current.get("sell", True)),
+        "experimental": bool(incoming["experimental"]) if "experimental" in incoming else bool(current.get("experimental", False)),
+        "wait_notices": bool(incoming["wait_notices"]) if "wait_notices" in incoming else bool(current.get("wait_notices", False)),
+    }
+    user["inbox_delivery"] = saved
+    path.write_text(json.dumps(user))
+    return get(user_id)
+
+
 def link_telegram(user_id: str, chat_id: str) -> dict | None:
     """A typed chat id is not verification. The bot update path is the only one."""
     return None

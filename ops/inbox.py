@@ -15,7 +15,11 @@ def _safe(user_id):
 
 
 def _path(user_id):
-    return USER_ROOT / "inbox" / f"{_safe(user_id)}.jsonl"
+    from ops.users import ROOT
+    safe = _safe(user_id)
+    if safe is None:
+        return None
+    return ROOT / "inbox" / f"{safe}.jsonl"
 
 
 def _read(user_id):
@@ -51,9 +55,14 @@ def offer(user_id, notice, registry=None):
     elif kind == "research":
         actionable = False
         label = "Informational. Not an approved trade."
+    elif kind == "experimental":
+        if notice.get("approved") or notice.get("state") == "APPROVED_SIGNAL":
+            return {"ok": False, "reason": "not_approved", "stored": False}
+        actionable = False
+        label = "Experimental and unapproved. Not a validated or profitable strategy."
     elif kind == "status":
         actionable = False
-        label = "Scanner status"
+        label = "WAIT notice. Not a trade." if notice.get("decision") == "WAIT" else "Scanner status"
     else:
         return {"ok": False, "reason": "unknown_kind", "stored": False}
     event_id = str(notice.get("id") or "")
@@ -75,6 +84,17 @@ def offer(user_id, notice, registry=None):
         "message": notice.get("message"),
         "created_ms": int(notice.get("created_ms") or time.time() * 1000),
         "read": False,
+        "decision": notice.get("decision"),
+        "entry": notice.get("entry"),
+        "stop": notice.get("stop"),
+        "target": notice.get("target"),
+        "invalidation": notice.get("invalidation"),
+        "size": notice.get("size"),
+        "reference_price": notice.get("reference_price"),
+        "fresh": notice.get("fresh"),
+        "validation_status": notice.get("validation_status"),
+        "approved": bool(notice.get("approved")),
+        "bar_close_ms": notice.get("bar_close_ms"),
     })
     _write(user_id, rows)
     return {"ok": True, "duplicate": False, "stored": True}
@@ -144,3 +164,103 @@ def record_scan(user_id, body, plan, now_ms):
             "created_ms": now_ms,
         }))
     return stored
+
+
+def inbox_settings(user):
+    """Missing keys stay at the default. Experimental alerts and WAIT notices start off."""
+    saved = (user or {}).get("inbox_delivery") if isinstance((user or {}).get("inbox_delivery"), dict) else {}
+    markets = saved.get("markets") if "markets" in saved else ["BTCUSDT", "ETHUSDT", "XAUUSD"]
+    timeframes = saved.get("timeframes") if "timeframes" in saved else ["15m", "1h", "4h", "1d"]
+    return {
+        "enabled": bool(saved["enabled"]) if "enabled" in saved else True,
+        "markets": [item for item in markets if item in {"BTCUSDT", "ETHUSDT", "XAUUSD"}],
+        "timeframes": [item for item in timeframes if item in {"15m", "1h", "4h", "1d"}],
+        "buy": bool(saved["buy"]) if "buy" in saved else True,
+        "sell": bool(saved["sell"]) if "sell" in saved else True,
+        "experimental": bool(saved["experimental"]) if "experimental" in saved else False,
+        "wait_notices": bool(saved["wait_notices"]) if "wait_notices" in saved else False,
+    }
+
+
+def deliver_evaluation(user_id, user, result):
+    """History is separate. This only stores an inbox event the saved filters allow."""
+    result = result or {}
+    settings = inbox_settings(user)
+    if result.get("blocked") or result.get("rejected") == "market_mismatch":
+        return {"stored": False, "duplicate": False, "reason": "blocked"}
+    if not settings["enabled"]:
+        return {"stored": False, "duplicate": False, "reason": "disabled"}
+    symbol = result.get("symbol")
+    interval = str(result.get("interval") or "")
+    if symbol not in settings["markets"]:
+        return {"stored": False, "duplicate": False, "reason": "market"}
+    if interval not in settings["timeframes"]:
+        return {"stored": False, "duplicate": False, "reason": "timeframe"}
+    decision = result.get("decision")
+    match = result.get("experimental_match") if isinstance(result.get("experimental_match"), dict) else {}
+    official = (
+        decision in {"BUY", "SELL"}
+        and result.get("approved") is True
+        and result.get("validation_status") == "PASS"
+        and result.get("eligible_for_alert") is True
+    )
+    if official:
+        side = decision
+        payload = result
+        kind = "official"
+    elif decision in {"BUY", "SELL"}:
+        side = decision
+        payload = result
+        kind = "experimental"
+    elif match.get("decision") in {"BUY", "SELL"}:
+        side = match["decision"]
+        payload = match
+        kind = "experimental"
+    elif decision == "WAIT":
+        if not settings["wait_notices"]:
+            return {"stored": False, "duplicate": False, "reason": "wait_suppressed"}
+        side = "WAIT"
+        payload = result
+        kind = "status"
+    else:
+        return {"stored": False, "duplicate": False, "reason": "not_actionable"}
+    if side == "BUY" and not settings["buy"]:
+        return {"stored": False, "duplicate": False, "reason": "buy_off"}
+    if side == "SELL" and not settings["sell"]:
+        return {"stored": False, "duplicate": False, "reason": "sell_off"}
+    if kind == "experimental" and not settings["experimental"]:
+        return {"stored": False, "duplicate": False, "reason": "experimental_off"}
+    if kind != "status" and (result.get("fresh") is False or result.get("reference_price") is None):
+        return {"stored": False, "duplicate": False, "reason": "incomplete"}
+    if kind != "status" and side == "BUY" and (payload.get("entry") is None or payload.get("stop") is None):
+        return {"stored": False, "duplicate": False, "reason": "incomplete"}
+    from ops.delivery import load_promotions
+    saved = offer(user_id, {
+        "id": f"{kind}:{symbol}:{interval}:{result.get('strategy')}:{result.get('bar_close_ms')}:{side}",
+        "kind": kind,
+        "symbol": symbol,
+        "interval": interval,
+        "strategy": result.get("strategy"),
+        "version": result.get("strategy"),
+        "state": "APPROVED_SIGNAL" if kind == "official" else side,
+        "decision": side,
+        "message": payload.get("reason") or result.get("reason"),
+        "entry": payload.get("entry"),
+        "stop": payload.get("stop"),
+        "target": payload.get("target"),
+        "invalidation": result.get("invalidation"),
+        "size": payload.get("size"),
+        "reference_price": result.get("reference_price"),
+        "fresh": result.get("fresh"),
+        "validation_status": result.get("validation_status"),
+        "approved": False if kind != "official" else True,
+        "bar_close_ms": result.get("bar_close_ms"),
+        "created_ms": result.get("requested_ms"),
+    }, registry=load_promotions() if kind == "official" else None)
+    return {
+        "stored": bool(saved.get("stored")),
+        "duplicate": bool(saved.get("duplicate")),
+        "reason": saved.get("reason") or ("stored" if saved.get("stored") else "duplicate" if saved.get("duplicate") else "refused"),
+        "id": f"{kind}:{symbol}:{interval}:{result.get('strategy')}:{result.get('bar_close_ms')}:{side}",
+        "kind": kind,
+    }

@@ -1089,6 +1089,29 @@ def notifications_read():
     return jsonify(mark_read(user_id, event_id or None))
 
 
+@app.get("/api/inbox/settings")
+def inbox_settings_get():
+    user_id = session.get("user_id")
+    if not user_id or not _user_ok():
+        return jsonify({"error": "unauthorized"}), 401
+    from ops.inbox import inbox_settings
+    from ops.users import get
+    return jsonify({"settings": inbox_settings(get(user_id) or {})})
+
+
+@app.post("/api/inbox/settings")
+def inbox_settings_save():
+    user_id = session.get("user_id")
+    if not user_id or not _user_ok():
+        return jsonify({"error": "unauthorized"}), 401
+    from ops.inbox import inbox_settings
+    from ops.users import save_inbox_delivery
+    saved = save_inbox_delivery(user_id, request.get_json(silent=True) or {})
+    if not saved:
+        return jsonify({"error": "not_found"}), 404
+    return jsonify({"ok": True, "settings": inbox_settings(saved)})
+
+
 @app.post("/api/terminal/signal")
 def terminal_signal():
     user_id = session.get("user_id")
@@ -1670,7 +1693,7 @@ async function inboxPage(){
   if (response.status === 401) { view.innerHTML = `<article class="card"><h2>Sign in required</h2><p><a href="/login">Sign in</a> to see your inbox.</p></article>`; return; }
   const body = await response.json();
   const rows = body.items || [];
-  const list = rows.map(item => `<article class="card"><h2>${item.symbol || "Desk"} · ${item.label}</h2><p>${item.message || ""}</p><p class="muted">${item.kind} · ${item.strategy || "no strategy"} ${item.version || ""} · ${item.read ? "read" : "unread"} · ${item.created_ms ? new Date(item.created_ms).toISOString() : ""}</p>${item.actionable ? "" : "<p>Not an approved trade.</p>"}<button type="button" data-id="${item.id}">Mark read</button></article>`).join("");
+  const list = rows.map(item => `<article class="card" data-kind="${item.kind||""}" data-symbol="${item.symbol||""}"><h2>${item.decision || item.state || "Notice"} · ${item.symbol || "Desk"} ${item.interval || ""}</h2><p>${item.label || ""}</p><p>${item.message || ""}</p><div class="row"><span>Entry ${item.entry==null?"—":item.entry}</span><span>Stop ${item.stop==null?"—":item.stop}</span></div><div class="row"><span>Target ${item.target==null?"—":item.target}</span><span>${item.reference_price==null?"no price":item.reference_price}</span></div><p class="muted">${item.strategy || "no strategy"} ${item.version || ""}. Validation ${item.validation_status || "n/a"}. ${item.fresh?"Fresh completed candle.":"Not marked fresh."} ${item.approved?"Approved.":"Not approved."}</p><p class="muted">${item.invalidation || ""} ${item.read ? "read" : "unread"} · ${item.created_ms ? new Date(item.created_ms).toISOString() : ""}</p>${item.actionable ? "" : "<p>Not an approved trade.</p>"}<button type="button" data-id="${item.id}">Mark read</button></article>`).join("");
   view.innerHTML = `<p role="status">${body.unread || 0} unread.</p>${list || "<article class='card'><h2>No notifications</h2><p>A quiet scan is recorded once a day. A research note appears only if you opted in. Nothing here is a trade alert unless a strategy has been approved. None has.</p></article>"}<button id="readall" type="button">Mark all read</button>`;
   const refresh = async (id) => { await fetch("/api/notifications/read", {method:"POST", credentials:"same-origin", headers:{"Content-Type":"application/json"}, body: JSON.stringify(id ? {id} : {})}); inboxPage(); };
   document.getElementById("readall").onclick = () => refresh(null);
@@ -1743,7 +1766,27 @@ async function settings(){
   const profile = me.profile || {};
   const styles = (catalog.profiles||[]).map(p => `<label><input type="radio" name="style" value="${p.key}" ${profile.signal_style===p.key?"checked":""}> ${p.name} — ${p.risk_mode}. ${p.confirmation}</label>`).join("");
   const currencies = (catalog.currencies||[]).map(c => `<option value="${c}" ${profile.currency===c?"selected":""}>${c}</option>`).join("");
-  view.innerHTML = `<article class="card"><h2>${path==="/onboarding"?"Choose a signal style":"Signal style"}</h2><p class="muted">${catalog.note||""}</p><div class="styles">${styles}</div></article><article class="card"><h2>Base currency and capital</h2><div class="field"><span>Currency</span><select id="currency"><option value="">Not set</option>${currencies}</select></div><div class="field"><span>Paper capital</span><input id="capital" type="number" min="0" step="any" value="${profile.capital??""}"></div><p class="muted">Saving a currency does not convert the stored amount. Market quotes stay in USDT or USD/oz.</p></article><article class="card"><h2>Markets</h2><div class="checks"><label><input type="checkbox" id="btc" ${has("BTCUSDT")}> BTCUSDT · 15m</label><label><input type="checkbox" id="eth" ${has("ETHUSDT")}> ETHUSDT · 15m</label><label><input type="checkbox" id="gold" ${has("XAUUSD")}> XAUUSD · 1h research</label></div></article><article class="card"><h2>Notifications and risk</h2><div class="checks"><label><input type="checkbox" id="exp" ${profile.experimental_alerts?"checked":""}> Experimental alerts</label><label><input type="checkbox" id="digest" ${profile.daily_report!==false?"checked":""}> Daily digest</label></div><div class="field"><span>Max risk per trade %</span><input id="risk" type="number" step="0.1" min="0" value="${profile.max_risk_pct??""}"></div><p class="muted">Risk cannot be set above the active style cap. These caps do not guarantee protection from losses. Production is WAIT_DEFAULT, so no trade alert is sent until a strategy is promoted. Turning experimental alerts on does not bypass that. Telegram is ${me.telegram_verified?"verified":"not verified"}.</p><button id="tglink" type="button">Create a one-time Telegram link</button><p id="tglinkout" class="muted"></p></article><p><button id="saveall" type="button">Save</button> <button id="skip" type="button">Continue without optional alerts</button> <button id="out" type="button">Sign out</button></p><p id="savedp" class="muted"></p>`;
+  view.innerHTML = `<article class="card"><h2>${path==="/onboarding"?"Choose a signal style":"Signal style"}</h2><p class="muted">${catalog.note||""}</p><div class="styles">${styles}</div></article><article class="card"><h2>Base currency and capital</h2><div class="field"><span>Currency</span><select id="currency"><option value="">Not set</option>${currencies}</select></div><div class="field"><span>Paper capital</span><input id="capital" type="number" min="0" step="any" value="${profile.capital??""}"></div><p class="muted">Saving a currency does not convert the stored amount. Market quotes stay in USDT or USD/oz.</p></article><article class="card"><h2>Markets</h2><div class="checks"><label><input type="checkbox" id="btc" ${has("BTCUSDT")}> BTCUSDT · 15m</label><label><input type="checkbox" id="eth" ${has("ETHUSDT")}> ETHUSDT · 15m</label><label><input type="checkbox" id="gold" ${has("XAUUSD")}> XAUUSD · 1h research</label></div></article><article class="card"><h2>Notifications and risk</h2><div class="checks"><label><input type="checkbox" id="exp" ${profile.experimental_alerts?"checked":""}> Experimental alerts</label><label><input type="checkbox" id="digest" ${profile.daily_report!==false?"checked":""}> Daily digest</label></div><div class="field"><span>Max risk per trade %</span><input id="risk" type="number" step="0.1" min="0" value="${profile.max_risk_pct??""}"></div><p class="muted">Risk cannot be set above the active style cap. These caps do not guarantee protection from losses. Production is WAIT_DEFAULT, so no trade alert is sent until a strategy is promoted. Turning experimental alerts on does not bypass that. In-app experimental matches stay labelled unapproved and never become an approved alert. Telegram is ${me.telegram_verified?"verified":"not verified"}.</p><button id="tglink" type="button">Create a one-time Telegram link</button><p id="tglinkout" class="muted"></p></article><article class="card" id="inbox-settings"><h2>In-app inbox</h2><p class="muted" id="inboxnote">Loading delivery settings.</p></article><p><button id="saveall" type="button">Save</button> <button id="skip" type="button">Continue without optional alerts</button> <button id="out" type="button">Sign out</button></p><p id="savedp" class="muted"></p>`;
+  const inbox = await fetch("/api/inbox/settings", {credentials:"same-origin"}).then(r => r.ok ? r.json() : null);
+  const box = (inbox && inbox.settings) || {};
+  const on = (name) => box[name] ? "checked" : "";
+  const tfOn = (tf) => (box.timeframes || ["15m","1h","4h","1d"]).includes(tf) ? "checked" : "";
+  const mOn = (m) => (box.markets || ["BTCUSDT","ETHUSDT","XAUUSD"]).includes(m) ? "checked" : "";
+  document.getElementById("inbox-settings").innerHTML = `<h2>In-app inbox</h2><p class="muted">These settings control this account's inbox only. They do not approve a strategy, send Telegram, or place an order. Experimental matches stay labelled unapproved.</p><div class="checks"><label><input type="checkbox" id="in-enabled" ${on("enabled")}> Deliver in-app alerts</label><label><input type="checkbox" id="in-btc" ${mOn("BTCUSDT")}> BTCUSDT</label><label><input type="checkbox" id="in-eth" ${mOn("ETHUSDT")}> ETHUSDT</label><label><input type="checkbox" id="in-gold" ${mOn("XAUUSD")}> XAUUSD</label><label><input type="checkbox" id="in-15m" ${tfOn("15m")}> 15m</label><label><input type="checkbox" id="in-1h" ${tfOn("1h")}> 1h</label><label><input type="checkbox" id="in-4h" ${tfOn("4h")}> 4h</label><label><input type="checkbox" id="in-1d" ${tfOn("1d")}> 1d</label><label><input type="checkbox" id="in-buy" ${on("buy")}> BUY alerts</label><label><input type="checkbox" id="in-sell" ${on("sell")}> SELL alerts</label><label><input type="checkbox" id="in-exp" ${on("experimental")}> Experimental, unapproved matches</label><label><input type="checkbox" id="in-wait" ${on("wait_notices")}> WAIT notices</label></div><button id="saveinbox" type="button">Save inbox delivery</button><p id="inboxsaved" class="muted"></p>`;
+  document.getElementById("saveinbox").onclick = async () => {
+    const markets = [];
+    if (document.getElementById("in-btc").checked) markets.push("BTCUSDT");
+    if (document.getElementById("in-eth").checked) markets.push("ETHUSDT");
+    if (document.getElementById("in-gold").checked) markets.push("XAUUSD");
+    const timeframes = [];
+    if (document.getElementById("in-15m").checked) timeframes.push("15m");
+    if (document.getElementById("in-1h").checked) timeframes.push("1h");
+    if (document.getElementById("in-4h").checked) timeframes.push("4h");
+    if (document.getElementById("in-1d").checked) timeframes.push("1d");
+    const payload = {enabled: document.getElementById("in-enabled").checked, markets, timeframes, buy: document.getElementById("in-buy").checked, sell: document.getElementById("in-sell").checked, experimental: document.getElementById("in-exp").checked, wait_notices: document.getElementById("in-wait").checked};
+    const saved = await fetch("/api/inbox/settings", {method:"POST", credentials:"same-origin", headers:{"Content-Type":"application/json"}, body: JSON.stringify(payload)});
+    document.getElementById("inboxsaved").textContent = saved.ok ? (payload.experimental ? "Inbox delivery saved. Experimental matches are enabled and will be labelled unapproved." : "Inbox delivery saved. Experimental matches stay off.") : "Inbox settings could not be saved.";
+  };
   async function save(go){
     const style = (document.querySelector("input[name=style]:checked") || {}).value;
     const markets = [];
