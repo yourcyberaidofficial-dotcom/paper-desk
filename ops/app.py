@@ -126,6 +126,9 @@ def health():
             "last_beat_ms": beat or None,
             "heartbeat_age_ms": None if not beat else max(0, int(time.time() * 1000) - beat),
             "status": "unknown" if not beat else "beating",
+            "last_monitor_ms": getattr(worker, "last_monitor_ms", 0) or None,
+            "last_monitor": getattr(worker, "last_monitor", None),
+            "last_monitor_error": getattr(worker, "last_monitor_error", None),
         },
     })
 
@@ -976,6 +979,10 @@ def _loop():
             worker.evaluate()
         except Exception:
             pass
+        try:
+            worker.monitor()
+        except Exception:
+            pass
         time.sleep(60)
 
 
@@ -1775,7 +1782,9 @@ async function systemPage(){
   const row = (name, value) => `<div class="row"><span>${name}</span><span>${value}</span></div>`;
   const market = h.market_data && h.market_data.BTCUSDT ? h.market_data.BTCUSDT.status + " / " + (h.market_data.ETHUSDT ? h.market_data.ETHUSDT.status : "unknown") : (h.market_data || "unknown");
   const note = h.notification && h.notification.pipeline ? h.notification.pipeline : (typeof h.notification === "string" ? h.notification : "unknown");
-  view.innerHTML = `<article class="card"><h2>System</h2>${row("Process", h.process||"unknown")}${row("BTC / ETH", market)}${row("Notifications", note)}${row("Ledger", h.ledger||"unknown")}${row("Strategy", h.strategy_status||"unknown")}${row("Broker", String(h.broker))}${row("Build", h.build_commit||"unknown")}${row("Worker heartbeat", h.worker && h.worker.last_beat_ms ? new Date(h.worker.last_beat_ms).toISOString() : "unknown")}</article><p class="muted">A missing field stays unknown. Trade alerts stay blocked while no strategy is approved.</p>`;
+  const monitor = h.worker && h.worker.last_monitor;
+  const watched = monitor && monitor.evaluations ? monitor.evaluations.map(row => `${row.symbol} ${row.interval}: ${row.decision}`).join("; ") : "not run yet";
+  view.innerHTML = `<article class="card"><h2>System</h2>${row("Process", h.process||"unknown")}${row("BTC / ETH", market)}${row("Notifications", note)}${row("Ledger", h.ledger||"unknown")}${row("Strategy", h.strategy_status||"unknown")}${row("Broker", String(h.broker))}${row("Build", h.build_commit||"unknown")}${row("Worker heartbeat", h.worker && h.worker.last_beat_ms ? new Date(h.worker.last_beat_ms).toISOString() : "unknown")}${row("Background scan", h.worker && h.worker.last_monitor_ms ? new Date(h.worker.last_monitor_ms).toISOString() : "not run yet")}${row("Last scan", watched)}</article><p class="muted">A missing field stays unknown. The background scan uses the same decision as the terminal. It does not send Telegram, and a wait is not an inbox card.</p>`;
 }
 async function settings(){
   const me = await fetch("/api/me").then(r => r.ok ? r.json() : null);
