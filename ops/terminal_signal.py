@@ -129,6 +129,8 @@ def decide(symbol, interval, strategy, bars, now_ms, user, prior=None, live_quot
     result = apply_persona(result, user)
     if result.get("runtime_status") == "experimental" and result.get("decision") == "BUY" and not result.get("blocked"):
         result["decision_label"] = "BUY · Experimental"
+    elif result.get("runtime_status") == "experimental" and result.get("sell_meaning") == "short_idea" and not result.get("blocked"):
+        result["decision_label"] = "SELL · Short idea"
     elif result.get("runtime_status") == "watch" and not result.get("blocked"):
         result["decision_label"] = "WATCH"
     return result
@@ -190,11 +192,17 @@ def _evaluate(symbol, interval, strategy, bars, now_ms, user, prior=None, live_q
             reading["strategy"] = "gold-ohlc-reading"
             reading["version"] = "gold-ohlc-reading"
             note = "This is a spot chart candle, not a bid/ask hour. The London rule was not calculated."
-            if live_quote and live_quote.get("ok"):
+            if live_quote and live_quote.get("ok") and live_quote.get("bid") is not None and live_quote.get("ask") is not None:
+                mid = (float(live_quote["bid"]) + float(live_quote["ask"])) / 2
+                close = float(base.get("reference_price") or 0)
+                gap = abs(close - mid) / mid if mid else 0
+                reading["quote_alignment"] = "diverged" if gap > 0.0015 else "aligned"
                 note += (
                     f" A separate quote is bid {live_quote.get('bid')} ask {live_quote.get('ask')}."
                     " The candle close is not that executable price."
                 )
+                if reading["quote_alignment"] == "diverged":
+                    note += f" They differ by {gap * 100:.2f} percent, so they are not treated as one price."
             else:
                 note += " No fresh executable quote was attached, so any level is indicative."
             reading["reason"] = note + " " + (reading.get("reason") or "")
@@ -273,14 +281,16 @@ def _requested_reading(base, symbol, interval, bars, user):
         "watch_stop": reading.get("watch_stop"),
         "watch_target": reading.get("watch_target"),
         "runtime_status": reading.get("runtime_status"),
+        "sell_meaning": reading.get("sell_meaning"),
         "hold_bars": 6,
         "invalidation": "The stop on this reading. A failed research rule was not relabeled as approved.",
     }
     if reading["decision"] not in {"BUY", "SELL"}:
         result["size"] = {"ok": False, "reason": "no_setup", "order": False}
         return result
-    result["direction"] = "LONG" if reading["decision"] == "BUY" else "SHORT_READING"
-    result["sell_meaning"] = None if reading["decision"] == "BUY" else "reading_not_a_broker_short"
+    result["runtime_status"] = "experimental"
+    result["direction"] = "LONG" if reading["decision"] == "BUY" else "SHORT_IDEA"
+    result["sell_meaning"] = None if reading["decision"] == "BUY" else "short_idea"
     profile = (user or {}).get("profile") or {}
     cap = risk_cap(profile.get("signal_style"))
     plan = (user or {}).get("plan") or {}

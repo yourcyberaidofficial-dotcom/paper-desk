@@ -125,15 +125,71 @@ def _reclaim(bars):
     return {"side": side, "entry": last["close"], "stop": stop, "name": "Failed break", "checks": checks}
 
 
+def _range_break(bars):
+    """Close beyond the prior twenty bars. Separate from the failed Donchian research id."""
+    if len(bars) < 21:
+        return None
+    last = bars[-1]
+    prior = bars[-21:-1]
+    hi = max(bar["high"] for bar in prior)
+    lo = min(bar["low"] for bar in prior)
+    width = _atr(bars)
+    short = _ema([bar["close"] for bar in bars], 20)[-1]
+    if last["close"] > hi and last["close"] > short:
+        stop = min(last["low"], hi) - width * 0.05
+        if stop >= last["close"]:
+            stop = last["close"] - max(width * 0.4, last["close"] * 0.004)
+        side = "BUY"
+        detail = f"The close {last['close']:.2f} is above the prior twenty-bar high {hi:.2f}."
+    elif last["close"] < lo and last["close"] < short:
+        stop = max(last["high"], lo) + width * 0.05
+        if stop <= last["close"]:
+            stop = last["close"] + max(width * 0.4, last["close"] * 0.004)
+        side = "SELL"
+        detail = f"The close {last['close']:.2f} is below the prior twenty-bar low {lo:.2f}."
+    else:
+        return None
+    if not _usable(last["close"], stop):
+        return None
+    return {"side": side, "entry": last["close"], "stop": stop, "name": "Range expansion", "checks": [("Break", True, detail)]}
+
+
 def _watch_plan(bars, label):
-    """A long that has not triggered. Spot only. Not an entry."""
+    """A setup that has not triggered. Not an entry and not an order."""
     closes = [bar["close"] for bar in bars]
     short = _ema(closes, 20)[-1]
     longer = _ema(closes, 50)[-1]
-    if short <= longer:
-        return None
     width = _atr(bars)
     last = bars[-1]
+    if short < longer:
+        recent_high = max(bar["high"] for bar in bars[-3:])
+        stop = max(recent_high, short) + width * 0.15
+        entry = short
+        if not _usable(entry, stop):
+            return None
+        target = entry - PAYOFF * abs(stop - entry)
+        return {
+            "decision": "WAIT",
+            "runtime_status": "watch",
+            "reason": (
+                f"Watch on this {label} candle. The shorter average, {short:.2f}, is below the longer one, {longer:.2f}, "
+                f"but the close {last['close']:.2f} has not completed a short trigger. "
+                f"A short idea is not an entry until a close back through {entry:.2f}. "
+                f"If that happens, the plan would use a stop near {stop:.2f} and a target near {target:.2f}. "
+                "No broker order is sent."
+            ),
+            "entry": None,
+            "stop": None,
+            "target": None,
+            "watch_entry": entry,
+            "watch_stop": stop,
+            "watch_target": target,
+            "reward_risk": None,
+            "rule": "Trend pullback",
+            "watch_side": "SELL",
+        }
+    if short <= longer:
+        return None
     recent_low = min(bar["low"] for bar in bars[-3:])
     stop = min(recent_low, short) - width * 0.15
     entry = short
@@ -186,38 +242,39 @@ def read_interval(interval, bars):
             "reward_risk": None,
             "rule": None,
         }
-    found = _pullback(bars) or _reclaim(bars)
+    found = _pullback(bars) or _reclaim(bars) or _range_break(bars)
     if not found:
         watch = _watch_plan(bars, label)
         if watch:
             return watch
         return {
             "decision": "WAIT",
-            "reason": f"Wait on this {label} candle. Price did not tag the average and close back with it, and it did not fail a break. No size follows from that.",
+            "reason": f"No setup on this {label} candle. Trend pullback, failed break, and range expansion were checked. None matched. No size follows from that.",
             "entry": None,
             "stop": None,
             "target": None,
             "reward_risk": None,
             "rule": None,
+            "families_checked": ["trend_pullback", "failed_break", "range_expansion"],
         }
     risk = abs(found["entry"] - found["stop"])
     target = found["entry"] + PAYOFF * risk if found["side"] == "BUY" else found["entry"] - PAYOFF * risk
+    details = " ".join(detail for _name, ok, detail in found["checks"] if ok)
     if found["side"] == "SELL":
         return {
-            "decision": "WAIT",
+            "decision": "SELL",
+            "sell_meaning": "short_idea",
             "reason": (
-                f"A short reading matched on this {label} candle ({found['name']}). "
-                f"A stop near {found['stop']:.2f} and a target near {target:.2f} would belong to a short. "
-                "This desk is spot-only, so that is not a SELL and no short was opened."
+                f"Short idea on this {label} candle. {found['name']}. {details} "
+                f"Entry is the candle close {found['entry']:.2f}, stop {found['stop']:.2f}, target {target:.2f}. "
+                "No broker order is sent. This is not an exit of a long, and it is not approved."
             ),
-            "entry": None,
-            "stop": None,
-            "target": None,
-            "reward_risk": None,
+            "entry": found["entry"],
+            "stop": found["stop"],
+            "target": target,
+            "reward_risk": PAYOFF,
             "rule": found["name"],
-            "spot_short_refused": True,
         }
-    details = " ".join(detail for _name, ok, detail in found["checks"] if ok)
     return {
         "decision": "BUY",
         "reason": (

@@ -132,3 +132,34 @@ def test_settings_and_signal_route_keep_users_apart(tmp_path, monkeypatch):
         sess["user_exp"] = time.time() + 3600
     assert client.get("/api/inbox/settings").get_json()["settings"]["experimental"] is False
     assert client.get("/api/notifications").get_json()["items"] == []
+
+
+def test_a_short_idea_is_delivered_only_when_sell_and_experimental_are_on(tmp_path, monkeypatch):
+    owner = _user(tmp_path, monkeypatch, "cara")
+    import ops.users as users
+    bars = []
+    for index in range(80):
+        close = 200 - index * 0.15
+        bars.append(_flat(index, close=close, high=close + 0.3, low=close - 0.3))
+        bars[-1]["interval"] = "15m"
+    last = bars[-1]["close"]
+    bars[-1] = _flat(79, close=last - 0.05, high=last + 2, low=last - 0.4)
+    bars[-1]["interval"] = "15m"
+    now = bars[-1]["close_time_ms"] + 1000
+    idea = decide("BTCUSDT", "15m", "auto", bars, now, _account())
+    assert idea["decision"] == "SELL"
+    assert idea["decision_label"] == "SELL · Short idea"
+    assert idea["entry"] is not None and idea["stop"] > idea["entry"] > idea["target"]
+    assert idea["order"] is False
+    hidden = deliver_evaluation(owner["id"], {}, idea)
+    assert hidden["stored"] is False
+    sell_off = save_inbox_delivery(owner["id"], {"experimental": True, "sell": False, "timeframes": ["15m", "4h"]})
+    assert deliver_evaluation(owner["id"], sell_off, idea)["reason"] == "sell_off"
+    allowed = save_inbox_delivery(owner["id"], {"experimental": True, "sell": True, "timeframes": ["15m", "4h"]})
+    stored = deliver_evaluation(owner["id"], allowed, idea)
+    assert stored["stored"] is True
+    card = items(owner["id"])[0]
+    assert card["decision"] == "SELL"
+    assert card["approved"] is False
+    assert card["entry"] == idea["entry"]
+    assert users.get(owner["id"])["inbox_delivery"]["experimental"] is True
