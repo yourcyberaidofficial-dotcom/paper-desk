@@ -93,6 +93,43 @@ def test_sell_exits_a_recorded_idea_and_is_not_a_short():
     assert result["filled"] is False
 
 
+def test_a_shorter_request_is_judged_on_those_candles():
+    bars = []
+    for index in range(80):
+        close = 200 - index * 0.15
+        bars.append(_flat(index, close=close, high=close + 0.3, low=close - 0.3, interval="15m"))
+    last = bars[-1]["close"]
+    bars[-1] = _flat(79, close=last - 0.05, high=last + 2, low=last - 0.4, interval="15m")
+    now = bars[-1]["close_time_ms"] + 1000
+    result = decide("BTCUSDT", "15m", "auto", bars, now, _user())
+    assert result["interval"] == "15m"
+    assert result["strategy"] == "interval-reading"
+    assert result.get("blocked") != "timeframe"
+    assert result["decision"] == "SELL"
+    assert result["decision_label"] == "SELL"
+    assert result["approved"] is False
+    assert result["eligible_for_alert"] is False
+    assert result["validation_status"] == "FAIL"
+    assert result["entry"] == bars[-1]["close"]
+    assert result["stop"] > result["entry"] > result["target"]
+    assert result["size"]["ok"] is True
+    assert result["size"]["order"] is False
+    assert result["reference_price"] == bars[-1]["close"]
+    assert "15m" in result["reason"]
+    assert "not an approved strategy" in result["reason"]
+    assert "4h" not in result["reason"]
+
+
+def test_a_named_4h_rule_is_not_run_on_15m():
+    bars = [_flat(i, interval="15m") for i in range(70)]
+    now = bars[-1]["close_time_ms"] + 1000
+    result = decide("BTCUSDT", "15m", "compress-break-4h-20261028", bars, now, _user())
+    assert result["blocked"] == "timeframe"
+    assert result["decision_label"] == "BLOCKED"
+    assert result.get("entry") is None
+    assert result["approved"] is False
+
+
 def test_gold_chart_feed_is_blocked():
     bar = _flat(0, interval="1h")
     bar["symbol"] = "XAUUSD"

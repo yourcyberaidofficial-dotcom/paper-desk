@@ -13,6 +13,7 @@ from ops.leaders import COMPRESS, CRYPTO_RULES, GOLD_RULES, LONDON, SWEEP
 from ops.plan import propose_size
 from ops.profiles import risk_cap
 from ops.registry import BY_ID
+from ops.interval_reading import read_interval
 
 AUTO = {
     "BTCUSDT": COMPRESS,
@@ -175,6 +176,8 @@ def _evaluate(symbol, interval, strategy, bars, now_ms, user, prior=None, live_q
             extra = " " + snapshot_reason(live_quote)
         return {**base, "decision": "WAIT", "reason": f"Gold is blocked. The candle feed is {quote}, not verified bid/ask, so the London rule was not calculated." + extra, "blocked": "quote_not_bid_ask", "live_quote": live_quote}
     if interval != spec.get("timeframe"):
+        if strategy in {None, "", "auto"} and symbol in {"BTCUSDT", "ETHUSDT"}:
+            return _requested_reading(base, symbol, interval, bars, user)
         return {**base, "decision": "WAIT", "reason": f"This rule is defined on {spec.get('timeframe')} candles. {interval} was not substituted.", "blocked": "timeframe"}
     if prior and prior.get("decision") == "BUY":
         stop = prior.get("stop")
@@ -223,6 +226,52 @@ def _evaluate(symbol, interval, strategy, bars, now_ms, user, prior=None, live_q
     }
 
 
+def _requested_reading(base, symbol, interval, bars, user):
+    reading = read_interval(interval, bars)
+    result = {
+        **base,
+        "strategy": "interval-reading",
+        "version": "interval-reading",
+        "validation_status": "FAIL",
+        "reading": True,
+        "decision": reading["decision"],
+        "reason": reading["reason"],
+        "entry": reading["entry"],
+        "stop": reading["stop"],
+        "target": reading["target"],
+        "reward_risk": reading["reward_risk"],
+        "hold_bars": 6,
+        "invalidation": "The stop on this reading. A failed research rule was not relabeled as approved.",
+    }
+    if reading["decision"] not in {"BUY", "SELL"}:
+        result["size"] = {"ok": False, "reason": "no_setup", "order": False}
+        return result
+    result["direction"] = "LONG" if reading["decision"] == "BUY" else "SHORT_READING"
+    result["sell_meaning"] = None if reading["decision"] == "BUY" else "reading_not_a_broker_short"
+    profile = (user or {}).get("profile") or {}
+    cap = risk_cap(profile.get("signal_style"))
+    plan = (user or {}).get("plan") or {}
+    risk = plan.get("risk_per_trade_percent")
+    if risk is None:
+        risk = cap
+    if profile.get("capital") and risk:
+        result["size"] = propose_size(profile["capital"], risk, reading["entry"], reading["stop"])
+    else:
+        result["size"] = {"ok": False, "reason": "missing_inputs", "order": False}
+    if result["size"].get("ok"):
+        result["size"]["risk_budget"] = result["size"].get("risk_amount")
+    result["currency"] = profile.get("currency")
+    result["costs"] = {
+        "bps_per_fill": CRYPTO_COST_BPS,
+        "fills": 2,
+        "round_turn_bps": CRYPTO_COST_BPS * 2,
+        "observed": False,
+        "note": "Estimated from the research cost. Not a measured spread.",
+    }
+    result["entry_note"] = "Planning price only. Not an order."
+    return result
+
+
 def apply_auto_policy(result, explicit):
     """Auto may name a frozen rule. It may not promote a failed or blocked one."""
     result = dict(result)
@@ -230,6 +279,11 @@ def apply_auto_policy(result, explicit):
     result["approved"] = False
     result["selection_policy"] = "explicit_named_rule" if explicit else "approved_only"
     result["evidence_semantics"] = "A checklist is not a probability of profit. No strategy is approved."
+    if result.get("reading"):
+        result["auto_selected"] = False
+        result["selection_policy"] = "requested_interval_reading"
+        result["decision_label"] = "BLOCKED" if result.get("blocked") else result.get("decision")
+        return result
     status = result.get("validation_status") or "unknown"
     if not explicit and result.get("decision") == "BUY" and status != "PASS":
         match = {
