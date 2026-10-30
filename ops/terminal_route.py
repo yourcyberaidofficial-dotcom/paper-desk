@@ -53,7 +53,11 @@ def load_gold_ohlc(interval, now_ms):
         return cached[1]
     from ops.feeds import xaus_chart, xaus_spot_bars
     if interval in {"1m", "3m"}:
-        return []
+        from ops.xau_pull import recent_gold_bars
+        loaded = recent_gold_bars(interval, now_ms, timeout=8)
+        bars = loaded.get("bars") or []
+        _BAR_CACHE[key] = (now_ms, bars if bars else (None, loaded.get("reason") or "dukascopy_unavailable"))
+        return _BAR_CACHE[key][1]
     loaded = xaus_spot_bars(interval, now_ms=now_ms, timeout=8, attempts=1) if interval in {"15m", "1h"} else {"bars": []}
     bars = loaded.get("bars") or [] if isinstance(loaded, dict) else []
     if interval == "15m" or len(bars) >= 24:
@@ -75,21 +79,6 @@ def handle_signal(user_id, body, now_ms=None, bars_loader=None, quote_loader=Non
     strategy = body.get("strategy") or "auto"
     now_ms = int(now_ms if now_ms is not None else time.time() * 1000)
     live_quote = None
-    if symbol == "XAUUSD" and interval in {"1m", "3m"}:
-        return 200, attach_request(body, {
-            "decision": "WAIT",
-            "symbol": symbol,
-            "interval": interval,
-            "strategy": strategy,
-            "reason": "Gold history on this desk is a five-minute spot sample. A 1-minute or 3-minute candle was not created from it, so this timeframe has no evaluation.",
-            "approved": False,
-            "fresh": False,
-            "reference_price": None,
-            "blocked": "sample_is_5m",
-            "delivered": False,
-            "filled": False,
-            "order": False,
-        })
     if symbol == "XAUUSD":
         if quote_loader is None:
             from ops.gold_live import swissquote_xau
@@ -101,10 +90,28 @@ def handle_signal(user_id, body, now_ms=None, bars_loader=None, quote_loader=Non
                 live_quote["session"] = session_loader(now_ms)
         try:
             bars = (ohlc_loader or load_gold_ohlc)(interval, now_ms)
-        except Exception:
+        except Exception as exc:
+            bars = (None, type(exc).__name__)
+        detail = None
+        if isinstance(bars, tuple):
+            detail = bars[1]
             bars = []
-        if not isinstance(bars, list):
-            bars = []
+        if interval in {"1m", "3m"} and not bars:
+            why = f" Dukascopy said {detail}." if detail else ""
+            return 200, attach_request(body, {
+                "decision": "WAIT",
+                "symbol": symbol,
+                "interval": interval,
+                "strategy": strategy,
+                "reason": "No complete Dukascopy one-minute bid and ask was available." + why + " A 1-minute or 3-minute candle was not invented from the five-minute spot sample.",
+                "approved": False,
+                "fresh": False,
+                "reference_price": None,
+                "blocked": "dukascopy_unavailable",
+                "delivered": False,
+                "filled": False,
+                "order": False,
+            })
     else:
         bars = (bars_loader or load_crypto_bars)(symbol, interval, now_ms)
     if isinstance(bars, tuple):

@@ -100,6 +100,39 @@ def offer(user_id, notice, registry=None):
     return {"ok": True, "duplicate": False, "stored": True}
 
 
+def retire_open(user_id, symbol, interval, active_id, now_ms):
+    """An older experimental card is not still a live entry after the setup changes or expires."""
+    if _safe(user_id) is None:
+        return 0
+    from ops.bars import interval_ms
+    try:
+        step = interval_ms(interval)
+    except ValueError:
+        step = 60_000
+    rows = _read(user_id)
+    changed = 0
+    for row in rows:
+        if row.get("kind") != "experimental" or row.get("symbol") != symbol or row.get("interval") != interval:
+            continue
+        if row.get("lifecycle") in {"superseded", "expired"}:
+            continue
+        if active_id and row.get("id") == active_id:
+            row["lifecycle"] = "current"
+            continue
+        close = int(row.get("bar_close_ms") or 0)
+        expired = bool(close) and now_ms - close > 2 * step
+        row["lifecycle"] = "expired" if expired else "superseded"
+        row["lifecycle_note"] = (
+            "This entry expired because its candle is no longer current."
+            if expired else
+            "This entry was superseded. The later evaluation is not this plan."
+        )
+        changed += 1
+    if changed:
+        _write(user_id, rows)
+    return changed
+
+
 def items(user_id):
     rows = _read(user_id) if _safe(user_id) else []
     return list(reversed(rows))

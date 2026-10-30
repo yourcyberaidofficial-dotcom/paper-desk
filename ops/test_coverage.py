@@ -36,13 +36,17 @@ def test_a_sparse_sample_does_not_become_a_15m_bar():
 
 
 def test_gold_minute_is_not_invented_and_a_1m_crypto_plan_stays_on_1m():
-    def boom(*args, **kwargs):
-        raise AssertionError("gold loader should not run")
-    status, body = handle_signal("user-a", {"symbol": "XAUUSD", "interval": "1m", "strategy": "auto"}, 1_700_000_000_000, ohlc_loader=boom)
+    def empty(interval, now):
+        assert interval == "1m"
+        return []
+    status, body = handle_signal(
+        "user-a", {"symbol": "XAUUSD", "interval": "1m", "strategy": "auto"}, 1_700_000_000_000,
+        ohlc_loader=empty, quote_loader=lambda now: {"ok": False},
+    )
     assert status == 200
-    assert body["blocked"] == "sample_is_5m"
+    assert body["blocked"] == "dukascopy_unavailable"
     assert body["reference_price"] is None
-    assert body["order"] is False
+    assert "not invented" in body["reason"]
     start = 1_700_000_000_000 - (1_700_000_000_000 % 60_000)
     bars = []
     for index in range(80):
@@ -66,3 +70,21 @@ def test_gold_minute_is_not_invented_and_a_1m_crypto_plan_stays_on_1m():
     assert result["decision"] == "SELL"
     assert result["stop"] > result["entry"] > result["target"]
     assert result["approved"] is False
+
+
+def test_three_real_minutes_make_one_bar_and_a_gap_does_not():
+    from ops.xau_bars import minutes_from_sides, threes_from_minutes
+    start = 1_700_000_000_000 - (1_700_000_000_000 % 180_000)
+    bid, ask = [], []
+    for offset in (0, 60, 120, 240):
+        bid.append({"time_ms": start + offset * 1000, "open": 2000, "high": 2002, "low": 1999, "close": 2001, "volume": 1})
+        ask.append({"time_ms": start + offset * 1000, "open": 2000.3, "high": 2002.3, "low": 1999.3, "close": 2001.3, "volume": 1})
+    now = start + 5 * 60_000
+    minutes = minutes_from_sides(bid, ask, now, now)
+    assert len(minutes) == 4
+    threes = threes_from_minutes(minutes, now)
+    assert len(threes) == 1
+    assert threes[0]["interval"] == "3m"
+    assert threes[0]["open_time_ms"] == start
+    assert threes[0]["close"] == 2001
+

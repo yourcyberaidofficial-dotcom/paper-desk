@@ -215,6 +215,21 @@ def _evaluate(symbol, interval, strategy, bars, now_ms, user, prior=None, live_q
         return {**base, "decision": "WAIT", "reason": "The latest candle is missing, still forming, or too old to treat as live.", "blocked": "stale_or_incomplete"}
     if symbol == "XAUUSD" and not completed_bid_ask_bar(last):
         quote = last.get("quote_semantics") or "missing_bid_ask"
+        if strategy in {None, "", "auto"} and quote == "dukascopy_xauusd_bid_ask" and interval in {"1m", "3m"} and len(bars) >= 60:
+            reading = _requested_reading(base, symbol, interval, bars, user)
+            reading["gold_basis"] = "dukascopy_m1"
+            reading["strategy"] = "gold-m1-reading"
+            reading["version"] = "gold-m1-reading"
+            reading["reason"] = "Dukascopy one-minute bid and ask, not a five-minute sample and not the Yahoo chart. " + (reading.get("reason") or "")
+            return reading
+        if quote == "dukascopy_xauusd_bid_ask" and interval in {"1m", "3m"}:
+            return {
+                **base,
+                "decision": "WAIT",
+                "reason": f"Only {len(bars)} complete Dukascopy {interval} bars were available. 60 are required, and missing minutes were not filled in.",
+                "blocked": "insufficient_m1",
+                "live_quote": live_quote,
+            }
         if strategy in {None, "", "auto"} and quote == "spot_sample_not_bid_ask" and len(bars) < 24:
             return {
                 **base,
