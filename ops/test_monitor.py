@@ -74,6 +74,6 @@ def test_a_later_wait_supersedes_the_old_entry(tmp_path, monkeypatch):
     second = worker.monitor(now_ms=later, windows=[{"symbol": "BTCUSDT", "interval": "4h", "bars": quiet}])
     assert second["delivered"] == 0
     saved = items(owner["id"])
-    assert saved[0]["lifecycle"] in {"superseded", "expired"}
-    assert "not this plan" in saved[0]["lifecycle_note"] or "no longer current" in saved[0]["lifecycle_note"]
+    assert saved[0]["lifecycle"] == "expired"
+    assert "its own candle" in saved[0]["lifecycle_note"]
 

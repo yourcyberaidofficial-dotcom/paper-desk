@@ -216,6 +216,29 @@ def qualify_size(symbol, capital, risk_percent, currency, entry, stop):
     }
 
 
+def present_size(size):
+    """The risk budget and the executable quantity are different facts."""
+    size = size or {}
+    budget = size.get("risk_budget_usd")
+    if budget is None:
+        budget = size.get("risk_amount")
+    if size.get("quantity_orderable") is True and size.get("quantity") is not None:
+        return {
+            "executable_quantity": size["quantity"],
+            "risk_budget": budget,
+            "text": f"Executable quantity {size['quantity']}. Risk budget {budget} {size.get('currency') or 'USD'}.",
+        }
+    if size.get("quantity_orderable") is not True and budget is not None and (size.get("budget_ok") or size.get("ok")):
+        why = size.get("note") or "The venue quantity step, contract size, or tick value is not verified."
+        return {
+            "executable_quantity": None,
+            "risk_budget": budget,
+            "text": f"Risk budget {budget} USD. Executable quantity is unavailable. {why}",
+        }
+    why = size.get("note") or size.get("reason") or "not calculated"
+    return {"executable_quantity": None, "risk_budget": None, "text": f"Executable sizing is unavailable: {why}"}
+
+
 def paper_cap_status(cap, paper_orders_today):
     """The stored persona cap counts paper orders, never inbox cards."""
     try:

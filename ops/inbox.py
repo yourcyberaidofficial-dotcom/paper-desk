@@ -29,7 +29,7 @@ def _read(user_id):
     rows = []
     for line in path.read_text(encoding="utf-8").splitlines():
         if line.strip():
-            rows.append(json.loads(line))
+            rows.append(bind_identity(json.loads(line)))
     return rows
 
 
@@ -37,6 +37,45 @@ def _write(user_id, rows):
     path = _path(user_id)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text("".join(json.dumps(row) + "\n" for row in rows[-200:]), encoding="utf-8")
+
+
+def opportunity_identity(symbol, interval, family, direction, anchor):
+    """One key for a setup: instrument, timeframe, family, direction, originating bar."""
+    if symbol in (None, "") or interval in (None, "") or family in (None, "") or direction in (None, ""):
+        return None
+    try:
+        origin = int(anchor)
+    except (TypeError, ValueError):
+        return None
+    return f"opp:{symbol}:{interval}:{family}:{direction}:{origin}"
+
+
+def identity_from_row(row):
+    """Use a stored key. Otherwise derive one. Never invent a bar or a family."""
+    row = row or {}
+    if row.get("opportunity_id"):
+        return row["opportunity_id"]
+    family = row.get("family") or row.get("rule") or row.get("strategy")
+    direction = row.get("direction") or row.get("decision")
+    return opportunity_identity(row.get("symbol"), row.get("interval"), family, direction, row.get("bar_close_ms"))
+
+
+def bind_identity(row):
+    """Fill a missing key in memory. Entry, stop and target are not touched."""
+    if row.get("opportunity_id"):
+        return row
+    derived = identity_from_row(row)
+    if derived:
+        row["opportunity_id"] = derived
+        row["identity_source"] = "derived_from_stored_fields"
+    else:
+        row["opportunity_id"] = f"legacy:{row.get('id')}"
+        row["identity_source"] = "legacy_unkeyed"
+    return row
+
+
+def notice_id(kind, opportunity_id):
+    return f"{kind}:{opportunity_id}"
 
 
 def offer(user_id, notice, registry=None):
@@ -116,17 +155,17 @@ def offer(user_id, notice, registry=None):
     return {"ok": True, "duplicate": False, "stored": True}
 
 
-def find_open_opportunity(user_id, symbol, interval, family, direction):
+def find_open_opportunity(user_id, opportunity_id):
+    """Match the full key only. A shared market or family is not the same setup."""
+    if not opportunity_id or str(opportunity_id).startswith("legacy:"):
+        return None
     for row in _read(user_id):
         if row.get("kind") != "experimental":
             continue
-        if row.get("symbol") != symbol or row.get("interval") != interval:
-            continue
-        if row.get("family") != family or row.get("direction") != direction:
-            continue
         if row.get("lifecycle") in {"superseded", "expired", "invalidated"}:
             continue
-        return row
+        if row.get("opportunity_id") == opportunity_id:
+            return row
     return None
 
 
@@ -150,8 +189,28 @@ def append_event(user_id, opportunity_id, event):
     return {"ok": False, "reason": "missing", "stored": False}
 
 
-def retire_open(user_id, symbol, interval, active_id, now_ms):
-    """An older experimental card is not still a live entry after the setup changes or expires."""
+def retire_opportunity(user_id, opportunity_id, now_ms, note=None):
+    """Retire one originating setup. Other cards, including the same market, stay."""
+    if _safe(user_id) is None or not opportunity_id:
+        return 0
+    rows = _read(user_id)
+    changed = 0
+    for row in rows:
+        if row.get("opportunity_id") != opportunity_id:
+            continue
+        if row.get("lifecycle") in {"superseded", "expired", "invalidated"}:
+            continue
+        row["lifecycle"] = "superseded"
+        row["lifecycle_note"] = note or "This originating setup was retired. Its entry, stop and target were not rewritten, and no other setup was retired with it."
+        row["retired_ms"] = now_ms
+        changed += 1
+    if changed:
+        _write(user_id, rows)
+    return changed
+
+
+def expire_stale(user_id, symbol, interval, now_ms):
+    """Expire a card only when its own originating bar is no longer current."""
     if _safe(user_id) is None:
         return 0
     from ops.bars import interval_ms
@@ -164,19 +223,16 @@ def retire_open(user_id, symbol, interval, active_id, now_ms):
     for row in rows:
         if row.get("kind") != "experimental" or row.get("symbol") != symbol or row.get("interval") != interval:
             continue
-        if row.get("lifecycle") in {"superseded", "expired"}:
+        if row.get("lifecycle") in {"superseded", "expired", "invalidated"}:
             continue
-        if active_id and row.get("id") == active_id:
-            row["lifecycle"] = "current"
+        try:
+            close = int(row.get("bar_close_ms") or 0)
+        except (TypeError, ValueError):
             continue
-        close = int(row.get("bar_close_ms") or 0)
-        expired = bool(close) and now_ms - close > 2 * step
-        row["lifecycle"] = "expired" if expired else "superseded"
-        row["lifecycle_note"] = (
-            "This entry expired because its candle is no longer current."
-            if expired else
-            "This entry was superseded. The later evaluation is not this plan."
-        )
+        if not close or now_ms - close <= 2 * step:
+            continue
+        row["lifecycle"] = "expired"
+        row["lifecycle_note"] = "This entry expired because its own candle is no longer current. Other setups were not retired."
         changed += 1
     if changed:
         _write(user_id, rows)
@@ -320,27 +376,37 @@ def deliver_evaluation(user_id, user, result):
     family = str(result.get("rule") or result.get("strategy") or "unspecified")
     direction = side
     anchor = result.get("bar_close_ms")
-    opportunity_id = f"opp:{symbol}:{interval}:{family}:{direction}:{anchor}"
+    opportunity_id = opportunity_identity(symbol, interval, family, direction, anchor)
+    if opportunity_id is None:
+        return {"stored": False, "duplicate": False, "reason": "incomplete"}
     plan_version = f"plan:{payload.get('entry')}:{payload.get('stop')}:{payload.get('target')}"
     market_evaluation_id = f"mkt:{symbol}:{interval}:{anchor}:{result.get('version') or result.get('strategy')}"
     account_decision_id = f"acct:{user_id}:{opportunity_id}:{plan_version}"
     event_id = f"evt:{account_decision_id}:active"
-    existing = find_open_opportunity(user_id, symbol, interval, family, direction)
-    if existing and kind == "experimental":
+    card_id = notice_id(kind, opportunity_id)
+    existing = find_open_opportunity(user_id, opportunity_id) if kind == "experimental" else None
+    if existing:
         appended = append_event(user_id, existing.get("opportunity_id"), {
-            "id": f"evt:{existing.get('opportunity_id')}:reevaluated:{anchor}",
+            "id": f"evt:{existing.get('opportunity_id')}:reevaluated:{plan_version}",
             "state": "reevaluated",
-            "note": "A later evaluation matched the same family and direction. The original entry, stop and target were not rewritten.",
+            "note": "A later reading of this same originating setup was recorded. The original entry, stop and target were not rewritten.",
             "created_ms": result.get("requested_ms"),
             "market_evaluation_id": market_evaluation_id,
             "observed_entry": payload.get("entry"),
             "observed_stop": payload.get("stop"),
             "observed_target": payload.get("target"),
         })
-        return {"stored": False, "duplicate": True, "reason": "same_opportunity", "id": existing.get("id"), "opportunity_id": existing.get("opportunity_id"), "appended": appended.get("stored")}
+        return {
+            "stored": False,
+            "duplicate": True,
+            "reason": "same_opportunity",
+            "id": existing.get("id"),
+            "opportunity_id": existing.get("opportunity_id"),
+            "appended": appended.get("stored"),
+        }
     from ops.delivery import load_promotions
     saved = offer(user_id, {
-        "id": f"{kind}:{symbol}:{interval}:{result.get('strategy')}:{result.get('bar_close_ms')}:{side}",
+        "id": card_id,
         "kind": kind,
         "symbol": symbol,
         "interval": interval,
@@ -372,7 +438,7 @@ def deliver_evaluation(user_id, user, result):
         "stored": bool(saved.get("stored")),
         "duplicate": bool(saved.get("duplicate")),
         "reason": saved.get("reason") or ("stored" if saved.get("stored") else "duplicate" if saved.get("duplicate") else "refused"),
-        "id": f"{kind}:{symbol}:{interval}:{result.get('strategy')}:{result.get('bar_close_ms')}:{side}",
+        "id": card_id,
         "opportunity_id": opportunity_id,
         "kind": kind,
     }

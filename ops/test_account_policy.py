@@ -71,7 +71,7 @@ def test_the_daily_cap_counts_paper_orders_not_notifications():
     assert full["notifications_count"] is False
 
 
-def test_a_later_reading_of_the_same_idea_does_not_rewrite_the_plan(tmp_path, monkeypatch):
+def test_the_same_originating_bar_does_not_rewrite_the_plan(tmp_path, monkeypatch):
     monkeypatch.setenv("AUREON_DATA", str(tmp_path))
     import ops.users as users
     monkeypatch.setattr(users, "ROOT", tmp_path / "users")
@@ -81,7 +81,6 @@ def test_a_later_reading_of_the_same_idea_does_not_rewrite_the_plan(tmp_path, mo
     first = deliver_evaluation(owner["id"], users.get(owner["id"]), _plan())
     assert first["stored"] is True
     changed = dict(_plan())
-    changed["bar_close_ms"] = 1_700_000_900_000
     changed["entry"] = 105
     changed["stop"] = 106
     changed["target"] = 103

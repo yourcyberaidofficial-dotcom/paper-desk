@@ -1,6 +1,6 @@
 """One signed-in view of the three markets. Shared events, private instructions."""
 
-from ops.plan import normalize, propose_size, visible_to_user
+from ops.plan import normalize, present_size, propose_size, visible_to_user
 from ops.profiles import risk_cap
 from ops.registry import BY_ID, catalog
 
@@ -16,6 +16,11 @@ def _instruction(event, user):
     size = {"ok": False, "reason": "missing_inputs", "order": False}
     if event.get("entry") is not None and event.get("stop") is not None and profile.get("capital") and plan.get("risk_per_trade_percent"):
         size = propose_size(profile["capital"], plan["risk_per_trade_percent"], event["entry"], event["stop"])
+    shown = present_size(size)
+    size = dict(size)
+    size["quantity_orderable"] = bool(size.get("quantity_orderable"))
+    size["executable_quantity"] = shown["executable_quantity"]
+    size["size_presentation"] = shown["text"]
     approved = bool(event.get("approved"))
     if gate.get("reason") == "below_threshold":
         why_not = "This setup did not meet your minimum quality threshold."

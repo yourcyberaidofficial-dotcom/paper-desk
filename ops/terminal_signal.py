@@ -154,6 +154,8 @@ def decide(symbol, interval, strategy, bars, now_ms, user, prior=None, live_quot
     explicit = strategy not in {None, "", "auto"}
     result = apply_auto_policy(_evaluate(symbol, interval, strategy, bars, now_ms, user, prior, live_quote), explicit)
     result = apply_persona(result, user)
+    from ops.plan import present_size
+    result["size_presentation"] = present_size(result.get("size"))
     if result.get("runtime_status") == "experimental" and result.get("decision") == "BUY" and not result.get("blocked"):
         result["decision_label"] = "BUY · Experimental"
     elif result.get("runtime_status") == "experimental" and result.get("sell_meaning") == "short_idea" and not result.get("blocked"):
