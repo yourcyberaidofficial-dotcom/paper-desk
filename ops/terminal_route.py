@@ -52,11 +52,15 @@ def load_gold_ohlc(interval, now_ms):
     if cached and now_ms - cached[0] < 30_000:
         return cached[1]
     from ops.feeds import xaus_chart, xaus_spot_bars
-    loaded = xaus_spot_bars(interval, now_ms=now_ms, timeout=8, attempts=1) if interval == "1h" else {"bars": []}
+    if interval in {"1m", "3m"}:
+        return []
+    loaded = xaus_spot_bars(interval, now_ms=now_ms, timeout=8, attempts=1) if interval in {"15m", "1h"} else {"bars": []}
     bars = loaded.get("bars") or [] if isinstance(loaded, dict) else []
-    if len(bars) < 24:
-        loaded = xaus_chart(interval, now_ms=now_ms, timeout=8, attempts=1)
-        bars = loaded.get("bars") or [] if isinstance(loaded, dict) else []
+    if interval == "15m" or len(bars) >= 24:
+        _BAR_CACHE[key] = (now_ms, bars)
+        return bars
+    loaded = xaus_chart(interval, now_ms=now_ms, timeout=8, attempts=1)
+    bars = loaded.get("bars") or [] if isinstance(loaded, dict) else []
     _BAR_CACHE[key] = (now_ms, bars)
     return bars
 
@@ -71,6 +75,21 @@ def handle_signal(user_id, body, now_ms=None, bars_loader=None, quote_loader=Non
     strategy = body.get("strategy") or "auto"
     now_ms = int(now_ms if now_ms is not None else time.time() * 1000)
     live_quote = None
+    if symbol == "XAUUSD" and interval in {"1m", "3m"}:
+        return 200, attach_request(body, {
+            "decision": "WAIT",
+            "symbol": symbol,
+            "interval": interval,
+            "strategy": strategy,
+            "reason": "Gold history on this desk is a five-minute spot sample. A 1-minute or 3-minute candle was not created from it, so this timeframe has no evaluation.",
+            "approved": False,
+            "fresh": False,
+            "reference_price": None,
+            "blocked": "sample_is_5m",
+            "delivered": False,
+            "filled": False,
+            "order": False,
+        })
     if symbol == "XAUUSD":
         if quote_loader is None:
             from ops.gold_live import swissquote_xau

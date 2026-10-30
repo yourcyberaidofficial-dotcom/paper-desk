@@ -174,7 +174,7 @@ def inbox_settings(user):
     return {
         "enabled": bool(saved["enabled"]) if "enabled" in saved else True,
         "markets": [item for item in markets if item in {"BTCUSDT", "ETHUSDT", "XAUUSD"}],
-        "timeframes": [item for item in timeframes if item in {"15m", "1h", "4h", "1d"}],
+        "timeframes": [item for item in timeframes if item in {"1m", "3m", "15m", "1h", "4h", "1d"}],
         "buy": bool(saved["buy"]) if "buy" in saved else True,
         "sell": bool(saved["sell"]) if "sell" in saved else True,
         "experimental": bool(saved["experimental"]) if "experimental" in saved else False,
