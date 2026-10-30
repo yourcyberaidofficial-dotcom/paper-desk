@@ -157,3 +157,107 @@ def visible_to_user(event, plan):
         "reason": "visible",
         "trade_alert": False if event.get("state") != "APPROVED_SIGNAL" else bool(plan.get("approved_alerts")),
     }
+
+
+def qualify_size(symbol, capital, risk_percent, currency, entry, stop):
+    """A risk budget is not an order quantity.
+
+    Spot BTC and ETH move one quote unit per base unit. That identity is not a
+    venue lot step. Gold has no verified contract size here. A non-USD account
+    is not converted, because no FX rate is loaded.
+    """
+    try:
+        capital = float(capital)
+        risk_percent = float(risk_percent)
+        entry = float(entry)
+        stop = float(stop)
+    except (TypeError, ValueError):
+        return {"ok": False, "reason": "missing_inputs", "order": False, "quantity_orderable": False, "budget_ok": False}
+    distance = abs(entry - stop)
+    if capital <= 0 or risk_percent <= 0 or distance <= 0:
+        return {"ok": False, "reason": "risk_not_calculable", "order": False, "quantity_orderable": False, "budget_ok": False}
+    budget = capital * risk_percent / 100.0
+    if currency != "USD":
+        return {
+            "ok": False,
+            "reason": "fx_unverified",
+            "order": False,
+            "quantity_orderable": False,
+            "budget_ok": False,
+            "note": f"No validated {currency} rate is loaded, so no money figure was converted.",
+        }
+    if symbol == "XAUUSD":
+        return {
+            "ok": False,
+            "reason": "contract_unverified",
+            "order": False,
+            "quantity_orderable": False,
+            "budget_ok": True,
+            "risk_budget_usd": budget,
+            "note": "The USD risk budget is shown. Gold is not sized, because the contract (ounce, gram, or CFD lot) is not verified.",
+        }
+    if symbol not in {"BTCUSDT", "ETHUSDT"}:
+        return {"ok": False, "reason": "instrument_unknown", "order": False, "quantity_orderable": False, "budget_ok": False}
+    return {
+        "ok": True,
+        "budget_ok": True,
+        "quantity": budget / distance,
+        "quantity_orderable": False,
+        "risk_amount": budget,
+        "risk_budget_usd": budget,
+        "risk_percent": risk_percent,
+        "currency": "USD",
+        "quote": "USDT",
+        "multiplier": 1,
+        "multiplier_basis": "spot_base_unit",
+        "order": False,
+        "costs_included_in_quantity": False,
+        "note": "USD risk budget and an unrounded spot estimate. The venue quantity step was not loaded, and USDT was not converted. This is not an order.",
+    }
+
+
+def paper_cap_status(cap, paper_orders_today):
+    """The stored persona cap counts paper orders, never inbox cards."""
+    try:
+        count = int(paper_orders_today or 0)
+    except (TypeError, ValueError):
+        count = 0
+    blocks = cap is not None and count >= int(cap)
+    return {
+        "cap": cap,
+        "paper_orders_today": count,
+        "counts": "recorded paper orders",
+        "notifications_count": False,
+        "broker_executions": 0,
+        "blocks_new_paper_order": blocks,
+        "blocks_notification": False,
+    }
+
+
+def observe_levels(side, stop, target, bar):
+    """A candle that reaches both prices does not say which came first."""
+    if side not in {"BUY", "SELL"} or stop is None or target is None or not bar:
+        return None
+    try:
+        high = float(bar["high"])
+        low = float(bar["low"])
+        stop = float(stop)
+        target = float(target)
+    except (KeyError, TypeError, ValueError):
+        return None
+    if side == "BUY":
+        stop_hit = low <= stop
+        target_hit = high >= target
+    else:
+        stop_hit = high >= stop
+        target_hit = low <= target
+    if stop_hit and target_hit:
+        return {
+            "state": "ambiguous",
+            "note": "This candle reached both the stop and the target. Finer prices were not available, so neither is treated as first. This is not a fill.",
+        }
+    if stop_hit:
+        return {"state": "stop_touched", "note": "The candle range reached the stop. Bid and ask were not used. This is not a fill."}
+    if target_hit:
+        return {"state": "target_touched", "note": "The candle range reached the target. Bid and ask were not used. This is not a fill."}
+    return None

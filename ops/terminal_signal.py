@@ -322,6 +322,7 @@ def _requested_reading(base, symbol, interval, bars, user, reader=None):
         "stop": reading["stop"],
         "target": reading["target"],
         "reward_risk": reading["reward_risk"],
+        "rule": reading.get("rule"),
         "watch_entry": reading.get("watch_entry"),
         "watch_stop": reading.get("watch_stop"),
         "watch_target": reading.get("watch_target"),
@@ -361,7 +362,13 @@ def _requested_reading(base, symbol, interval, bars, user, reader=None):
 
 
 def apply_persona(result, user):
-    """A persona changes size and the reward floor. It does not invent a direction or an approval."""
+    """The reward floor applies to a buy and a sell. It does not delete the plan.
+
+    Family counts are not used. The three setup families are different ideas,
+    not independent votes, and no study has shown that requiring two or three
+    of them is a valid confirmation.
+    """
+    from ops.plan import paper_cap_status, qualify_size
     from ops.profiles import canonical_style, get_profile
 
     result = dict(result)
@@ -369,26 +376,45 @@ def apply_persona(result, user):
     spec = get_profile(style)
     if not spec:
         result["persona_release"] = False
+        result["persona_note"] = "No persona is selected, so this account is not sized."
+        result["account_status"] = "visible_unsized"
         return result
     result["persona"] = style
     result["persona_name"] = spec["name"]
     result["persona_min_rr"] = spec["min_rr"]
     result["persona_risk_cap"] = spec["risk_per_trade_percent"]
-    if result.get("decision") != "BUY" or result.get("reward_risk") is None:
+    result["paper_cap"] = paper_cap_status(spec.get("max_trades_per_day"), (user or {}).get("paper_orders_today"))
+    decision = result.get("decision")
+    if decision not in {"BUY", "SELL"} or result.get("reward_risk") is None:
         result["persona_release"] = False
-        result["persona_note"] = f"{spec['name']} does not create a direction when the rule did not."
+        result["account_status"] = "not_a_plan"
+        result["persona_note"] = f"{spec['name']} does not size this, because the result is {decision or 'empty'}, not a buy or a sell."
         return result
-    if float(result["reward_risk"]) + 1e-9 < float(spec["min_rr"]):
+    reward = float(result["reward_risk"])
+    floor = float(spec["min_rr"])
+    if reward + 1e-9 < floor:
         result["persona_release"] = False
-        result["size"] = {"ok": False, "reason": "below_persona_reward", "order": False}
+        result["account_status"] = "visible_unsized"
+        result["size"] = {"ok": False, "reason": "below_persona_reward", "order": False, "quantity_orderable": False, "budget_ok": False}
         result["persona_note"] = (
-            f"{spec['name']} leaves this plan unsized. Its reward floor is {spec['min_rr']}. The levels stay visible."
+            f"{spec['name']} does not size this {decision}. Reward/risk {reward:.2f} is below its floor of {floor}. "
+            "The levels stay visible. No extra confirmation gate was applied."
         )
         result["reason"] = f"{result.get('reason') or ''} {result['persona_note']}".strip()
         return result
-    result["persona_release"] = True
+    profile = (user or {}).get("profile") or {}
+    plan = (user or {}).get("plan") or {}
+    risk = plan.get("risk_per_trade_percent")
+    if risk is None:
+        risk = spec["risk_per_trade_percent"]
+    risk = min(float(risk), float(spec["risk_per_trade_percent"]))
+    sized = qualify_size(result.get("symbol"), profile.get("capital"), risk, profile.get("currency"), result.get("entry"), result.get("stop"))
+    result["size"] = sized
+    result["persona_release"] = bool(sized.get("budget_ok"))
+    result["account_status"] = "budget_shown" if sized.get("budget_ok") else "visible_unsized"
     result["persona_note"] = (
-        f"{spec['name']} can size this plan up to {spec['risk_per_trade_percent']}% . It is still not an approved strategy."
+        f"{spec['name']} allows up to {spec['risk_per_trade_percent']}% . {sized.get('note') or sized.get('reason')} "
+        "The daily cap counts recorded paper orders, not this notification."
     )
     return result
 
