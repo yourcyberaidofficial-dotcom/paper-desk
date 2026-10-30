@@ -95,9 +95,59 @@ def offer(user_id, notice, registry=None):
         "validation_status": notice.get("validation_status"),
         "approved": bool(notice.get("approved")),
         "bar_close_ms": notice.get("bar_close_ms"),
+        "market_evaluation_id": notice.get("market_evaluation_id"),
+        "opportunity_id": notice.get("opportunity_id"),
+        "plan_version": notice.get("plan_version"),
+        "account_decision_id": notice.get("account_decision_id"),
+        "family": notice.get("family"),
+        "direction": notice.get("direction"),
+        "lifecycle": "active",
+        "events": [{
+            "id": notice.get("event_id") or event_id,
+            "state": "active",
+            "note": "The plan was recorded. Active means it is still the visible plan, not that an order was opened.",
+            "created_ms": int(notice.get("created_ms") or time.time() * 1000),
+            "entry": notice.get("entry"),
+            "stop": notice.get("stop"),
+            "target": notice.get("target"),
+        }],
     })
     _write(user_id, rows)
     return {"ok": True, "duplicate": False, "stored": True}
+
+
+def find_open_opportunity(user_id, symbol, interval, family, direction):
+    for row in _read(user_id):
+        if row.get("kind") != "experimental":
+            continue
+        if row.get("symbol") != symbol or row.get("interval") != interval:
+            continue
+        if row.get("family") != family or row.get("direction") != direction:
+            continue
+        if row.get("lifecycle") in {"superseded", "expired", "invalidated"}:
+            continue
+        return row
+    return None
+
+
+def append_event(user_id, opportunity_id, event):
+    """Add an observation. The original entry, stop and target stay as first recorded."""
+    if _safe(user_id) is None or not opportunity_id:
+        return {"ok": False, "reason": "missing"}
+    rows = _read(user_id)
+    for row in rows:
+        if row.get("opportunity_id") != opportunity_id:
+            continue
+        events = list(row.get("events") or [])
+        if any(item.get("id") == event.get("id") for item in events):
+            return {"ok": True, "duplicate": True, "stored": False, "opportunity_id": opportunity_id}
+        events.append(event)
+        row["events"] = events[-40:]
+        row["lifecycle"] = event.get("state") or row.get("lifecycle")
+        row["lifecycle_note"] = event.get("note")
+        _write(user_id, rows)
+        return {"ok": True, "stored": True, "opportunity_id": opportunity_id}
+    return {"ok": False, "reason": "missing", "stored": False}
 
 
 def retire_open(user_id, symbol, interval, active_id, now_ms):
@@ -267,6 +317,27 @@ def deliver_evaluation(user_id, user, result):
         return {"stored": False, "duplicate": False, "reason": "incomplete"}
     if kind != "status" and side in {"BUY", "SELL"} and (payload.get("entry") is None or payload.get("stop") is None or payload.get("target") is None):
         return {"stored": False, "duplicate": False, "reason": "incomplete"}
+    family = str(result.get("rule") or result.get("strategy") or "unspecified")
+    direction = side
+    anchor = result.get("bar_close_ms")
+    opportunity_id = f"opp:{symbol}:{interval}:{family}:{direction}:{anchor}"
+    plan_version = f"plan:{payload.get('entry')}:{payload.get('stop')}:{payload.get('target')}"
+    market_evaluation_id = f"mkt:{symbol}:{interval}:{anchor}:{result.get('version') or result.get('strategy')}"
+    account_decision_id = f"acct:{user_id}:{opportunity_id}:{plan_version}"
+    event_id = f"evt:{account_decision_id}:active"
+    existing = find_open_opportunity(user_id, symbol, interval, family, direction)
+    if existing and kind == "experimental":
+        appended = append_event(user_id, existing.get("opportunity_id"), {
+            "id": f"evt:{existing.get('opportunity_id')}:reevaluated:{anchor}",
+            "state": "reevaluated",
+            "note": "A later evaluation matched the same family and direction. The original entry, stop and target were not rewritten.",
+            "created_ms": result.get("requested_ms"),
+            "market_evaluation_id": market_evaluation_id,
+            "observed_entry": payload.get("entry"),
+            "observed_stop": payload.get("stop"),
+            "observed_target": payload.get("target"),
+        })
+        return {"stored": False, "duplicate": True, "reason": "same_opportunity", "id": existing.get("id"), "opportunity_id": existing.get("opportunity_id"), "appended": appended.get("stored")}
     from ops.delivery import load_promotions
     saved = offer(user_id, {
         "id": f"{kind}:{symbol}:{interval}:{result.get('strategy')}:{result.get('bar_close_ms')}:{side}",
@@ -289,11 +360,19 @@ def deliver_evaluation(user_id, user, result):
         "approved": False if kind != "official" else True,
         "bar_close_ms": result.get("bar_close_ms"),
         "created_ms": result.get("requested_ms"),
+        "market_evaluation_id": market_evaluation_id,
+        "opportunity_id": opportunity_id,
+        "plan_version": plan_version,
+        "account_decision_id": account_decision_id,
+        "event_id": event_id,
+        "family": family,
+        "direction": direction,
     }, registry=load_promotions() if kind == "official" else None)
     return {
         "stored": bool(saved.get("stored")),
         "duplicate": bool(saved.get("duplicate")),
         "reason": saved.get("reason") or ("stored" if saved.get("stored") else "duplicate" if saved.get("duplicate") else "refused"),
         "id": f"{kind}:{symbol}:{interval}:{result.get('strategy')}:{result.get('bar_close_ms')}:{side}",
+        "opportunity_id": opportunity_id,
         "kind": kind,
     }

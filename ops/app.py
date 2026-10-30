@@ -60,7 +60,7 @@ def _gate():
 
 ALLOWED_NEXT = {
     "/overview", "/signals", "/trading", "/strategies", "/indicators",
-    "/research", "/portfolio", "/risk", "/activity", "/system", "/settings", "/onboarding",
+    "/research", "/portfolio", "/risk", "/activity", "/live", "/system", "/settings", "/onboarding",
     "/scanner", "/learn", "/plan", "/notifications",
 }
 
@@ -1161,6 +1161,7 @@ def terminal_history():
 @app.get("/portfolio")
 @app.get("/risk")
 @app.get("/activity")
+@app.get("/live")
 @app.get("/system")
 @app.get("/settings")
 @app.get("/scanner")
@@ -1399,6 +1400,7 @@ main h1{margin:0;font-size:1.55rem}
     <a href="/strategies" data-path="/strategies">Strategies</a>
     <a href="/portfolio" data-path="/portfolio">Portfolio</a>
     <a href="/activity" data-path="/activity">Orders & Trade History</a>
+    <a href="/live" data-path="/live">Live Activities</a>
     <a href="/research" data-path="/research">Backtesting & Research</a>
     <a href="/risk" data-path="/risk">Risk Management</a>
     <a href="/system" data-path="/system">System Status</a>
@@ -1426,7 +1428,7 @@ document.getElementById("signout").onclick = async () => {
 };
 const path = location.pathname === "/" ? "/overview" : location.pathname;
 document.querySelectorAll("aside a").forEach(a => { if (a.dataset.path === path) a.classList.add("active"); });
-const titles = {"/":"Overview","/signals":"Live Signals","/trading":"Trading Terminal","/strategies":"Strategies","/portfolio":"Portfolio","/risk":"Risk Management","/activity":"Orders & Trade History","/system":"System Status","/settings":"Account & Settings","/research":"Backtesting & Research","/onboarding":"Account setup","/scanner":"Live Scanner","/learn":"Academy","/indicators":"Academy","/plan":"My Trading Plan","/notifications":"Inbox"};
+const titles = {"/":"Overview","/signals":"Live Signals","/trading":"Trading Terminal","/strategies":"Strategies","/portfolio":"Portfolio","/risk":"Risk Management","/activity":"Orders & Trade History","/live":"Live Activities","/system":"System Status","/settings":"Account & Settings","/research":"Backtesting & Research","/onboarding":"Account setup","/scanner":"Live Scanner","/learn":"Academy","/indicators":"Academy","/plan":"My Trading Plan","/notifications":"Inbox"};
 document.getElementById("title").textContent = titles[path] || "Aureon";
 document.title = (titles[path] || "Aureon") + " · Aureon Trading Lab";
 const view = document.getElementById("view");
@@ -1720,7 +1722,7 @@ async function scannerPage(){
   window.__scanTimer = setInterval(loadScan, 15000);
 }
 async function learnPage(){
-  view.innerHTML = `<article class="card"><h2>How to read the desk</h2><p>A candlestick shows the open, high, low and close of one completed period. A 15-minute candle is fifteen minutes of trades. A one-hour candle is one hour. The scanner uses only candles that have already closed.</p><p>E1 Donchian-20 compares the latest close with the highest high and lowest low of the previous 20 completed bars. SMA20 is the average of the last 20 closes. RSI14 is a momentum reading. They are research observations. If E1 is waiting, every account style waits.</p></article><article class="card"><h2>What a result means</h2><ul><li>No qualifying setup yet: the rule did not match.</li><li>Research observation: a condition was seen. It is not an order.</li><li>Paper candidate: the written rule is complete, and it is still not approved.</li><li>Approved signal: only after a promotion record exists. None exists now.</li><li>Paper trade: a simulated fill. Broker execution is off, so this desk does not send one.</li></ul><p>WAIT means the rule or the data does not justify an entry. It is the safe result, not a missing page.</p></article><article class="card"><h2>Accounts and alerts</h2><p>Apex Momentum caps risk at 2.5% of paper capital. Orion Precision caps it at 1.5%. Aegis Shield caps it at 0.8%. These are ceilings. Changing the base currency does not convert the stored amount.</p><p>Connect Telegram from Settings. The link is single-use. A connected chat can be removed, and a removed chat receives nothing. Trade alerts stay off until a strategy is explicitly approved.</p><p>The evidence grade is a checklist. It is not a probability of profit, and it has not been calibrated. A weekly aim is a personal target. Missing it is shown as a shortfall. The aim does not create a signal or raise risk.</p></article>`;
+  view.innerHTML = `<article class="card"><h2>How to read the desk</h2><p>A candlestick shows the open, high, low and close of one completed period. A 15-minute candle is fifteen minutes of trades. A one-hour candle is one hour. The scanner uses only candles that have already closed.</p><p>E1 Donchian-20 compares the latest close with the highest high and lowest low of the previous 20 completed bars. SMA20 is the average of the last 20 closes. RSI14 is a momentum reading. They are research observations. If E1 is waiting, that research note waits. It does not force Apex, Orion or Aegis to wait, and those styles are not votes of E1, SMA20 and RSI14.</p></article><article class="card"><h2>What a result means</h2><ul><li>No qualifying setup yet: the rule did not match.</li><li>Research observation: a condition was seen. It is not an order.</li><li>Paper candidate: the written rule is complete, and it is still not approved.</li><li>Approved signal: only after a promotion record exists. None exists now.</li><li>Paper trade: a simulated fill. Broker execution is off, so this desk does not send one.</li></ul><p>WAIT means the rule or the data does not justify an entry. It is the safe result, not a missing page.</p></article><article class="card"><h2>Accounts and alerts</h2><p>Apex Momentum caps risk at 2.5% of paper capital. Orion Precision caps it at 1.5%. Aegis Shield caps it at 0.8%. These are ceilings. Changing the base currency does not convert the stored amount.</p><p>Connect Telegram from Settings. The link is single-use. A connected chat can be removed, and a removed chat receives nothing. Trade alerts stay off until a strategy is explicitly approved.</p><p>The evidence grade is a checklist. It is not a probability of profit, and it has not been calibrated. A weekly aim is a personal target. Missing it is shown as a shortfall. The aim does not create a signal or raise risk.</p></article>`;
 }
 async function planPage(){
   const response = await fetch("/api/plan", {credentials:"same-origin"});
@@ -1762,6 +1764,7 @@ async function load(){
   if (path === "/signals") return signals();
   if (path === "/onboarding" || path === "/settings") return settings();
   if (path === "/portfolio" || path === "/activity") return paperPages();
+  if (path === "/live") return liveActivities();
   if (path === "/research") return researchLab();
   if (path === "/strategies") {
     const catalog = await fetch("/api/profiles").then(r=>r.json());
@@ -1775,6 +1778,14 @@ async function load(){
   if (path === "/risk") return riskPage();
   if (path === "/system") return systemPage();
   view.innerHTML = `<article class="card"><h2>${titles[path]||"Aureon"}</h2><p>This page has no separate data source yet.</p></article>`;
+}
+async function liveActivities(){
+  const notes = await fetch("/api/notifications", {credentials:"same-origin"}).then(r => r.ok ? r.json() : {items:[]}).catch(()=>({items:[]}));
+  const coverage = await fetch("/api/coverage", {credentials:"same-origin"}).then(r => r.ok ? r.json() : {}).catch(()=>({}));
+  const age = coverage.evaluated_at_ms ? Math.max(0, Math.round((Date.now() - coverage.evaluated_at_ms) / 1000)) : null;
+  const rows = (notes.items || []).filter(item => item.decision === "BUY" || item.decision === "SELL");
+  const list = rows.map(item => `<article class="card"><h2>${item.lifecycle || "active"} · ${item.decision} · ${item.symbol} ${item.interval}</h2><p>${item.lifecycle_note || "Active means the plan is still the visible one. It does not mean an order was opened."}</p><div class="row"><span>Entry ${item.entry==null?"—":item.entry}</span><span>Stop ${item.stop==null?"—":item.stop}</span><span>Target ${item.target==null?"—":item.target}</span></div><p class="muted">${item.family || item.strategy || ""} · ${item.opportunity_id || ""}</p></article>`).join("");
+  view.innerHTML = `<article class="card"><h2>Live Activities</h2><p>This page reads the same account events as the Inbox. It does not calculate a second signal.</p><p>Completed candles are judged when the background worker runs, about once a minute. A refresh of this page does not make that scan faster. Last scan ${age==null?"has no recorded time":age+" seconds ago"}. This is not a tick feed, and a target or stop touch is not a broker fill.</p></article>${list || "<article class='card'><p>No open experimental plan for this account.</p></article>"}`;
 }
 async function paperPages(){
   const p = await fetch("/api/paper-status").then(r=>r.json()).catch(()=>({open:null, rows:[], observations:[], label:""}));

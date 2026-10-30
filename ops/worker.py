@@ -244,16 +244,27 @@ class Worker:
                 "bar_close_ms": result.get("bar_close_ms"),
                 "id": result.get("id") if result.get("id") else None,
             })
+            from ops.inbox import append_event, retire_open
+            from ops.plan import observe_levels
+            from ops.terminal_signal import apply_persona
             if result.get("decision") not in {"BUY", "SELL"} or result.get("entry") is None or result.get("stop") is None or result.get("target") is None:
                 for user in users:
-                    from ops.inbox import retire_open
                     retire_open(user.get("id"), symbol, interval, None, now_ms)
                 continue
+            last_bar = bars[-1] if bars else None
             for user in users:
-                outcome = deliver_evaluation(user.get("id"), user, result)
+                personal = apply_persona(dict(result), user)
+                outcome = deliver_evaluation(user.get("id"), user, personal)
                 if outcome.get("stored"):
                     delivered += 1
-                from ops.inbox import retire_open
+                observation = observe_levels(personal.get("decision"), personal.get("stop"), personal.get("target"), last_bar)
+                if observation and outcome.get("opportunity_id"):
+                    append_event(user.get("id"), outcome.get("opportunity_id"), {
+                        "id": f"evt:{outcome.get('opportunity_id')}:{observation['state']}:{result.get('bar_close_ms')}",
+                        "state": observation["state"],
+                        "note": observation["note"],
+                        "created_ms": now_ms,
+                    })
                 retire_open(user.get("id"), symbol, interval, outcome.get("id"), now_ms)
         return {"evaluated_at_ms": now_ms, "evaluations": evaluations, "delivered": delivered, "error": None}
 
