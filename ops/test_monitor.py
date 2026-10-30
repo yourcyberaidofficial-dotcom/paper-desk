@@ -55,3 +55,25 @@ def test_background_scan_delivers_once_and_stays_private(tmp_path, monkeypatch):
     assert second["delivered"] == 0
     assert len(items(allowed["id"])) == 1
     assert worker.last_monitor["evaluated_at_ms"] == now
+
+
+def test_a_later_wait_supersedes_the_old_entry(tmp_path, monkeypatch):
+    monkeypatch.setenv("AUREON_DATA", str(tmp_path))
+    import ops.users as users
+    monkeypatch.setattr(users, "ROOT", tmp_path / "users")
+    users.ROOT.mkdir(parents=True, exist_ok=True)
+    owner = register("ada", "password-s")
+    save_inbox_delivery(owner["id"], {"experimental": True, "markets": ["BTCUSDT"], "timeframes": ["4h"], "buy": True})
+    bars = _compress()
+    now = bars[-1]["close_time_ms"] + 1000
+    worker = Worker(Ledger(tmp_path / "ledger.jsonl"), tmp_path / "prefs.json")
+    first = worker.monitor(now_ms=now, windows=[{"symbol": "BTCUSDT", "interval": "4h", "bars": bars}])
+    assert first["delivered"] == 1
+    quiet = [_flat(i) for i in range(70)]
+    later = quiet[-1]["close_time_ms"] + 1000
+    second = worker.monitor(now_ms=later, windows=[{"symbol": "BTCUSDT", "interval": "4h", "bars": quiet}])
+    assert second["delivered"] == 0
+    saved = items(owner["id"])
+    assert saved[0]["lifecycle"] in {"superseded", "expired"}
+    assert "not this plan" in saved[0]["lifecycle_note"] or "no longer current" in saved[0]["lifecycle_note"]
+

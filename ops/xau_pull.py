@@ -60,12 +60,14 @@ def fetch_day(day, side, cache, timeout=40, attempts=8):
             return {"ok": True, "body": payload, "cached": False, "sha256": hashlib.sha256(payload).hexdigest(), "url": url}
         except urllib.error.HTTPError as exc:
             last = f"http_{exc.code}"
-            if exc.code == 404:
+            if exc.code == 404 or attempt + 1 >= attempts:
                 return {"ok": False, "reason": last, "url": url, "sha256": None}
             time.sleep(delay)
             delay = min(delay * 2, 30)
         except Exception as exc:
             last = type(exc).__name__
+            if attempt + 1 >= attempts:
+                return {"ok": False, "reason": last, "url": url, "sha256": None}
             time.sleep(delay)
             delay = min(delay * 2, 30)
     return {"ok": False, "reason": last, "url": url, "sha256": None}
@@ -157,6 +159,39 @@ def pull(start, end, cache, out_path, workers=3):
     manifest_path.write_text(json.dumps(manifest, indent=2, sort_keys=True))
     print(json.dumps({"bars": len(bars), "sha256": digest, "manifest": str(manifest_path)}), flush=True)
     return manifest
+
+
+def recent_gold_bars(interval, now_ms, cache=None, timeout=8):
+    """Latest Dukascopy 1-minute bid and ask. A 3-minute bar is three real minutes, not a sample."""
+    from ops.xau_bars import minutes_from_sides, threes_from_minutes
+
+    if interval not in {"1m", "3m"}:
+        return {"ok": False, "reason": "interval_not_available", "bars": []}
+    now_ms = int(now_ms)
+    moment = datetime.fromtimestamp(now_ms / 1000, timezone.utc)
+    cache = Path(cache or "/tmp/xau-m1")
+    last_reason = "not_tried"
+    minutes = []
+    for delta in (0, 1):
+        day = (moment - timedelta(days=delta)).date()
+        bid = fetch_day(day, "BID", cache, timeout=timeout, attempts=1)
+        ask = fetch_day(day, "ASK", cache, timeout=timeout, attempts=1)
+        if not bid.get("ok") or not ask.get("ok"):
+            last_reason = bid.get("reason") or ask.get("reason") or "dukascopy_unavailable"
+            continue
+        day_minutes = minutes_from_sides(
+            decode_dukascopy_m1(bid["body"], _day_open_ms(day)),
+            decode_dukascopy_m1(ask["body"], _day_open_ms(day)),
+            now_ms,
+            now_ms,
+        )
+        minutes.extend(day_minutes)
+    if not minutes:
+        return {"ok": False, "reason": last_reason or "dukascopy_unavailable", "bars": [], "provider": "dukascopy"}
+    bars = minutes if interval == "1m" else threes_from_minutes(minutes, now_ms)
+    if interval == "3m" and not bars:
+        return {"ok": False, "reason": "no_complete_3m", "bars": [], "provider": "dukascopy"}
+    return {"ok": True, "reason": None, "bars": bars, "provider": "dukascopy"}
 
 
 def main():

@@ -245,11 +245,16 @@ class Worker:
                 "id": result.get("id") if result.get("id") else None,
             })
             if result.get("decision") not in {"BUY", "SELL"} or result.get("entry") is None or result.get("stop") is None or result.get("target") is None:
+                for user in users:
+                    from ops.inbox import retire_open
+                    retire_open(user.get("id"), symbol, interval, None, now_ms)
                 continue
             for user in users:
                 outcome = deliver_evaluation(user.get("id"), user, result)
                 if outcome.get("stored"):
                     delivered += 1
+                from ops.inbox import retire_open
+                retire_open(user.get("id"), symbol, interval, outcome.get("id"), now_ms)
         return {"evaluated_at_ms": now_ms, "evaluations": evaluations, "delivered": delivered, "error": None}
 
     def _monitor_windows(self, now_ms):
@@ -258,7 +263,11 @@ class Worker:
         windows = []
         for symbol, interval in COVERAGE:
             if symbol == "XAUUSD" and interval in {"1m", "3m"}:
-                windows.append({"symbol": symbol, "interval": interval, "bars": [], "reason": "sample_is_5m"})
+                gold = load_gold_ohlc(interval, now_ms)
+                if isinstance(gold, tuple):
+                    windows.append({"symbol": symbol, "interval": interval, "bars": [], "reason": gold[1]})
+                else:
+                    windows.append({"symbol": symbol, "interval": interval, "bars": gold or [], "reason": None if gold else "dukascopy_unavailable"})
                 continue
             if symbol == "XAUUSD":
                 gold = load_gold_ohlc(interval, now_ms)

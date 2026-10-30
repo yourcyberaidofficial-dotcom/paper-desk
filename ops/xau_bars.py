@@ -79,3 +79,77 @@ def hours_from_minutes(bid_rows, ask_rows, retrieved_at_ms=0):
         "duplicate_minutes": bid_dups + ask_dups,
         "invalid_minutes": bid_invalid + ask_invalid,
     }
+
+
+def minutes_from_sides(bid_rows, ask_rows, retrieved_at_ms, now_ms):
+    """One minute exists only when that exact minute has both a bid and an ask. Nothing is filled in."""
+    bid, _, _ = _index(bid_rows)
+    ask, _, _ = _index(ask_rows)
+    bars = []
+    for stamp in sorted(set(bid) & set(ask)):
+        left, right = bid.get(stamp), ask.get(stamp)
+        if left is None or right is None:
+            continue
+        if right["open"] < left["open"] or right["close"] < left["close"]:
+            continue
+        close_ms = stamp + MINUTE_MS - 1
+        if close_ms > now_ms:
+            continue
+        bars.append(make_bar(
+            symbol="XAUUSD",
+            instrument="XAUUSD_DUKASCOPY",
+            interval="1m",
+            open_time_ms=stamp,
+            close_time_ms=close_ms,
+            open=left["open"],
+            high=left["high"],
+            low=left["low"],
+            close=left["close"],
+            volume=left.get("volume"),
+            bid=left["close"],
+            ask=right["close"],
+            provider="dukascopy",
+            source_type="m1_bid_ask",
+            quote_semantics="dukascopy_xauusd_bid_ask",
+            retrieved_at_ms=retrieved_at_ms,
+            complete=True,
+            fresh=0 <= now_ms - close_ms <= 2 * MINUTE_MS,
+        ))
+    return bars
+
+
+def threes_from_minutes(minutes, now_ms):
+    """A 3-minute bar exists only when three consecutive completed minutes are present."""
+    by = {bar["open_time_ms"]: bar for bar in minutes or []}
+    step = 3 * MINUTE_MS
+    bars = []
+    for start in sorted(by):
+        if start % step != 0:
+            continue
+        slots = [by.get(start + offset * MINUTE_MS) for offset in range(3)]
+        if any(slot is None for slot in slots):
+            continue
+        close_ms = start + step - 1
+        if close_ms > now_ms:
+            continue
+        bars.append(make_bar(
+            symbol="XAUUSD",
+            instrument="XAUUSD_DUKASCOPY",
+            interval="3m",
+            open_time_ms=start,
+            close_time_ms=close_ms,
+            open=slots[0]["open"],
+            high=max(slot["high"] for slot in slots),
+            low=min(slot["low"] for slot in slots),
+            close=slots[-1]["close"],
+            volume=sum(slot.get("volume") or 0 for slot in slots),
+            bid=slots[-1].get("bid"),
+            ask=slots[-1].get("ask"),
+            provider="dukascopy",
+            source_type="m1_bid_ask",
+            quote_semantics="dukascopy_xauusd_bid_ask",
+            retrieved_at_ms=slots[-1].get("retrieved_at_ms") or 0,
+            complete=True,
+            fresh=all(slot.get("fresh") for slot in slots),
+        ))
+    return bars
