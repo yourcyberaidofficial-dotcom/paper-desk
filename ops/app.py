@@ -98,6 +98,19 @@ def _expire():
         session.pop("user_id", None)
         session.pop("user_exp", None)
 
+@app.get("/api/coverage")
+def coverage():
+    from ops.worker import COVERAGE
+    monitor = worker.last_monitor or {}
+    return jsonify({
+        "pairs": [{"symbol": symbol, "interval": interval} for symbol, interval in COVERAGE],
+        "last_monitor_ms": getattr(worker, "last_monitor_ms", 0) or None,
+        "evaluations": monitor.get("evaluations") or [],
+        "delivered": monitor.get("delivered"),
+        "error": monitor.get("error"),
+    })
+
+
 @app.get("/health")
 def health():
     markets = market_snapshot()
@@ -1506,7 +1519,7 @@ async function overview(){
     const fresh = item.data && item.data.fresh === false ? "Feed is not fresh. " : "";
     return `<article class="card" id="card-${item.symbol}"><div class="muted">${item.symbol}</div><div class="price">${price}</div><canvas id="spark-${item.symbol}" class="spark"></canvas><div id="detail-${item.symbol}" class="muted">${fresh}Research state loading.</div></article>`;
   });
-  view.innerHTML = `${accountCard}${selected ? `<p class="muted">Showing your selected markets. <a href="/settings">Change settings</a></p>` : ""}<div class="markets">${cards.join("") || "<p>No markets selected.</p>"}</div><div class="workspace"><article class="card"><h2>Chart</h2><select id="sym"><option>BTCUSDT</option><option>ETHUSDT</option><option>XAUUSD</option></select> <select id="tf"><option>15m</option><option>1h</option><option>4h</option><option>1d</option></select><canvas id="chart"></canvas><p class="muted" id="chartnote">Loading closed candles.</p></article><article class="card"><h2>Profile eligibility</h2><div id="elig">loading</div><p class="muted">Eligibility uses the saved signal style. It is not an order.</p></article></div><article class="card" id="councilcard"><h2>Strategy council</h2><p class="muted">Loading the combined research summary. This is not the account signal style.</p></article>`;
+  view.innerHTML = `${accountCard}${selected ? `<p class="muted">Showing your selected markets. <a href="/settings">Change settings</a></p>` : ""}<div class="markets">${cards.join("") || "<p>No markets selected.</p>"}</div><div class="workspace"><article class="card"><h2>Chart</h2><select id="sym"><option>BTCUSDT</option><option>ETHUSDT</option><option>XAUUSD</option></select> <select id="tf"><option>1m</option><option>3m</option><option>15m</option><option>1h</option><option>4h</option><option>1d</option></select><canvas id="chart"></canvas><p class="muted" id="chartnote">Loading closed candles.</p></article><article class="card"><h2>Profile eligibility</h2><div id="elig">loading</div><p class="muted">Eligibility uses the saved signal style. It is not an order.</p></article></div><article class="card" id="councilcard"><h2>Strategy council</h2><p class="muted">Loading the combined research summary. This is not the account signal style.</p></article>`;
   async function loadChart(){
     const sym = document.getElementById("sym").value, tf = document.getElementById("tf").value;
     const note = document.getElementById("chartnote");
@@ -1579,14 +1592,24 @@ async function signals(){
   const history = (body.history||[]).map(item => `<div class="row"><span>${item.label}</span><span>${item.symbol||""} ${item.scanner_state||""}</span></div><div class="muted">${item.message||""} Not delivered. Not filled.</div>`).join("");
   const intel = (body.strategies||[]).map(item => `<div class="row"><span>${item.name}</span><span>${item.research_status}</span></div><div class="muted">${(item.instruments||[]).join(", ")}. ${item.evidence||""}</div>`).join("");
   const leaders = (body.leaders||[]).map(item => `<div class="row"><span>${item.symbol}</span><span>${item.strategy||"no ranked rule"}</span></div><div class="muted">${item.status||"none"}. ${item.approved?"Approved.":"Not an approved strategy."}</div>`).join("");
-  view.innerHTML = `<p role="status">${body.notice||""}</p><article class="card"><h2>Research leader by market</h2>${leaders||"<p>No market leader has been ranked.</p>"}<p class="muted">A research leader is the highest pre-holdout rank. It is not an approved signal.</p></article><div class="markets">${panels}</div><article class="card"><h2>Saved observations</h2><p class="muted">These are older research notes. They are not the market cards above, and they are not the current scan.</p>${setups||"<p>No saved observation is on file.</p>"}</article><article class="card"><h2>Signal history</h2><label class="field">Show <select id="sigfilter"><option value="">All</option><option value="BTCUSDT">BTCUSDT</option><option value="ETHUSDT">ETHUSDT</option><option value="XAUUSD">XAUUSD</option></select></label><div id="sigrows">${history||"<p>No saved evaluations yet.</p>"}</div><p class="muted">Historical replay is not a fill and was not delivered.</p></article><article class="card"><h2>Why nothing is approved</h2>${intel}</article>`;
+  view.innerHTML = `<p role="status">${body.notice||""}</p><article class="card"><h2>Research leader by market</h2>${leaders||"<p>No market leader has been ranked.</p>"}<p class="muted">A research leader is the highest pre-holdout rank. It is not an approved signal.</p></article><div class="markets">${panels}</div><article class="card" id="coverage"><h2>Twelve market evaluations</h2><p class="muted">Loading the background scan.</p></article><article class="card"><h2>Saved observations</h2><p class="muted">These are older research notes. They are not the market cards above, and they are not the current scan.</p>${setups||"<p>No saved observation is on file.</p>"}</article><article class="card"><h2>Signal history</h2><label class="field">Show <select id="sigfilter"><option value="">All</option><option value="BTCUSDT">BTCUSDT</option><option value="ETHUSDT">ETHUSDT</option><option value="XAUUSD">XAUUSD</option></select></label><div id="sigrows">${history||"<p>No saved evaluations yet.</p>"}</div><p class="muted">Historical replay is not a fill and was not delivered.</p></article><article class="card"><h2>Why nothing is approved</h2>${intel}</article>`;
+  fetch("/api/coverage").then(r=>r.json()).then(cov => {
+    const by = {};
+    (cov.evaluations||[]).forEach(row => { by[row.symbol+" "+row.interval] = row; });
+    const lines = (cov.pairs||[]).map(pair => {
+      const row = by[pair.symbol+" "+pair.interval];
+      return `<div class="row"><span>${pair.symbol} ${pair.interval}</span><span>${row?row.decision:"not scanned yet"}</span></div>`;
+    }).join("");
+    const when = cov.last_monitor_ms ? new Date(cov.last_monitor_ms).toISOString() : "no completed pass";
+    document.getElementById("coverage").innerHTML = `<h2>Twelve market evaluations</h2><p class="muted">Background scan ${when}. These are the same decisions as the terminal. A wait is not an inbox card.</p>${lines}`;
+  }).catch(()=>{ document.getElementById("coverage").innerHTML = `<h2>Twelve market evaluations</h2><p>The coverage list could not be read.</p>`; });
   document.getElementById("sigfilter").onchange = (event) => {
     const chosen = event.target.value;
     document.querySelectorAll("#view article[data-symbol]").forEach(el => { el.hidden = Boolean(chosen) && el.dataset.symbol !== chosen; });
   };
 }
 async function terminal(){
-  view.innerHTML = `<article class="card"><h2>Generate a signal</h2><div class="fieldrow"><label>Market <select id="term-symbol"><option>BTCUSDT</option><option>ETHUSDT</option><option>XAUUSD</option></select></label><label>Timeframe <select id="term-interval"><option>15m</option><option>1h</option><option selected>4h</option><option>1d</option></select></label><label>Strategy <select id="term-strategy"><option value="auto">Auto</option><option value="compress-break-4h-20261028">BTC compression breakout</option><option value="sweep-reclaim-4h-20261028">ETH failed-breakdown</option><option value="london-reclaim-1h-20261028">Gold London reclaim</option><option value="dip-in-trend-1d-20261028">Daily dip in trend</option><option value="quiet-week-reversal-1d-20261028">Quiet week reversal</option></select></label></div><button id="generate" type="button">Generate Signal</button><p id="termstatus" role="status"></p></article><div id="termout"></div><article class="card"><h2>Your requested evaluations</h2><div id="termhist"><p>No requested evaluation yet.</p></div></article>`;
+  view.innerHTML = `<article class="card"><h2>Generate a signal</h2><div class="fieldrow"><label>Market <select id="term-symbol"><option>BTCUSDT</option><option>ETHUSDT</option><option>XAUUSD</option></select></label><label>Timeframe <select id="term-interval"><option>1m</option><option>3m</option><option>15m</option><option>1h</option><option selected>4h</option><option>1d</option></select></label><label>Strategy <select id="term-strategy"><option value="auto">Auto</option><option value="compress-break-4h-20261028">BTC compression breakout</option><option value="sweep-reclaim-4h-20261028">ETH failed-breakdown</option><option value="london-reclaim-1h-20261028">Gold London reclaim</option><option value="dip-in-trend-1d-20261028">Daily dip in trend</option><option value="quiet-week-reversal-1d-20261028">Quiet week reversal</option></select></label></div><button id="generate" type="button">Generate Signal</button><p id="termstatus" role="status"></p></article><div id="termout"></div><article class="card"><h2>Your requested evaluations</h2><div id="termhist"><p>No requested evaluation yet.</p></div></article>`;
   const symbolEl = document.getElementById("term-symbol");
   const intervalEl = document.getElementById("term-interval");
   const strategyEl = document.getElementById("term-strategy");
@@ -1804,13 +1827,15 @@ async function settings(){
   const on = (name) => box[name] ? "checked" : "";
   const tfOn = (tf) => (box.timeframes || ["15m","1h","4h","1d"]).includes(tf) ? "checked" : "";
   const mOn = (m) => (box.markets || ["BTCUSDT","ETHUSDT","XAUUSD"]).includes(m) ? "checked" : "";
-  document.getElementById("inbox-settings").innerHTML = `<h2>In-app inbox</h2><p class="muted">These settings control this account's inbox only. They do not approve a strategy, send Telegram, or place an order. Experimental matches stay labelled unapproved.</p><div class="checks"><label><input type="checkbox" id="in-enabled" ${on("enabled")}> Deliver in-app alerts</label><label><input type="checkbox" id="in-btc" ${mOn("BTCUSDT")}> BTCUSDT</label><label><input type="checkbox" id="in-eth" ${mOn("ETHUSDT")}> ETHUSDT</label><label><input type="checkbox" id="in-gold" ${mOn("XAUUSD")}> XAUUSD</label><label><input type="checkbox" id="in-15m" ${tfOn("15m")}> 15m</label><label><input type="checkbox" id="in-1h" ${tfOn("1h")}> 1h</label><label><input type="checkbox" id="in-4h" ${tfOn("4h")}> 4h</label><label><input type="checkbox" id="in-1d" ${tfOn("1d")}> 1d</label><label><input type="checkbox" id="in-buy" ${on("buy")}> BUY alerts</label><label><input type="checkbox" id="in-sell" ${on("sell")}> SELL alerts</label><label><input type="checkbox" id="in-exp" ${on("experimental")}> Experimental, unapproved matches</label><label><input type="checkbox" id="in-wait" ${on("wait_notices")}> WAIT notices</label></div><button id="saveinbox" type="button">Save inbox delivery</button><p id="inboxsaved" class="muted"></p>`;
+  document.getElementById("inbox-settings").innerHTML = `<h2>In-app inbox</h2><p class="muted">These settings control this account's inbox only. They do not approve a strategy, send Telegram, or place an order. Experimental matches stay labelled unapproved.</p><div class="checks"><label><input type="checkbox" id="in-enabled" ${on("enabled")}> Deliver in-app alerts</label><label><input type="checkbox" id="in-btc" ${mOn("BTCUSDT")}> BTCUSDT</label><label><input type="checkbox" id="in-eth" ${mOn("ETHUSDT")}> ETHUSDT</label><label><input type="checkbox" id="in-gold" ${mOn("XAUUSD")}> XAUUSD</label><label><input type="checkbox" id="in-1m" ${tfOn("1m")}> 1m</label><label><input type="checkbox" id="in-3m" ${tfOn("3m")}> 3m</label><label><input type="checkbox" id="in-15m" ${tfOn("15m")}> 15m</label><label><input type="checkbox" id="in-1h" ${tfOn("1h")}> 1h</label><label><input type="checkbox" id="in-4h" ${tfOn("4h")}> 4h</label><label><input type="checkbox" id="in-1d" ${tfOn("1d")}> 1d</label><label><input type="checkbox" id="in-buy" ${on("buy")}> BUY alerts</label><label><input type="checkbox" id="in-sell" ${on("sell")}> SELL alerts</label><label><input type="checkbox" id="in-exp" ${on("experimental")}> Experimental, unapproved matches</label><label><input type="checkbox" id="in-wait" ${on("wait_notices")}> WAIT notices</label></div><button id="saveinbox" type="button">Save inbox delivery</button><p id="inboxsaved" class="muted"></p>`;
   document.getElementById("saveinbox").onclick = async () => {
     const markets = [];
     if (document.getElementById("in-btc").checked) markets.push("BTCUSDT");
     if (document.getElementById("in-eth").checked) markets.push("ETHUSDT");
     if (document.getElementById("in-gold").checked) markets.push("XAUUSD");
     const timeframes = [];
+    if (document.getElementById("in-1m").checked) timeframes.push("1m");
+    if (document.getElementById("in-3m").checked) timeframes.push("3m");
     if (document.getElementById("in-15m").checked) timeframes.push("15m");
     if (document.getElementById("in-1h").checked) timeframes.push("1h");
     if (document.getElementById("in-4h").checked) timeframes.push("4h");

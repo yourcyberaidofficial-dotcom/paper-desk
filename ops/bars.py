@@ -1,6 +1,13 @@
 """One candle schema. Invalid bars are rejected, never repaired."""
 
-INTERVAL_MS = {"15m": 15 * 60 * 1000, "1h": 60 * 60 * 1000, "4h": 4 * 60 * 60 * 1000, "1d": 24 * 60 * 60 * 1000}
+INTERVAL_MS = {
+    "1m": 60 * 1000,
+    "3m": 3 * 60 * 1000,
+    "15m": 15 * 60 * 1000,
+    "1h": 60 * 60 * 1000,
+    "4h": 4 * 60 * 60 * 1000,
+    "1d": 24 * 60 * 60 * 1000,
+}
 
 
 def interval_ms(interval):

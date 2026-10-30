@@ -173,34 +173,26 @@ def xaus_chart(interval, now_ms=None, timeout=30, attempts=3):
     }
 
 
-def xaus_spot_bars(interval="1h", now_ms=None, timeout=8, attempts=1):
-    """Hourly OHLC from XAUS first-party spot samples. Not the Yahoo chart."""
-    if interval != "1h":
-        return {"ok": False, "reason": "interval_not_available", "bars": [], "provider": "xaus.com"}
-    now_ms = int(now_ms if now_ms is not None else time.time() * 1000)
+def aggregate_spot_samples(points, interval, now_ms):
+    """Bucket five-minute spot prints. A bucket with too few prints is a gap, not a candle."""
     step = interval_ms(interval)
-    status, raw = _get(XAUS_INTRADAY + "?hours=48", timeout=timeout, attempts=attempts)
-    if status != 200:
-        return {"ok": False, "reason": f"http_{status}", "bars": [], "provider": "xaus.com"}
-    payload = json.loads(raw.decode())
+    minimum = 2 if interval == "15m" else 3
     buckets = {}
-    for point in payload.get("points") or []:
+    for point in points or []:
         price = point.get("p")
         if price is None:
             continue
         stamp = int(point["t"])
-        open_ms = (stamp if stamp > 10_000_000_000 else stamp * 1000)
+        open_ms = stamp if stamp > 10_000_000_000 else stamp * 1000
         open_ms -= open_ms % step
         buckets.setdefault(open_ms, []).append(float(price))
     bars = []
     for open_ms in sorted(buckets):
-        close_ms = open_ms + step - 1
-        if close_ms > now_ms:
-            continue
         prices = buckets[open_ms]
-        if len(prices) < 3:
+        close_ms = open_ms + step - 1
+        if close_ms > now_ms or len(prices) < minimum:
             continue
-        bar = make_bar(
+        bars.append(make_bar(
             symbol="XAUUSD",
             instrument="XAUUSD_SPOT",
             interval=interval,
@@ -217,15 +209,35 @@ def xaus_spot_bars(interval="1h", now_ms=None, timeout=8, attempts=1):
             retrieved_at_ms=now_ms,
             complete=True,
             fresh=now_ms - close_ms <= 2 * step and gold_market_open(datetime.fromtimestamp(now_ms / 1000, timezone.utc)),
-        )
-        bars.append(bar)
+        ))
+    return bars
+
+
+def xaus_spot_bars(interval="1h", now_ms=None, timeout=8, attempts=1):
+    """Derived bars from XAUS five-minute spot samples. Not the Yahoo chart and not a one-minute series."""
+    if interval in {"1m", "3m"}:
+        return {
+            "ok": False,
+            "reason": "sample_is_5m",
+            "bars": [],
+            "provider": "xaus.com",
+            "note": "The spot sampler is about five minutes. A 1-minute or 3-minute bar was not created.",
+        }
+    if interval not in {"15m", "1h"}:
+        return {"ok": False, "reason": "interval_not_available", "bars": [], "provider": "xaus.com"}
+    now_ms = int(now_ms if now_ms is not None else time.time() * 1000)
+    status, raw = _get(XAUS_INTRADAY + "?hours=48", timeout=timeout, attempts=attempts)
+    if status != 200:
+        return {"ok": False, "reason": f"http_{status}", "bars": [], "provider": "xaus.com"}
+    payload = json.loads(raw.decode())
+    bars = aggregate_spot_samples(payload.get("points") or [], interval, now_ms)
     return {
         "ok": bool(bars),
         "bars": bars,
         "provider": "xaus.com",
         "quote_semantics": "spot_sample_not_bid_ask",
         "source": "xaus-intraday-spot-sample",
-        "note": "Built from the first-party spot sampler. Not the Yahoo Finance chart proxy.",
+        "note": "Built from five-minute spot samples. Not exchange OHLC and not the Yahoo chart.",
         "samples": payload.get("count"),
     }
 

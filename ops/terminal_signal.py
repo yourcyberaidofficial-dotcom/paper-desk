@@ -215,12 +215,20 @@ def _evaluate(symbol, interval, strategy, bars, now_ms, user, prior=None, live_q
         return {**base, "decision": "WAIT", "reason": "The latest candle is missing, still forming, or too old to treat as live.", "blocked": "stale_or_incomplete"}
     if symbol == "XAUUSD" and not completed_bid_ask_bar(last):
         quote = last.get("quote_semantics") or "missing_bid_ask"
+        if strategy in {None, "", "auto"} and quote == "spot_sample_not_bid_ask" and len(bars) < 24:
+            return {
+                **base,
+                "decision": "WAIT",
+                "reason": f"Only {len(bars)} completed {interval} spot-sample bars were built. 24 are required. A finer candle was not invented.",
+                "blocked": "insufficient_spot_samples",
+                "live_quote": live_quote,
+            }
         if strategy in {None, "", "auto"} and quote == "spot_sample_not_bid_ask" and len(bars) >= 24:
             reading = _requested_reading(base, symbol, interval, bars, user, read_spot_sample)
             reading["gold_basis"] = "spot_sample"
             reading["strategy"] = "gold-spot-sample"
             reading["version"] = "gold-spot-sample"
-            reading = _finish_gold(reading, base, live_quote, "First-party spot samples aggregated to this hour. Not the Yahoo chart and not a bid/ask hour. The London rule was not calculated.")
+            reading = _finish_gold(reading, base, live_quote, f"First-party spot samples aggregated to this {interval}. Not the Yahoo chart and not a bid/ask hour. The London rule was not calculated.")
             return reading
         if strategy in {None, "", "auto"} and quote == "ohlc_not_bid_ask" and len(bars) >= 60:
             reading = _requested_reading(base, symbol, interval, bars, user)

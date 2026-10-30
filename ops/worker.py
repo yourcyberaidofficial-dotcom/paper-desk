@@ -11,6 +11,12 @@ from ops.notify import send_alert
 from ops.e1 import e1_side
 from ops.experimental import ExperimentalBook
 
+COVERAGE = tuple(
+    (symbol, interval)
+    for symbol in ("BTCUSDT", "ETHUSDT", "XAUUSD")
+    for interval in ("1m", "3m", "15m", "1h")
+)
+
 PRODUCTION = "WAIT_DEFAULT"
 
 
@@ -250,20 +256,25 @@ class Worker:
         from ops.terminal_route import load_crypto_bars, load_gold_ohlc
 
         windows = []
-        for symbol, interval in (("BTCUSDT", "15m"), ("BTCUSDT", "4h"), ("ETHUSDT", "15m"), ("ETHUSDT", "4h")):
+        for symbol, interval in COVERAGE:
+            if symbol == "XAUUSD" and interval in {"1m", "3m"}:
+                windows.append({"symbol": symbol, "interval": interval, "bars": [], "reason": "sample_is_5m"})
+                continue
+            if symbol == "XAUUSD":
+                gold = load_gold_ohlc(interval, now_ms)
+                quote = None
+                try:
+                    from ops.gold_live import swissquote_xau
+                    quote = swissquote_xau(now_ms)
+                except Exception:
+                    quote = None
+                windows.append({"symbol": symbol, "interval": interval, "bars": gold or [], "live_quote": quote, "reason": None if gold else "missing_bars"})
+                continue
             loaded = load_crypto_bars(symbol, interval, now_ms)
             if isinstance(loaded, tuple):
                 windows.append({"symbol": symbol, "interval": interval, "bars": [], "reason": loaded[1]})
             else:
                 windows.append({"symbol": symbol, "interval": interval, "bars": loaded or []})
-        quote = None
-        try:
-            from ops.gold_live import swissquote_xau
-            quote = swissquote_xau(now_ms)
-        except Exception:
-            quote = None
-        gold = load_gold_ohlc("1h", now_ms)
-        windows.append({"symbol": "XAUUSD", "interval": "1h", "bars": gold or [], "live_quote": quote, "reason": None if gold else "missing_bars"})
         return windows
 
     def _shadow_book(self):

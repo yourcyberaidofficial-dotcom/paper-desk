@@ -71,9 +71,9 @@ def save_inbox_delivery(user_id: str, incoming: dict) -> dict | None:
     else:
         markets = [item for item in current.get("markets", ["BTCUSDT", "ETHUSDT", "XAUUSD"]) if item in {"BTCUSDT", "ETHUSDT", "XAUUSD"}]
     if "timeframes" in incoming:
-        timeframes = [item for item in incoming.get("timeframes") or [] if item in {"15m", "1h", "4h", "1d"}]
+        timeframes = [item for item in incoming.get("timeframes") or [] if item in {"1m", "3m", "15m", "1h", "4h", "1d"}]
     else:
-        timeframes = [item for item in current.get("timeframes", ["15m", "1h", "4h", "1d"]) if item in {"15m", "1h", "4h", "1d"}]
+        timeframes = [item for item in current.get("timeframes", ["15m", "1h", "4h", "1d"]) if item in {"1m", "3m", "15m", "1h", "4h", "1d"}]
     saved = {
         "enabled": bool(incoming["enabled"]) if "enabled" in incoming else bool(current.get("enabled", True)),
         "markets": markets,
