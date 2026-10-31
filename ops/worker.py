@@ -17,6 +17,37 @@ COVERAGE = tuple(
     for interval in ("1m", "3m", "15m", "1h")
 )
 
+
+def pair_availability():
+    """What this desk can actually read. Gold minutes are not invented."""
+    rows = []
+    for symbol, interval in COVERAGE:
+        if symbol == "XAUUSD" and interval in {"1m", "3m"}:
+            rows.append({
+                "symbol": symbol,
+                "interval": interval,
+                "status": "unavailable",
+                "feed": "none",
+                "reason": "No licensed one-minute XAUUSD spot feed. A five-minute sample is not split into a 1-minute or 3-minute candle.",
+            })
+        elif symbol == "XAUUSD":
+            rows.append({
+                "symbol": symbol,
+                "interval": interval,
+                "status": "spot_sample",
+                "feed": "xaus.com",
+                "reason": "Spot samples aggregated from five-minute observations. Not a verified bid/ask candle.",
+            })
+        else:
+            rows.append({
+                "symbol": symbol,
+                "interval": interval,
+                "status": "binance_spot",
+                "feed": "binance",
+                "reason": "Binance spot klines.",
+            })
+    return rows
+
 PRODUCTION = "WAIT_DEFAULT"
 
 

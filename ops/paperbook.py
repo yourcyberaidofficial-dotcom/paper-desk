@@ -6,6 +6,7 @@ from pathlib import Path
 
 SCHEMA = 1
 COST_BPS_PER_FILL = 11
+CLOSED = {"stopped", "target", "closed"}
 
 
 def _safe(user_id):
@@ -169,12 +170,12 @@ def open_order(user, opportunity, now_ms, commit=True):
     if len(opened_today) >= int(spec["max_trades_per_day"]):
         return {"ok": False, "reason": "daily_count"}
     capital = float(profile.get("capital"))
-    closed_today = [item for item in orders if item.get("status") in {"stopped", "target"} and _day(item.get("closed_ms") or 0) == day]
+    closed_today = [item for item in orders if item.get("status") in CLOSED and _day(item.get("closed_ms") or 0) == day]
     loss_today = -sum(float(item.get("pnl_usd") or 0) for item in closed_today if float(item.get("pnl_usd") or 0) < 0)
     if loss_today >= capital * float(spec["max_daily_loss_percent"]) / 100.0:
         return {"ok": False, "reason": "daily_loss"}
     week = _week(now_ms)
-    week_pnl = sum(float(item.get("pnl_usd") or 0) for item in orders if item.get("status") in {"stopped", "target"} and item.get("week") == week)
+    week_pnl = sum(float(item.get("pnl_usd") or 0) for item in orders if item.get("status") in CLOSED and item.get("week") == week)
     loss_limit = plan.get("weekly_loss_limit_percent")
     if loss_limit not in (None, "") and week_pnl <= -capital * float(loss_limit) / 100.0:
         return {"ok": False, "reason": "weekly_loss"}
@@ -214,7 +215,60 @@ def open_order(user, opportunity, now_ms, commit=True):
     }
     orders.append(order)
     save(user_id, book)
+    _remember_count(user_id, now_ms)
     return {"ok": True, "reason": "opened", "order": order}
+
+
+def _remember_count(user_id, now_ms):
+    from ops.users import ROOT
+    path = ROOT / f"{user_id}.json"
+    if not path.exists():
+        return
+    user = json.loads(path.read_text(encoding="utf-8"))
+    day = _day(now_ms)
+    count = sum(
+        1 for item in load(user_id)["orders"]
+        if _day(item.get("opened_ms") or 0) == day and item.get("status") != "refused"
+    )
+    user["paper_orders_today"] = count
+    path.write_text(json.dumps(user), encoding="utf-8")
+
+
+def close_order(user_id, order_id, exit_price, now_ms):
+    """Close one open paper order at a price the account supplied. No price is invented."""
+    if _safe(user_id) is None or not order_id:
+        return {"ok": False, "reason": "missing"}
+    try:
+        exit_price = float(exit_price)
+    except (TypeError, ValueError):
+        return {"ok": False, "reason": "missing_exit"}
+    if exit_price <= 0:
+        return {"ok": False, "reason": "missing_exit"}
+    book = load(user_id)
+    if book.get("unreadable"):
+        return {"ok": False, "reason": "record_unreadable"}
+    for order in book["orders"]:
+        if order.get("id") != order_id:
+            continue
+        if order.get("status") != "open":
+            return {"ok": False, "reason": "not_open"}
+        entry = float(order["entry"])
+        pnl, cost = _pnl(order["direction"], entry, exit_price, float(order["quantity"]))
+        order["status"] = "closed"
+        order["exit_price"] = exit_price
+        order["pnl_usd"] = pnl
+        order["cost_usd"] = cost
+        order["closed_ms"] = int(now_ms)
+        order["events"] = list(order.get("events") or [])
+        order["events"].append({
+            "state": "closed",
+            "created_ms": int(now_ms),
+            "exit_price": exit_price,
+            "note": "Closed by the account at a stated price. The original entry, stop and target were not changed. This is not a broker fill.",
+        })
+        save(user_id, book)
+        return {"ok": True, "reason": "closed", "order": order}
+    return {"ok": False, "reason": "missing"}
 
 
 def observe(user_id, symbol, interval, bar, now_ms):
@@ -261,18 +315,49 @@ def observe(user_id, symbol, interval, bar, now_ms):
     return {"updated": changed}
 
 
+def performance(user_id):
+    """Figures come only from closed paper orders. An empty book stays empty."""
+    book = load(user_id)
+    orders = book.get("orders") or []
+    closed = [row for row in orders if row.get("status") in CLOSED and row.get("pnl_usd") is not None]
+    if not closed:
+        return {
+            "trades": 0,
+            "pnl_usd": None,
+            "costs_usd": None,
+            "wins": 0,
+            "losses": 0,
+            "win_rate": None,
+            "note": "No completed paper trade. Ambiguous candles are not counted.",
+        }
+    pnl = sum(float(row.get("pnl_usd") or 0) for row in closed)
+    costs = sum(float(row.get("cost_usd") or 0) for row in closed)
+    wins = sum(1 for row in closed if float(row.get("pnl_usd") or 0) > 0)
+    losses = sum(1 for row in closed if float(row.get("pnl_usd") or 0) < 0)
+    return {
+        "trades": len(closed),
+        "pnl_usd": pnl,
+        "costs_usd": costs,
+        "wins": wins,
+        "losses": losses,
+        "win_rate": wins / len(closed),
+        "note": "Paper estimate after 11 bps per side. Not a broker result and not a validated return.",
+    }
+
+
 def summary(user_id):
     book = load(user_id)
     orders = book.get("orders") or []
-    closed = [row for row in orders if row.get("status") in {"stopped", "target"}]
-    pnl = sum(float(row.get("pnl_usd") or 0) for row in closed)
+    closed = [row for row in orders if row.get("status") in CLOSED and row.get("pnl_usd") is not None]
+    figures = performance(user_id)
     return {
         "schema": book.get("schema") or SCHEMA,
         "open": [row for row in orders if row.get("status") == "open"],
         "ambiguous": [row for row in orders if row.get("status") == "ambiguous"],
         "closed": closed,
         "orders": orders,
-        "pnl_usd": pnl if closed else None,
+        "pnl_usd": figures["pnl_usd"],
+        "performance": figures,
         "trades": len(closed),
         "empty": not orders,
         "note": "Closed paper trades use an unrounded spot estimate and 11 bps per side. Ambiguous candles are not fills and are not counted. Nothing here is a broker result.",

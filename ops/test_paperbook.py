@@ -141,5 +141,47 @@ def test_paper_route_is_private(tmp_path, monkeypatch):
     opened = client.post("/api/paper/orders", json={"opportunity_id": delivered["opportunity_id"]})
     assert opened.status_code == 200
     assert opened.get_json()["order"]["entry"] == 100.0
+    closed = client.post("/api/paper/close", json={"order_id": opened.get_json()["order"]["id"], "exit_price": 98})
+    assert closed.status_code == 200
+    assert closed.get_json()["order"]["entry"] == 100.0
+    assert client.get("/api/paper/book").get_json()["performance"]["trades"] == 1
     page = client.get("/portfolio").get_data(as_text=True)
-    assert "No paper position" in page or "paper" in page.lower()
+    assert "No completed paper trade" in page or "paper" in page.lower()
+
+
+def test_a_manual_close_is_the_only_new_pnl_and_ambiguous_is_excluded(tmp_path, monkeypatch):
+    users, owner, other = _account(tmp_path, monkeypatch)
+    delivered = deliver_evaluation(owner["id"], users.get(owner["id"]), _plan(decision="BUY", entry=100, stop=99, target=103))
+    user = users.get(owner["id"])
+    user["id"] = owner["id"]
+    from ops.paperbook import close_order, opportunity_row, performance
+    opened = open_order(user, opportunity_row(owner["id"], delivered["opportunity_id"]), 1_700_000_100_000)
+    assert performance(owner["id"])["win_rate"] is None
+    missing = close_order(owner["id"], opened["order"]["id"], None, 1_700_000_200_000)
+    assert missing["reason"] == "missing_exit"
+    closed = close_order(owner["id"], opened["order"]["id"], 102, 1_700_000_200_000)
+    assert closed["ok"] is True
+    assert closed["order"]["entry"] == 100.0
+    assert closed["order"]["stop"] == 99.0
+    assert closed["order"]["cost_usd"] > 0
+    figures = performance(owner["id"])
+    assert figures["trades"] == 1
+    assert figures["win_rate"] == 1
+    second = deliver_evaluation(owner["id"], users.get(owner["id"]), _plan())
+    opened_sell = open_order(users.get(owner["id"]) | {"id": owner["id"]}, opportunity_row(owner["id"], second["opportunity_id"]), 1_700_000_300_000)
+    observe(owner["id"], "BTCUSDT", "15m", {"high": 102, "low": 96}, 1_700_000_400_000)
+    assert summary(owner["id"])["ambiguous"]
+    assert performance(owner["id"])["trades"] == 1
+    assert close_order(other["id"], opened["order"]["id"], 102, 1_700_000_500_000)["reason"] == "missing"
+    saved = users.get(owner["id"])
+    assert saved["paper_orders_today"] == 2
+    assert opened_sell["ok"] is True
+
+
+def test_twelve_pairs_name_gold_minutes_as_unavailable():
+    from ops.worker import pair_availability
+    rows = pair_availability()
+    assert len(rows) == 12
+    blocked = [row for row in rows if row["status"] == "unavailable"]
+    assert {(row["symbol"], row["interval"]) for row in blocked} == {("XAUUSD", "1m"), ("XAUUSD", "3m")}
+    assert all(row["status"] == "binance_spot" for row in rows if row["symbol"] in {"BTCUSDT", "ETHUSDT"})
