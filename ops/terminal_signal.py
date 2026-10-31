@@ -156,6 +156,8 @@ def decide(symbol, interval, strategy, bars, now_ms, user, prior=None, live_quot
     result = apply_persona(result, user)
     from ops.plan import present_size
     result["size_presentation"] = present_size(result.get("size"))
+    from ops.paperbook import paper_permission
+    result["paper"] = paper_permission(user if isinstance(user, dict) and user.get("id") else {"id": None, "profile": (user or {}).get("profile") if isinstance(user, dict) else {}, "plan": (user or {}).get("plan") if isinstance(user, dict) else {}, "inbox_delivery": (user or {}).get("inbox_delivery") if isinstance(user, dict) else {}}, result)
     if result.get("runtime_status") == "experimental" and result.get("decision") == "BUY" and not result.get("blocked"):
         result["decision_label"] = "BUY · Experimental"
     elif result.get("runtime_status") == "experimental" and result.get("sell_meaning") == "short_idea" and not result.get("blocked"):

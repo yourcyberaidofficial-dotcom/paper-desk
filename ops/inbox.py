@@ -209,7 +209,7 @@ def retire_opportunity(user_id, opportunity_id, now_ms, note=None):
     return changed
 
 
-def expire_stale(user_id, symbol, interval, now_ms):
+def expire_stale(user_id, symbol, interval, now_ms, protect_bar_ms=None):
     """Expire a card only when its own originating bar is no longer current."""
     if _safe(user_id) is None:
         return 0
@@ -231,6 +231,12 @@ def expire_stale(user_id, symbol, interval, now_ms):
             continue
         if not close or now_ms - close <= 2 * step:
             continue
+        if protect_bar_ms is not None:
+            try:
+                if close == int(protect_bar_ms):
+                    continue
+            except (TypeError, ValueError):
+                pass
         row["lifecycle"] = "expired"
         row["lifecycle_note"] = "This entry expired because its own candle is no longer current. Other setups were not retired."
         changed += 1

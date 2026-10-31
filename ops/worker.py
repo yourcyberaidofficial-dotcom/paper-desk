@@ -245,11 +245,14 @@ class Worker:
                 "id": result.get("id") if result.get("id") else None,
             })
             from ops.inbox import append_event, expire_stale
+            from ops.paperbook import observe
             from ops.plan import observe_levels
             from ops.terminal_signal import apply_persona
             if result.get("decision") not in {"BUY", "SELL"} or result.get("entry") is None or result.get("stop") is None or result.get("target") is None:
                 for user in users:
                     expire_stale(user.get("id"), symbol, interval, now_ms)
+                    if bars:
+                        observe(user.get("id"), symbol, interval, bars[-1], now_ms)
                 continue
             last_bar = bars[-1] if bars else None
             for user in users:
@@ -265,7 +268,9 @@ class Worker:
                         "note": observation["note"],
                         "created_ms": now_ms,
                     })
-                expire_stale(user.get("id"), symbol, interval, now_ms)
+                if last_bar:
+                    observe(user.get("id"), symbol, interval, last_bar, now_ms)
+                expire_stale(user.get("id"), symbol, interval, now_ms, protect_bar_ms=result.get("bar_close_ms"))
         return {"evaluated_at_ms": now_ms, "evaluations": evaluations, "delivered": delivered, "error": None}
 
     def _monitor_windows(self, now_ms):

@@ -166,6 +166,14 @@ def _market_report(snapshot):
             status = "stale"
         out[symbol] = {"status": status, "last_close_time_ms": close_ms, "source": row.get("source") or "unknown"}
     out["XAUUSD"] = {"status": "not_checked", "reason": "health_does_not_treat_spot_as_a_candle", "source": "none"}
+    scan = getattr(worker, "last_monitor", None) or {}
+    gold = [row for row in (scan.get("evaluations") or []) if row.get("symbol") == "XAUUSD"]
+    out["XAUUSD"] = {
+        "status": "scanned" if gold else "not_scanned",
+        "reason": "last background scan" if gold else "no completed gold scan in this process",
+        "source": "worker",
+        "rows": [{k: row.get(k) for k in ("interval", "decision", "reason")} for row in gold],
+    }
     return out
 
 
@@ -341,6 +349,38 @@ def paper_status():
         except Exception as exc:
             return jsonify({"open": None, "rows": [], "label": "Research notes are not orders.", "broker": False, "error": "unavailable"})
     return jsonify({"open": None, "rows": [], "label": "Research notes are not orders.", "broker": False})
+
+
+def _session_user():
+    from ops.users import get
+    user_id = session.get("user_id")
+    if not user_id:
+        return None, None
+    return user_id, get(user_id)
+
+
+@app.get("/api/paper/book")
+def paper_book():
+    user_id, _user = _session_user()
+    if not user_id:
+        return jsonify({"error": "unauthorized"}), 401
+    from ops.paperbook import summary
+    return jsonify(summary(user_id))
+
+
+@app.post("/api/paper/orders")
+def paper_open():
+    user_id, user = _session_user()
+    if not user_id or not user:
+        return jsonify({"error": "unauthorized"}), 401
+    from ops.paperbook import open_order, opportunity_row
+    body = request.json or {}
+    row = opportunity_row(user_id, body.get("opportunity_id"))
+    if not row:
+        return jsonify({"ok": False, "reason": "missing_opportunity"}), 404
+    user["id"] = user_id
+    result = open_order(user, row, int(time.time() * 1000))
+    return jsonify(result), (200 if result.get("ok") else 409)
 
 
 def _remember(key, ttl, loader):
@@ -573,7 +613,8 @@ def plan_get():
     profile = user.get("profile") or {}
     cap = risk_cap(profile.get("signal_style"))
     plan = user.get("plan") or normalize({}, {}, cap)
-    return jsonify({"plan": plan, "week": week_status(plan, int(time.time() * 1000)), "style_cap": cap, "currency": profile.get("currency")})
+    from ops.paperbook import as_fills
+    return jsonify({"plan": plan, "week": week_status(plan, int(time.time() * 1000), as_fills(user_id)), "style_cap": cap, "currency": profile.get("currency")})
 
 
 @app.post("/api/plan")
@@ -1667,7 +1708,19 @@ async function terminal(){
         ? `Watch, not an entry. Level ${body.watch_entry==null?"—":body.watch_entry}. Stop ${body.watch_stop==null?"—":body.watch_stop}. Target ${body.watch_target==null?"—":body.watch_target}.`
         : `Entry ${body.entry==null?"—":body.entry}. Stop ${body.stop==null?"—":body.stop}. Target ${body.target==null?"—":body.target}. Reward/risk ${body.reward_risk==null?"—":Number(body.reward_risk).toFixed(2)}.`;
       const persona = body.persona_name ? `${body.persona_name}. ${body.persona_note || ""}` : "";
-      out.innerHTML = `<article class="card" data-request="${requestId}" data-symbol="${body.symbol}" data-interval="${body.interval}"><p data-stale-note></p><h2>${headline}</h2><p>${body.reason||""}</p><p>${experimental}</p><div class="row"><span>${body.symbol||""} ${body.interval||""}</span><span>${body.reference_price==null?"no price":body.reference_price}</span></div><p class="muted">Request ${requestId}. Requested ${body.requested_symbol||""} ${body.requested_interval||""} ${body.requested_strategy||""}. Resolved strategy ${body.strategy||""}.</p><p class="muted">${body.fresh?"Completed candle is fresh.":"Not a fresh live candle."} Source ${body.source_name||"unknown"}. Quote ${body.quote||"unknown"}. Candle ${body.bar_close_ms?new Date(body.bar_close_ms).toISOString():"unknown"}.</p><p>Validation: ${body.validation_status||"unknown"}. ${body.approved?"Approved.":"Not an approved strategy and not a claim of profit."} ${body.eligible_for_alert?"Eligible for an alert.":"Not eligible for an official alert."}</p><p>${persona}</p><p>${plan}</p><p>${size}</p><p class="muted">${body.evidence_semantics||""} ${body.costs?body.costs.note||"":""} ${body.invalidation||""}</p></article>`;
+      const paper = body.paper && body.paper.allowed ? `<p><button id="openpaper" type="button">Open a paper trade on this plan</button></p><p class="muted">This records a paper estimate for your account. It does not send a broker order. The quantity is not an exchange lot.</p>` : `<p class="muted">Paper trade unavailable${body.paper&&body.paper.reason?": "+body.paper.reason:"."} The market plan is unchanged.</p>`;
+      out.innerHTML = `<article class="card" data-request="${requestId}" data-symbol="${body.symbol}" data-interval="${body.interval}"><p data-stale-note></p><h2>${headline}</h2><p>${body.reason||""}</p><p>${experimental}</p><div class="row"><span>${body.symbol||""} ${body.interval||""}</span><span>${body.reference_price==null?"no price":body.reference_price}</span></div><p class="muted">Request ${requestId}. Requested ${body.requested_symbol||""} ${body.requested_interval||""} ${body.requested_strategy||""}. Resolved strategy ${body.strategy||""}.</p><p class="muted">${body.fresh?"Completed candle is fresh.":"Not a fresh live candle."} Source ${body.source_name||"unknown"}. Quote ${body.quote||"unknown"}. Candle ${body.bar_close_ms?new Date(body.bar_close_ms).toISOString():"unknown"}.</p><p>Validation: ${body.validation_status||"unknown"}. ${body.approved?"Approved.":"Not an approved strategy and not a claim of profit."} ${body.eligible_for_alert?"Eligible for an alert.":"Not eligible for an official alert."}</p><p>${persona}</p><p>${plan}</p><p>${size}</p><p class="muted">${body.evidence_semantics||""} ${body.costs?body.costs.note||"":""} ${body.invalidation||""}</p>${paper}</article>`;
+      const opener = document.getElementById("openpaper");
+      if (opener && body.inbox_delivery && body.inbox_delivery.opportunity_id) {
+        opener.onclick = async () => {
+          const opened = await fetch("/api/paper/orders", {method:"POST", credentials:"same-origin", headers:{"Content-Type":"application/json"}, body: JSON.stringify({opportunity_id: body.inbox_delivery.opportunity_id})});
+          const payload = await opened.json().catch(()=>({}));
+          opener.textContent = opened.ok && payload.ok ? "Paper trade recorded." : ("Not opened. " + (payload.reason || "Try again from the inbox."));
+        };
+      } else if (opener) {
+        opener.textContent = "Save the plan to your inbox before opening a paper trade.";
+        opener.disabled = true;
+      }
       history();
     } catch (err) {
       if (mine !== ticket) return;
@@ -1722,7 +1775,7 @@ async function scannerPage(){
   window.__scanTimer = setInterval(loadScan, 15000);
 }
 async function learnPage(){
-  view.innerHTML = `<article class="card"><h2>How to read the desk</h2><p>A candlestick shows the open, high, low and close of one completed period. A 15-minute candle is fifteen minutes of trades. A one-hour candle is one hour. The scanner uses only candles that have already closed.</p><p>E1 Donchian-20 compares the latest close with the highest high and lowest low of the previous 20 completed bars. SMA20 is the average of the last 20 closes. RSI14 is a momentum reading. They are research observations. If E1 is waiting, that research note waits. It does not force Apex, Orion or Aegis to wait, and those styles are not votes of E1, SMA20 and RSI14.</p></article><article class="card"><h2>What a result means</h2><ul><li>No qualifying setup yet: the rule did not match.</li><li>Research observation: a condition was seen. It is not an order.</li><li>Paper candidate: the written rule is complete, and it is still not approved.</li><li>Approved signal: only after a promotion record exists. None exists now.</li><li>Paper trade: a simulated fill. Broker execution is off, so this desk does not send one.</li></ul><p>WAIT means the rule or the data does not justify an entry. It is the safe result, not a missing page.</p></article><article class="card"><h2>Accounts and alerts</h2><p>Apex Momentum caps risk at 2.5% of paper capital. Orion Precision caps it at 1.5%. Aegis Shield caps it at 0.8%. These are ceilings. Changing the base currency does not convert the stored amount.</p><p>Connect Telegram from Settings. The link is single-use. A connected chat can be removed, and a removed chat receives nothing. Trade alerts stay off until a strategy is explicitly approved.</p><p>The evidence grade is a checklist. It is not a probability of profit, and it has not been calibrated. A weekly aim is a personal target. Missing it is shown as a shortfall. The aim does not create a signal or raise risk.</p></article>`;
+  view.innerHTML = `<article class="card"><h2>How to read the desk</h2><p>A candlestick shows the open, high, low and close of one completed period. A 15-minute candle is fifteen minutes of trades. A one-hour candle is one hour. The scanner uses only candles that have already closed.</p><p>E1 Donchian-20 compares the latest close with the highest high and lowest low of the previous 20 completed bars. SMA20 is the average of the last 20 closes. RSI14 is a momentum reading. They are research observations. If E1 is waiting, that research note waits. It does not force Apex, Orion or Aegis to wait, and those styles are not votes of E1, SMA20 and RSI14.</p></article><article class="card"><h2>What a result means</h2><ul><li>No qualifying setup yet: the rule did not match.</li><li>Research observation: a condition was seen. It is not an order.</li><li>Paper candidate: the written rule is complete, and it is still not approved.</li><li>Approved signal: only after a promotion record exists. None exists now.</li><li>Paper trade: a simulated fill. Broker execution is off, so this desk does not send one.</li></ul><p>WAIT means the rule or the data does not justify an entry. It is the safe result, not a missing page.</p></article><article class="card"><h2>Accounts and alerts</h2><p>Apex Momentum caps risk at 2.5% of paper capital. Orion Precision caps it at 1.5%. Aegis Shield caps it at 0.8%. These are ceilings. Changing the base currency does not convert the stored amount.</p><p>A paper trade is opened only when you press the button on a saved plan. Apex sizes up to 2.5% when reward/risk is at least 1.7. Orion requires 2.0 and caps risk at 1.5%. Aegis requires 2.5 and caps risk at 0.8%. A plan below the floor stays visible and cannot be opened. The daily loss limit and the weekly loss limit block a new paper order. They do not change the market reading. Gold 1-minute and 3-minute data are not available. A candle that reaches both the stop and the target stays unresolved.</p><p>The evidence grade is a checklist. It is not a probability of profit, and it has not been calibrated. A weekly aim is a personal target. Missing it is shown as a shortfall. The aim does not create a signal or raise risk.</p></article>`;
 }
 async function planPage(){
   const response = await fetch("/api/plan", {credentials:"same-origin"});
@@ -1732,7 +1785,7 @@ async function planPage(){
   const week = body.week || {};
   const catalog = await fetch("/api/registry", {credentials:"same-origin"}).then(r => r.json());
   const options = (catalog.strategies||[]).map(s => `<label><input type="checkbox" value="${s.id}" ${ (plan.strategies||[]).includes(s.id) ? "checked" : "" }> ${s.name} · ${s.research_status} · not approved</label>`).join("");
-  view.innerHTML = `<article class="card"><h2>This week ${week.week||""}</h2><p>Chosen aim: ${week.aim_percent==null?"not set":week.aim_percent+"%"}.</p><p>${week.paper_note||""}</p><p class="muted">Approved alerts this week: ${week.approved_alerts}. Simulated trades: ${week.simulated_trades}. A target does not force a signal.</p></article><form id="planform" class="card"><h2>Plan</h2><p id="plannote" role="status"></p><label>Mode <select id="mode"><option value="auto">Auto: evaluate every compatible strategy</option><option value="selected">Selected strategies only</option></select></label><div class="checks">${options}</div><label>Minimum evidence grade <input id="grade" type="number" min="0" max="100" value="${plan.min_evidence_grade||0}"></label><p class="muted">This is a checklist score, not a probability of profit.</p><label>Weekly aim percent <input id="aim" type="number" min="0" max="100" step="any" value="${plan.weekly_aim_percent??""}"></label><label>Weekly loss limit percent <input id="loss" type="number" min="0" max="100" step="any" value="${plan.weekly_loss_limit_percent??""}"></label><label>Per-trade risk percent <input id="risk" type="number" min="0" max="100" step="any" value="${plan.risk_per_trade_percent??""}"></label><p class="muted">Style cap ${body.style_cap==null?"not set":body.style_cap+"%"}. A higher number is rejected. Currency stays ${body.currency||"unset"} and is not converted.</p><label><input id="research" type="checkbox" ${plan.research_alerts?"checked":""}> Optional research notes in the app. Off by default. These are not trade alerts.</label><button type="submit">Save plan</button></form>`;
+  view.innerHTML = `<article class="card"><h2>This week ${week.week||""}</h2><p>Chosen aim: ${week.aim_percent==null?"not set":week.aim_percent+"%"}.</p><p>${week.paper_note||""}</p><p class="muted">Approved alerts this week: ${week.approved_alerts}. Simulated trades: ${week.simulated_trades}. A target does not force a signal. The weekly loss limit blocks a new paper order once it is reached.</p></article><form id="planform" class="card"><h2>Plan</h2><p id="plannote" role="status"></p><label>Mode <select id="mode"><option value="auto">Auto: evaluate every compatible strategy</option><option value="selected">Selected strategies only</option></select></label><div class="checks">${options}</div><label>Minimum evidence grade <input id="grade" type="number" min="0" max="100" value="${plan.min_evidence_grade||0}"></label><p class="muted">This is a checklist score, not a probability of profit.</p><label>Weekly aim percent <input id="aim" type="number" min="0" max="100" step="any" value="${plan.weekly_aim_percent??""}"></label><label>Weekly loss limit percent <input id="loss" type="number" min="0" max="100" step="any" value="${plan.weekly_loss_limit_percent??""}"></label><label>Per-trade risk percent <input id="risk" type="number" min="0" max="100" step="any" value="${plan.risk_per_trade_percent??""}"></label><p class="muted">Style cap ${body.style_cap==null?"not set":body.style_cap+"%"}. A higher number is rejected. Currency stays ${body.currency||"unset"} and is not converted.</p><label><input id="research" type="checkbox" ${plan.research_alerts?"checked":""}> Optional research notes in the app. Off by default. These are not trade alerts.</label><button type="submit">Save plan</button></form>`;
   document.getElementById("mode").value = plan.mode || "auto";
   document.getElementById("planform").onsubmit = async (event) => {
     event.preventDefault();
@@ -1748,11 +1801,16 @@ async function inboxPage(){
   if (response.status === 401) { view.innerHTML = `<article class="card"><h2>Sign in required</h2><p><a href="/login">Sign in</a> to see your inbox.</p></article>`; return; }
   const body = await response.json();
   const rows = body.items || [];
-  const list = rows.map(item => `<article class="card" data-kind="${item.kind||""}" data-symbol="${item.symbol||""}"><h2>${item.lifecycle==="superseded"||item.lifecycle==="expired" ? item.lifecycle.toUpperCase()+" · " : ""}${item.decision || item.state || "Notice"} · ${item.symbol || "Desk"} ${item.interval || ""}</h2><p>${item.lifecycle_note || item.label || ""}</p><p>${item.message || ""}</p><div class="row"><span>Entry ${item.entry==null?"—":item.entry}</span><span>Stop ${item.stop==null?"—":item.stop}</span></div><div class="row"><span>Target ${item.target==null?"—":item.target}</span><span>${item.reference_price==null?"no price":item.reference_price}</span></div><p class="muted">${item.strategy || "no strategy"} ${item.version || ""}. Validation ${item.validation_status || "n/a"}. ${item.fresh?"Fresh completed candle.":"Not marked fresh."} ${item.approved?"Approved.":"Not approved."}</p><p class="muted">${item.invalidation || ""} ${item.read ? "read" : "unread"} · ${item.created_ms ? new Date(item.created_ms).toISOString() : ""}</p>${item.actionable ? "" : "<p>Not an approved trade.</p>"}<button type="button" data-id="${item.id}">Mark read</button></article>`).join("");
+  const list = rows.map(item => `<article class="card" data-kind="${item.kind||""}" data-symbol="${item.symbol||""}"><h2>${item.lifecycle==="superseded"||item.lifecycle==="expired" ? item.lifecycle.toUpperCase()+" · " : ""}${item.decision || item.state || "Notice"} · ${item.symbol || "Desk"} ${item.interval || ""}</h2><p>${item.lifecycle_note || item.label || ""}</p><p>${item.message || ""}</p><div class="row"><span>Entry ${item.entry==null?"—":item.entry}</span><span>Stop ${item.stop==null?"—":item.stop}</span></div><div class="row"><span>Target ${item.target==null?"—":item.target}</span><span>${item.reference_price==null?"no price":item.reference_price}</span></div><p class="muted">${item.strategy || "no strategy"} ${item.version || ""}. Validation ${item.validation_status || "n/a"}. ${item.fresh?"Fresh completed candle.":"Not marked fresh."} ${item.approved?"Approved.":"Not approved."}</p><p class="muted">${item.invalidation || ""} ${item.read ? "read" : "unread"} · ${item.created_ms ? new Date(item.created_ms).toISOString() : ""}</p>${item.decision==="BUY"||item.decision==="SELL"?`<button type="button" data-paper="${item.opportunity_id||""}">Open paper trade</button>`:""}${item.actionable ? "" : "<p>Not an approved trade.</p>"}<button type="button" data-id="${item.id}">Mark read</button></article>`).join("");
   view.innerHTML = `<p role="status">${body.unread || 0} unread.</p>${list || "<article class='card'><h2>No notifications</h2><p>A quiet scan is recorded once a day. A research note appears only if you opted in. Nothing here is a trade alert unless a strategy has been approved. None has.</p></article>"}<button id="readall" type="button">Mark all read</button>`;
   const refresh = async (id) => { await fetch("/api/notifications/read", {method:"POST", credentials:"same-origin", headers:{"Content-Type":"application/json"}, body: JSON.stringify(id ? {id} : {})}); inboxPage(); };
   document.getElementById("readall").onclick = () => refresh(null);
   document.querySelectorAll("[data-id]").forEach(button => { button.onclick = () => refresh(button.dataset.id); });
+  document.querySelectorAll("[data-paper]").forEach(button => { button.onclick = async () => {
+    const opened = await fetch("/api/paper/orders", {method:"POST", credentials:"same-origin", headers:{"Content-Type":"application/json"}, body: JSON.stringify({opportunity_id: button.dataset.paper})});
+    const payload = await opened.json().catch(()=>({}));
+    button.textContent = opened.ok && payload.ok ? "Paper trade recorded" : ("Not opened: " + (payload.reason || "unavailable"));
+  }; });
 }
 async function load(){
   if (path === "/notifications") return inboxPage();
@@ -1788,37 +1846,33 @@ async function liveActivities(){
   view.innerHTML = `<article class="card"><h2>Live Activities</h2><p>This page reads the same account events as the Inbox. It does not calculate a second signal.</p><p>Completed candles are judged when the background worker runs, about once a minute. A refresh of this page does not make that scan faster. Last scan ${age==null?"has no recorded time":age+" seconds ago"}. This is not a tick feed, and a target or stop touch is not a broker fill.</p></article>${list || "<article class='card'><p>No open experimental plan for this account.</p></article>"}`;
 }
 async function paperPages(){
-  const p = await fetch("/api/paper-status").then(r=>r.json()).catch(()=>({open:null, rows:[], observations:[], label:""}));
-  const me = await fetch("/api/me").then(r=>r.ok?r.json():null);
-  const code = me && me.profile && me.profile.currency;
-  const bias = new Set(["LONG_BIAS","SHORT_BIAS","WAIT","NEUTRAL"]);
-  const trades = (p.rows||[]).filter(r => r.side && !bias.has(r.side));
-  const open = p.open && p.open.side && !bias.has(p.open.side) ? p.open : null;
-  const observations = p.observations || [];
-  const obsNote = observations.length ? `<p class="muted">${observations.length} research observation${observations.length===1?"":"s"} saved. ${label(observations[observations.length-1].side||"")} is not a holding and not an order.</p>` : "";
+  const response = await fetch("/api/paper/book", {credentials:"same-origin"});
+  if (response.status === 401) { view.innerHTML = `<article class="card"><h2>Sign in required</h2><p><a href="/login">Sign in</a> to see paper trades.</p></article>`; return; }
+  const book = await response.json().catch(()=>({empty:true, open:[], closed:[], ambiguous:[], note:""}));
+  const money = (value) => value==null ? "—" : Number(value).toFixed(2);
   if (path === "/portfolio") {
-    const body = open
-      ? `<div class="row"><span>Paper position</span><span>${open.asset} ${open.side}</span></div><div class="row"><span>Entry</span><span>${open.entry_price}</span></div><p class="muted">Recorded paper order. ${p.label||""}</p>`
-      : `<p>No open paper position.</p><p class="muted">A bullish or bearish research state is not a holding. Nothing is shown as a position until an order side is recorded.</p>${obsNote}`;
-    view.innerHTML = `<article class="card"><h2>Portfolio</h2><div class="row"><span>Configured paper capital</span><span>${money(me && me.profile && me.profile.capital, code||"")}</span></div>${body}</article>`;
+    const open = (book.open||[]).map(row => `<div class="row"><span>${row.symbol} ${row.direction}</span><span>Entry ${row.entry}</span></div><p class="muted">${row.family||""} ${row.interval}. Risk budget ${money(row.risk_budget_usd)} USD. Quantity ${row.quantity} is an unrounded paper estimate, not an exchange lot. Stop ${row.stop}. Target ${row.target}.</p>`).join("");
+    const amb = (book.ambiguous||[]).map(row => `<p>${row.symbol} ${row.direction} is unresolved. The candle reached both prices, so it is not a fill.</p>`).join("");
+    view.innerHTML = `<article class="card"><h2>Portfolio</h2><p>${book.empty?"No paper position is open, and no paper trade has been closed.":"Closed paper result "+money(book.pnl_usd)+" USD across "+book.trades+" completed paper trades."}</p>${open||"<p>No open paper position.</p>"}${amb}<p class="muted">${book.note||""} A research observation is not a holding.</p></article>`;
     return;
   }
-  const list = trades.map(r => `<div class="row"><span>${r.type}</span><span>${r.asset||""} ${r.side||""}</span></div>`).join("");
-  view.innerHTML = `<article class="card"><h2>Orders and trade history</h2>${list || "<p>No recorded paper orders.</p>"}<p class="muted">Signal evaluations and directional observations are not listed as trades. ${p.label||""}</p>${obsNote}</article>`;
+  const rows = (book.orders||[]).map(row => `<div class="row"><span>${row.status}</span><span>${row.symbol} ${row.direction}</span></div><p class="muted">Entry ${row.entry}. Stop ${row.stop}. Target ${row.target}. ${row.exit_price==null?"No exit.":"Exit "+row.exit_price+". Paper result "+money(row.pnl_usd)+" USD."} ${row.note||""}</p>`).join("");
+  view.innerHTML = `<article class="card"><h2>Orders and trade history</h2>${rows||"<p>No paper orders. Opening one is a separate action from receiving a plan.</p>"}<p class="muted">${book.note||""}</p></article>`;
 }
 async function riskPage(){
   const me = await fetch("/api/me").then(r=>r.ok?r.json():null);
   const profile = (me && me.profile) || {};
-  view.innerHTML = `<article class="card"><h2>Risk</h2><div class="row"><span>Active style</span><span>${profile.signal_style_name||"Not selected"}</span></div><div class="row"><span>Risk posture</span><span>${profile.risk_mode||"unset"}</span></div><div class="row"><span>Max risk per trade</span><span>${profile.max_risk_pct==null?"Not set":profile.max_risk_pct+"%"}</span></div><div class="row"><span>Max daily loss</span><span>${profile.max_daily_loss_percent==null?"Not set":profile.max_daily_loss_percent+"%"}</span></div><div class="row"><span>Max open risk</span><span>${profile.max_open_risk_percent==null?"Not set":profile.max_open_risk_percent+"%"}</span></div><div class="row"><span>Minimum reward/risk</span><span>${profile.min_rr==null?"Not set":profile.min_rr}</span></div><p class="muted">These caps come from the selected Awuru account style. Apex per-trade risk is 2.5%. A 4% figure, where shown, is the style's daily-loss ceiling, not the per-trade limit. Production remains WAIT_DEFAULT, so this page does not place an order.</p></article>`;
+  view.innerHTML = `<article class="card"><h2>Risk</h2><div class="row"><span>Active style</span><span>${profile.signal_style_name||"Not selected"}</span></div><div class="row"><span>Risk posture</span><span>${profile.risk_mode||"unset"}</span></div><div class="row"><span>Max risk per trade</span><span>${profile.max_risk_pct==null?"Not set":profile.max_risk_pct+"%"}</span></div><div class="row"><span>Max daily loss</span><span>${profile.max_daily_loss_percent==null?"Not set":profile.max_daily_loss_percent+"%"}</span></div><div class="row"><span>Max open risk</span><span>${profile.max_open_risk_percent==null?"Not set":profile.max_open_risk_percent+"%"}</span></div><div class="row"><span>Minimum reward/risk</span><span>${profile.min_rr==null?"Not set":profile.min_rr}</span></div><p class="muted">These caps are enforced when you open a paper trade. Apex allows 2.5% and a 1.7 reward floor. Orion allows 1.5% and 2.0. Aegis allows 0.8% and 2.5. The daily loss figure blocks a new paper order. It does not place a broker order, and it does not change the market reading.</p></article>`;
 }
 async function systemPage(){
   const h = await fetch("/health").then(r=>r.json());
   const row = (name, value) => `<div class="row"><span>${name}</span><span>${value}</span></div>`;
-  const market = h.market_data && h.market_data.BTCUSDT ? h.market_data.BTCUSDT.status + " / " + (h.market_data.ETHUSDT ? h.market_data.ETHUSDT.status : "unknown") : (h.market_data || "unknown");
+  const market = h.market_data && h.market_data.BTCUSDT ? h.market_data.BTCUSDT.status + " / " + (h.market_data.ETHUSDT ? h.market_data.ETHUSDT.status : "unknown") : "unknown";
+  const gold = h.market_data && h.market_data.XAUUSD ? (h.market_data.XAUUSD.rows||[]).map(row => row.interval+": "+row.decision).join("; ") : "not scanned";
   const note = h.notification && h.notification.pipeline ? h.notification.pipeline : (typeof h.notification === "string" ? h.notification : "unknown");
   const monitor = h.worker && h.worker.last_monitor;
   const watched = monitor && monitor.evaluations ? monitor.evaluations.map(row => `${row.symbol} ${row.interval}: ${row.decision}`).join("; ") : "not run yet";
-  view.innerHTML = `<article class="card"><h2>System</h2>${row("Process", h.process||"unknown")}${row("BTC / ETH", market)}${row("Notifications", note)}${row("Ledger", h.ledger||"unknown")}${row("Strategy", h.strategy_status||"unknown")}${row("Broker", String(h.broker))}${row("Build", h.build_commit||"unknown")}${row("Worker heartbeat", h.worker && h.worker.last_beat_ms ? new Date(h.worker.last_beat_ms).toISOString() : "unknown")}${row("Background scan", h.worker && h.worker.last_monitor_ms ? new Date(h.worker.last_monitor_ms).toISOString() : "not run yet")}${row("Last scan", watched)}</article><p class="muted">A missing field stays unknown. The background scan uses the same decision as the terminal. It does not send Telegram, and a wait is not an inbox card.</p>`;
+  view.innerHTML = `<article class="card"><h2>System</h2>${row("Process", h.process||"unknown")}${row("BTC / ETH", market)}${row("Gold scan", gold||"not scanned")}${row("Notifications", note)}${row("Ledger", h.ledger||"unknown")}${row("Strategy", h.strategy_status||"unknown")}${row("Broker", String(h.broker))}${row("Build", h.build_commit||"unknown")}${row("Worker heartbeat", h.worker && h.worker.last_beat_ms ? new Date(h.worker.last_beat_ms).toISOString() : "unknown")}${row("Background scan", h.worker && h.worker.last_monitor_ms ? new Date(h.worker.last_monitor_ms).toISOString() : "not run yet")}${row("Last scan", watched)}</article><p class="muted">A missing field stays unknown. The background scan uses the same decision as the terminal. It does not send Telegram, and a wait is not an inbox card. Gold 1m and 3m are unavailable without a licensed minute feed.</p>`;
 }
 async function settings(){
   const me = await fetch("/api/me").then(r => r.ok ? r.json() : null);
@@ -1832,7 +1886,7 @@ async function settings(){
   const profile = me.profile || {};
   const styles = (catalog.profiles||[]).map(p => `<label><input type="radio" name="style" value="${p.key}" ${profile.signal_style===p.key?"checked":""}> ${p.name} — ${p.risk_mode}. ${p.confirmation}</label>`).join("");
   const currencies = (catalog.currencies||[]).map(c => `<option value="${c}" ${profile.currency===c?"selected":""}>${c}</option>`).join("");
-  view.innerHTML = `<article class="card"><h2>${path==="/onboarding"?"Choose a signal style":"Signal style"}</h2><p class="muted">${catalog.note||""}</p><div class="styles">${styles}</div></article><article class="card"><h2>Base currency and capital</h2><div class="field"><span>Currency</span><select id="currency"><option value="">Not set</option>${currencies}</select></div><div class="field"><span>Paper capital</span><input id="capital" type="number" min="0" step="any" value="${profile.capital??""}"></div><p class="muted">Saving a currency does not convert the stored amount. Market quotes stay in USDT or USD/oz.</p></article><article class="card"><h2>Markets</h2><div class="checks"><label><input type="checkbox" id="btc" ${has("BTCUSDT")}> BTCUSDT · 15m</label><label><input type="checkbox" id="eth" ${has("ETHUSDT")}> ETHUSDT · 15m</label><label><input type="checkbox" id="gold" ${has("XAUUSD")}> XAUUSD · 1h research</label></div></article><article class="card"><h2>Notifications and risk</h2><div class="checks"><label><input type="checkbox" id="exp" ${profile.experimental_alerts?"checked":""}> Experimental alerts</label><label><input type="checkbox" id="digest" ${profile.daily_report!==false?"checked":""}> Daily digest</label></div><div class="field"><span>Max risk per trade %</span><input id="risk" type="number" step="0.1" min="0" value="${profile.max_risk_pct??""}"></div><p class="muted">Risk cannot be set above the active style cap. These caps do not guarantee protection from losses. Production is WAIT_DEFAULT, so no trade alert is sent until a strategy is promoted. Turning experimental alerts on does not bypass that. In-app experimental matches stay labelled unapproved and never become an approved alert. Telegram is ${me.telegram_verified?"verified":"not verified"}.</p><button id="tglink" type="button">Create a one-time Telegram link</button><p id="tglinkout" class="muted"></p></article><article class="card" id="inbox-settings"><h2>In-app inbox</h2><p class="muted" id="inboxnote">Loading delivery settings.</p></article><p><button id="saveall" type="button">Save</button> <button id="skip" type="button">Continue without optional alerts</button> <button id="out" type="button">Sign out</button></p><p id="savedp" class="muted"></p>`;
+  view.innerHTML = `<article class="card"><h2>${path==="/onboarding"?"Choose a signal style":"Signal style"}</h2><p class="muted">${catalog.note||""}</p><div class="styles">${styles}</div></article><article class="card"><h2>Base currency and capital</h2><div class="field"><span>Currency</span><select id="currency"><option value="">Not set</option>${currencies}</select></div><div class="field"><span>Paper capital</span><input id="capital" type="number" min="0" step="any" value="${profile.capital??""}"></div><p class="muted">Saving a currency does not convert the stored amount. Market quotes stay in USDT or USD/oz.</p></article><article class="card"><h2>Markets</h2><div class="checks"><label><input type="checkbox" id="btc" ${has("BTCUSDT")}> BTCUSDT</label><label><input type="checkbox" id="eth" ${has("ETHUSDT")}> ETHUSDT</label><label><input type="checkbox" id="gold" ${has("XAUUSD")}> XAUUSD</label></div><p class="muted">BTC and ETH use Binance candles. Gold 15-minute and 1-hour readings use spot samples. Gold 1-minute and 3-minute stay unavailable until a licensed minute feed exists.</p></article><article class="card"><h2>Notifications and risk</h2><div class="checks"><label><input type="checkbox" id="exp" ${profile.experimental_alerts?"checked":""}> Experimental alerts</label><label><input type="checkbox" id="digest" ${profile.daily_report!==false?"checked":""}> Daily digest</label></div><div class="field"><span>Max risk per trade %</span><input id="risk" type="number" step="0.1" min="0" value="${profile.max_risk_pct??""}"></div><p class="muted">Risk cannot be set above the active style cap. These caps do not guarantee protection from losses. Production is WAIT_DEFAULT, so no trade alert is sent until a strategy is promoted. Turning experimental alerts on does not bypass that. In-app experimental matches stay labelled unapproved and never become an approved alert. Telegram is ${me.telegram_verified?"verified":"not verified"}.</p><button id="tglink" type="button">Create a one-time Telegram link</button><p id="tglinkout" class="muted"></p></article><article class="card" id="inbox-settings"><h2>In-app inbox</h2><p class="muted" id="inboxnote">Loading delivery settings.</p></article><p><button id="saveall" type="button">Save</button> <button id="skip" type="button">Continue without optional alerts</button> <button id="out" type="button">Sign out</button></p><p id="savedp" class="muted"></p>`;
   const inbox = await fetch("/api/inbox/settings", {credentials:"same-origin"}).then(r => r.ok ? r.json() : null);
   const box = (inbox && inbox.settings) || {};
   const on = (name) => box[name] ? "checked" : "";
