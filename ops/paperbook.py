@@ -6,6 +6,7 @@ from pathlib import Path
 
 SCHEMA = 1
 COST_BPS_PER_FILL = 11
+SLIPPAGE_BPS = 2
 CLOSED = {"stopped", "target", "closed"}
 
 
@@ -148,6 +149,9 @@ def open_order(user, opportunity, now_ms, commit=True):
     reward = _reward(entry, stop, target)
     if reward is None or reward + 1e-9 < float(spec["min_rr"]):
         return {"ok": False, "reason": "below_persona_reward", "reward_risk": reward, "floor": spec["min_rr"]}
+    allowed_frames = spec.get("paper_timeframes") or []
+    if interval and allowed_frames and interval not in allowed_frames:
+        return {"ok": False, "reason": "persona_timeframe", "allowed": allowed_frames}
     plan = user.get("plan") or {}
     if symbol not in (plan.get("markets") or [symbol]):
         return {"ok": False, "reason": "market"}
@@ -208,6 +212,8 @@ def open_order(user, opportunity, now_ms, commit=True):
         "week": week,
         "persona": spec["key"],
         "cost_bps_per_fill": COST_BPS_PER_FILL,
+        "slippage_bps": None,
+        "exit_kind": None,
         "pnl_usd": None,
         "exit_price": None,
         "note": "Paper estimate. The venue quantity step was not verified, so this is not an exchange order.",
@@ -255,9 +261,12 @@ def close_order(user_id, order_id, exit_price, now_ms):
         entry = float(order["entry"])
         pnl, cost = _pnl(order["direction"], entry, exit_price, float(order["quantity"]))
         order["status"] = "closed"
+        order["exit_kind"] = "account_exit"
         order["exit_price"] = exit_price
         order["pnl_usd"] = pnl
         order["cost_usd"] = cost
+        order["slippage_bps"] = 0
+        order["slippage_note"] = "No slippage was added. The account supplied this exit price."
         order["closed_ms"] = int(now_ms)
         order["events"] = list(order.get("events") or [])
         order["events"].append({
@@ -271,12 +280,18 @@ def close_order(user_id, order_id, exit_price, now_ms):
     return {"ok": False, "reason": "missing"}
 
 
-def observe(user_id, symbol, interval, bar, now_ms):
+def _adverse(direction, price):
+    slip = float(price) * SLIPPAGE_BPS / 10000.0
+    return (float(price) - slip) if direction == "BUY" else (float(price) + slip)
+
+
+def observe(user_id, symbol, interval, bar, now_ms, source=None):
     """Update open paper orders from one completed bar. Both prices in one bar stay unresolved."""
     from ops.plan import observe_levels
     book = load(user_id)
     if book.get("unreadable"):
         return {"updated": 0}
+    source = source or {}
     changed = 0
     for order in book["orders"]:
         if order.get("status") != "open":
@@ -287,27 +302,44 @@ def observe(user_id, symbol, interval, bar, now_ms):
         if not reading:
             continue
         state = reading["state"]
+        observed = {
+            "created_ms": int(now_ms),
+            "bar_close_ms": source.get("bar_close_ms") or (bar or {}).get("close_time_ms"),
+            "source": source.get("name") or (bar or {}).get("provider") or "completed_candle",
+            "quote": source.get("quote") or (bar or {}).get("quote_semantics"),
+        }
         if state == "ambiguous":
             order["status"] = "ambiguous"
+            order["exit_kind"] = "unresolved"
             order["pnl_usd"] = None
             order["exit_price"] = None
-            order["events"].append({"state": "ambiguous", "created_ms": int(now_ms), "note": reading["note"]})
+            order["events"] = list(order.get("events") or [])
+            order["events"].append({**observed, "state": "ambiguous", "note": reading["note"]})
             changed += 1
             continue
         if state not in {"stop_touched", "target_touched"}:
             continue
-        exit_price = float(order["stop"] if state == "stop_touched" else order["target"])
+        planned = float(order["stop"] if state == "stop_touched" else order["target"])
+        exit_price = _adverse(order["direction"], planned)
         pnl, cost = _pnl(order["direction"], float(order["entry"]), exit_price, float(order["quantity"]))
         order["status"] = "stopped" if state == "stop_touched" else "target"
+        order["exit_kind"] = "market_stop" if state == "stop_touched" else "market_target"
         order["exit_price"] = exit_price
+        order["planned_exit"] = planned
         order["pnl_usd"] = pnl
         order["cost_usd"] = cost
+        order["slippage_bps"] = SLIPPAGE_BPS
+        order["slippage_note"] = "An assumed 2 bps adverse slippage was applied. It was not measured from a broker."
         order["closed_ms"] = int(now_ms)
+        order["events"] = list(order.get("events") or [])
         order["events"].append({
-            "state": order["status"],
-            "created_ms": int(now_ms),
-            "note": "Closed from the completed candle. This is not a broker fill.",
+            **observed,
+            "state": order["exit_kind"],
+            "note": "Estimated paper exit from the completed candle. Not a broker fill. " + reading["note"],
             "exit_price": exit_price,
+            "planned_exit": planned,
+            "slippage_bps": SLIPPAGE_BPS,
+            "cost_bps_per_fill": COST_BPS_PER_FILL,
         })
         changed += 1
     if changed:

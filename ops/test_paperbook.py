@@ -185,3 +185,66 @@ def test_twelve_pairs_name_gold_minutes_as_unavailable():
     blocked = [row for row in rows if row["status"] == "unavailable"]
     assert {(row["symbol"], row["interval"]) for row in blocked} == {("XAUUSD", "1m"), ("XAUUSD", "3m")}
     assert all(row["status"] == "binance_spot" for row in rows if row["symbol"] in {"BTCUSDT", "ETHUSDT"})
+
+
+def test_a_completed_candle_exit_is_not_an_account_exit(tmp_path, monkeypatch):
+    users, owner, _other = _account(tmp_path, monkeypatch)
+    delivered = deliver_evaluation(owner["id"], users.get(owner["id"]), _plan(decision="BUY", entry=100, stop=99, target=103))
+    user = users.get(owner["id"])
+    user["id"] = owner["id"]
+    from ops.paperbook import opportunity_row
+    opened = open_order(user, opportunity_row(owner["id"], delivered["opportunity_id"]), 1_700_000_100_000)
+    bar = {"high": 104, "low": 100.2, "close": 103.2, "close_time_ms": 1_700_000_200_000, "provider": "binance", "quote_semantics": "last_trade"}
+    observe(owner["id"], "BTCUSDT", "15m", bar, 1_700_000_200_000, {"name": "binance", "bar_close_ms": bar["close_time_ms"], "quote": "last_trade"})
+    done = summary(owner["id"])["closed"][0]
+    assert done["exit_kind"] == "market_target"
+    assert done["entry"] == 100
+    assert done["stop"] == 99
+    assert done["target"] == 103
+    assert done["planned_exit"] == 103
+    assert done["exit_price"] < 103
+    assert done["slippage_bps"] == 2
+    assert done["events"][-1]["source"] == "binance"
+    assert "broker" in done["events"][-1]["note"]
+
+
+def test_personas_share_the_setup_and_aegis_does_not_paper_a_one_minute_scalp(tmp_path, monkeypatch):
+    from ops.terminal_signal import apply_persona
+    from ops.users import update_profile
+    users, owner, _other = _account(tmp_path, monkeypatch, style="aegis_shield")
+    users_mod = users
+    users_mod.save_inbox_delivery = save_inbox_delivery
+    save_inbox_delivery(owner["id"], {"experimental": True, "markets": ["BTCUSDT"], "timeframes": ["1m", "15m", "1h"], "buy": True, "sell": True})
+    buy = {"decision": "BUY", "reward_risk": 1.8, "symbol": "BTCUSDT", "interval": "15m", "entry": 100, "stop": 99, "target": 102, "rule": "Trend pullback"}
+    sell = {"decision": "SELL", "reward_risk": 1.8, "symbol": "BTCUSDT", "interval": "15m", "entry": 100, "stop": 101, "target": 97, "rule": "Trend pullback"}
+    apex = {"profile": {"signal_style": "apex_momentum", "capital": 1000, "currency": "USD"}, "plan": {"risk_per_trade_percent": 2.5}}
+    shield = {"profile": {"signal_style": "aegis_shield", "capital": 1000, "currency": "USD"}, "plan": {"risk_per_trade_percent": 0.8}}
+    assert apply_persona(buy, apex)["decision"] == "BUY"
+    assert apply_persona(sell, apex)["decision"] == "SELL"
+    assert apply_persona(buy, apex)["persona_policy"]["entry_rule"] == "shared"
+    assert apply_persona(sell, shield)["persona_policy"]["entry_rule"] == "shared"
+    assert apply_persona(buy, shield)["account_status"] == "visible_unsized"
+    assert apply_persona(sell, shield)["account_status"] == "visible_unsized"
+    assert apply_persona(buy, apex)["persona_release"] is True
+    assert apply_persona(sell, apex)["persona_release"] is True
+    user = users.get(owner["id"])
+    user["id"] = owner["id"]
+    minute = {"opportunity_id": "opp:BTCUSDT:1m:Trend pullback:SELL:1", "symbol": "BTCUSDT", "interval": "1m", "direction": "SELL", "entry": 100, "stop": 101, "target": 97, "lifecycle": "active", "family": "Trend pullback"}
+    assert open_order(user, minute, 1_700_000_100_000)["reason"] == "persona_timeframe"
+    update_profile(owner["id"], {"signal_style": "apex_momentum", "capital": 1000, "currency": "USD"})
+    apex_user = users.get(owner["id"])
+    apex_user["id"] = owner["id"]
+    assert open_order(apex_user, minute, 1_700_000_100_000)["ok"] is True
+
+
+def test_gold_minute_bars_do_not_become_a_plan():
+    from ops.terminal_signal import decide
+    now = 1_700_000_060_000
+    bars = [{
+        "high": 2001, "low": 1999, "close": 2000, "complete": True, "close_time_ms": now - 1000,
+        "provider": "dukascopy", "quote_semantics": "dukascopy_xauusd_bid_ask",
+    }] * 80
+    result = decide("XAUUSD", "1m", "auto", bars, now, None)
+    assert result["blocked"] == "xau_minute_unlicensed"
+    assert result.get("entry") is None
+    assert result["decision"] == "WAIT"

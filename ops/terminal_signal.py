@@ -205,6 +205,8 @@ def _evaluate(symbol, interval, strategy, bars, now_ms, user, prior=None, live_q
             }
         return {**base, "decision": "WAIT", "reason": "No completed candle was returned.", "fresh": False, "reference_price": None, "blocked": "missing_feed"}
     last = bars[-1]
+    if last.get("high") is None or last.get("low") is None or last.get("close") is None:
+        return {**base, "decision": "WAIT", "reason": "The candle is missing a high, low or close, so no plan was calculated.", "blocked": "incomplete_candle", "fresh": False, "reference_price": None}
     price = last.get("close")
     fresh = bool(last.get("complete") and last.get("close_time_ms", 0) <= now_ms and now_ms - last["close_time_ms"] <= 2 * interval_ms(interval))
     base.update({
@@ -217,23 +219,19 @@ def _evaluate(symbol, interval, strategy, bars, now_ms, user, prior=None, live_q
     })
     if not fresh:
         return {**base, "decision": "WAIT", "reason": "The latest candle is missing, still forming, or too old to treat as live.", "blocked": "stale_or_incomplete"}
+    if symbol == "XAUUSD" and interval in {"1m", "3m"}:
+        return {
+            **base,
+            "decision": "WAIT",
+            "reason": "XAUUSD 1-minute and 3-minute plans stay off until a licensed spot feed is confirmed. These bars were not turned into an entry, stop or target.",
+            "blocked": "xau_minute_unlicensed",
+            "entry": None,
+            "stop": None,
+            "target": None,
+            "live_quote": live_quote,
+        }
     if symbol == "XAUUSD" and not completed_bid_ask_bar(last):
         quote = last.get("quote_semantics") or "missing_bid_ask"
-        if strategy in {None, "", "auto"} and quote == "dukascopy_xauusd_bid_ask" and interval in {"1m", "3m"} and len(bars) >= 60:
-            reading = _requested_reading(base, symbol, interval, bars, user)
-            reading["gold_basis"] = "dukascopy_m1"
-            reading["strategy"] = "gold-m1-reading"
-            reading["version"] = "gold-m1-reading"
-            reading["reason"] = "Dukascopy one-minute bid and ask, not a five-minute sample and not the Yahoo chart. " + (reading.get("reason") or "")
-            return reading
-        if quote == "dukascopy_xauusd_bid_ask" and interval in {"1m", "3m"}:
-            return {
-                **base,
-                "decision": "WAIT",
-                "reason": f"Only {len(bars)} complete Dukascopy {interval} bars were available. 60 are required, and missing minutes were not filled in.",
-                "blocked": "insufficient_m1",
-                "live_quote": live_quote,
-            }
         if strategy in {None, "", "auto"} and quote == "spot_sample_not_bid_ask" and len(bars) < 24:
             return {
                 **base,
@@ -387,6 +385,14 @@ def apply_persona(result, user):
     result["persona_name"] = spec["name"]
     result["persona_min_rr"] = spec["min_rr"]
     result["persona_risk_cap"] = spec["risk_per_trade_percent"]
+    result["persona_policy"] = {
+        "entry_rule": "shared",
+        "experimental": True,
+        "min_rr": spec["min_rr"],
+        "risk_cap": spec["risk_per_trade_percent"],
+        "paper_timeframes": list(spec.get("paper_timeframes") or []),
+        "note": "This persona does not use a different entry rule. It changes the reward floor, the risk cap and which timeframes may be opened as paper.",
+    }
     result["paper_cap"] = paper_cap_status(spec.get("max_trades_per_day"), (user or {}).get("paper_orders_today"))
     decision = result.get("decision")
     if decision not in {"BUY", "SELL"} or result.get("reward_risk") is None:
@@ -420,6 +426,11 @@ def apply_persona(result, user):
         f"{spec['name']} allows up to {spec['risk_per_trade_percent']}% . {sized.get('note') or sized.get('reason')} "
         "The daily cap counts recorded paper orders, not this notification."
     )
+    allowed = spec.get("paper_timeframes") or []
+    if result.get("interval") and allowed and result.get("interval") not in allowed:
+        result["persona_release"] = False
+        result["account_status"] = "visible_unsized"
+        result["persona_note"] += f" {spec['name']} does not open a paper order on {result.get('interval')}. The plan stays visible."
     return result
 
 

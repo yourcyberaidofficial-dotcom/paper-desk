@@ -1877,7 +1877,7 @@ async function liveActivities(){
   const age = coverage.evaluated_at_ms ? Math.max(0, Math.round((Date.now() - coverage.evaluated_at_ms) / 1000)) : null;
   const rows = (notes.items || []).filter(item => item.decision === "BUY" || item.decision === "SELL");
   const book = await fetch("/api/paper/book", {credentials:"same-origin"}).then(r => r.ok ? r.json() : {open:[], orders:[]}).catch(()=>({open:[], orders:[]}));
-  const positions = (book.open||[]).map(row => `<article class="card"><h2>Open paper · ${row.symbol} ${row.direction}</h2><p>Entry ${row.entry}. Stop ${row.stop}. Target ${row.target}. Risk budget ${row.risk_budget_usd} USD.</p><p class="muted">${row.note||""} ${row.opportunity_id||""}</p></article>`).join("");
+  const positions = (book.open||[]).concat(book.ambiguous||[]).map(row => `<article class="card"><h2>${row.exit_kind||row.status} · ${row.symbol} ${row.direction}</h2><p>Entry ${row.entry}. Stop ${row.stop}. Target ${row.target}. ${row.exit_price==null?"No paper exit.":"Paper exit "+row.exit_price+"."}</p><p class="muted">${(row.events&&row.events.length)?row.events[row.events.length-1].note:row.note||""} This is not a broker fill.</p></article>`).join("");
   const list = rows.map(item => `<article class="card"><h2>${item.lifecycle || "active"} · ${item.decision} · ${item.symbol} ${item.interval}</h2><p>${item.lifecycle_note || "Active means the plan is still the visible one. It does not mean an order was opened."}</p><div class="row"><span>Entry ${item.entry==null?"—":item.entry}</span><span>Stop ${item.stop==null?"—":item.stop}</span><span>Target ${item.target==null?"—":item.target}</span></div><p class="muted">${item.family || item.strategy || ""} · ${item.opportunity_id || ""}</p></article>`).join("");
   view.innerHTML = `<article class="card"><h2>Live Activities</h2><p>Plans come from the inbox. Open positions come from the paper record. Neither is a second signal, and neither is a broker fill.</p><p>Completed candles are judged when the background worker runs, about once a minute. A refresh of this page does not make that scan faster. Last scan ${age==null?"has no recorded time":age+" seconds ago"}.</p></article>${positions}${list || "<article class='card'><p>No open experimental plan for this account.</p></article>"}`;
 }
@@ -1901,7 +1901,7 @@ async function paperPages(){
     }; });
     return;
   }
-  const rows = (book.orders||[]).map(row => `<div class="row"><span>${row.status}</span><span>${row.symbol} ${row.direction}</span></div><p class="muted">Entry ${row.entry}. Stop ${row.stop}. Target ${row.target}. ${row.exit_price==null?"No exit.":"Exit "+row.exit_price+". Paper result "+money(row.pnl_usd)+" USD."} ${row.note||""}</p>`).join("");
+  const rows = (book.orders||[]).map(row => `<div class="row"><span>${row.status}</span><span>${row.symbol} ${row.direction}</span></div><p class="muted">${row.exit_kind||"no exit"} · Entry ${row.entry}. Stop ${row.stop}. Target ${row.target}. ${row.exit_price==null?"No exit.":"Exit "+row.exit_price+". Paper result "+money(row.pnl_usd)+" USD."} ${row.slippage_note||""} ${row.note||""}</p>`).join("");
   view.innerHTML = `<article class="card"><h2>Orders and trade history</h2>${rows||"<p>No paper orders. Opening one is a separate action from receiving a plan.</p>"}<p class="muted">${book.note||""}</p></article>`;
 }
 async function riskPage(){

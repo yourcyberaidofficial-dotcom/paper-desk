@@ -250,8 +250,6 @@ class Worker:
         return summary
 
     def _monitor(self, now_ms, windows):
-        from ops.inbox import deliver_evaluation
-        from ops.terminal_signal import decide
         from ops.users import list_users
 
         if windows is None:
@@ -262,47 +260,70 @@ class Worker:
         for window in windows:
             symbol = window.get("symbol")
             interval = window.get("interval")
-            bars = window.get("bars") or []
-            if not bars:
-                evaluations.append({"symbol": symbol, "interval": interval, "decision": "DATA BLOCK", "reason": window.get("reason") or "missing_bars"})
-                continue
-            result = decide(symbol, interval, "auto", bars, now_ms, None, live_quote=window.get("live_quote"))
-            evaluations.append({
-                "symbol": result.get("symbol"),
-                "interval": result.get("interval"),
-                "decision": result.get("decision_label") or result.get("decision"),
-                "strategy": result.get("strategy"),
-                "bar_close_ms": result.get("bar_close_ms"),
-                "id": result.get("id") if result.get("id") else None,
-            })
-            from ops.inbox import append_event, expire_stale
-            from ops.paperbook import observe
-            from ops.plan import observe_levels
-            from ops.terminal_signal import apply_persona
-            if result.get("decision") not in {"BUY", "SELL"} or result.get("entry") is None or result.get("stop") is None or result.get("target") is None:
-                for user in users:
-                    expire_stale(user.get("id"), symbol, interval, now_ms)
-                    if bars:
-                        observe(user.get("id"), symbol, interval, bars[-1], now_ms)
-                continue
-            last_bar = bars[-1] if bars else None
-            for user in users:
-                personal = apply_persona(dict(result), user)
-                outcome = deliver_evaluation(user.get("id"), user, personal)
-                if outcome.get("stored"):
-                    delivered += 1
-                observation = observe_levels(personal.get("decision"), personal.get("stop"), personal.get("target"), last_bar)
-                if observation and outcome.get("opportunity_id"):
-                    append_event(user.get("id"), outcome.get("opportunity_id"), {
-                        "id": f"evt:{outcome.get('opportunity_id')}:{observation['state']}:{result.get('bar_close_ms')}",
-                        "state": observation["state"],
-                        "note": observation["note"],
-                        "created_ms": now_ms,
-                    })
-                if last_bar:
-                    observe(user.get("id"), symbol, interval, last_bar, now_ms)
-                expire_stale(user.get("id"), symbol, interval, now_ms, protect_bar_ms=result.get("bar_close_ms"))
+            try:
+                delivered += self._monitor_one(now_ms, window, users, evaluations)
+            except Exception as exc:
+                evaluations.append({
+                    "symbol": symbol,
+                    "interval": interval,
+                    "decision": "DATA BLOCK",
+                    "reason": type(exc).__name__,
+                })
         return {"evaluated_at_ms": now_ms, "evaluations": evaluations, "delivered": delivered, "error": None}
+
+    def _monitor_one(self, now_ms, window, users, evaluations):
+        from ops.inbox import append_event, deliver_evaluation, expire_stale
+        from ops.paperbook import observe
+        from ops.plan import observe_levels
+        from ops.terminal_signal import apply_persona, decide
+
+        symbol = window.get("symbol")
+        interval = window.get("interval")
+        bars = window.get("bars") or []
+        delivered = 0
+        if not bars:
+            evaluations.append({"symbol": symbol, "interval": interval, "decision": "DATA BLOCK", "reason": window.get("reason") or "missing_bars"})
+            return 0
+        result = decide(symbol, interval, "auto", bars, now_ms, None, live_quote=window.get("live_quote"))
+        evaluations.append({
+            "symbol": result.get("symbol"),
+            "interval": result.get("interval"),
+            "decision": result.get("decision_label") or result.get("decision"),
+            "strategy": result.get("strategy"),
+            "bar_close_ms": result.get("bar_close_ms"),
+            "id": result.get("id") if result.get("id") else None,
+            "blocked": result.get("blocked"),
+        })
+        if result.get("blocked") == "xau_minute_unlicensed":
+            return 0
+        last_bar = bars[-1]
+        source = {
+            "name": last_bar.get("provider") or "completed_candle",
+            "bar_close_ms": last_bar.get("close_time_ms"),
+            "quote": last_bar.get("quote_semantics"),
+        }
+        if result.get("decision") not in {"BUY", "SELL"} or result.get("entry") is None or result.get("stop") is None or result.get("target") is None:
+            for user in users:
+                expire_stale(user.get("id"), symbol, interval, now_ms)
+                observe(user.get("id"), symbol, interval, last_bar, now_ms, source)
+            return 0
+        for user in users:
+            personal = apply_persona(dict(result), user)
+            outcome = deliver_evaluation(user.get("id"), user, personal)
+            if outcome.get("stored"):
+                delivered += 1
+            observation = observe_levels(personal.get("decision"), personal.get("stop"), personal.get("target"), last_bar)
+            if observation and outcome.get("opportunity_id"):
+                append_event(user.get("id"), outcome.get("opportunity_id"), {
+                    "id": f"evt:{outcome.get('opportunity_id')}:{observation['state']}:{result.get('bar_close_ms')}",
+                    "state": observation["state"],
+                    "note": observation["note"],
+                    "created_ms": now_ms,
+                    "source": source.get("name"),
+                })
+            observe(user.get("id"), symbol, interval, last_bar, now_ms, source)
+            expire_stale(user.get("id"), symbol, interval, now_ms, protect_bar_ms=result.get("bar_close_ms"))
+        return delivered
 
     def _monitor_windows(self, now_ms):
         from ops.terminal_route import load_crypto_bars, load_gold_ohlc

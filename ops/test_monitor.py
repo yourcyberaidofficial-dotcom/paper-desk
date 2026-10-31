@@ -57,6 +57,18 @@ def test_background_scan_delivers_once_and_stays_private(tmp_path, monkeypatch):
     assert worker.last_monitor["evaluated_at_ms"] == now
 
 
+def test_one_bad_window_does_not_drop_the_next(tmp_path):
+    worker = Worker(Ledger(tmp_path / "ledger.jsonl"), tmp_path / "prefs.json")
+    summary = worker.monitor(now_ms=1_700_000_000_000, windows=[
+        {"symbol": "BTCUSDT", "interval": "nope", "bars": [{"high": 1, "low": 1, "close": 1, "complete": True, "close_time_ms": 1}]},
+        {"symbol": "ETHUSDT", "interval": "15m", "bars": [], "reason": "missing_bars"},
+    ])
+    assert summary["error"] is None
+    assert summary["evaluations"][0]["decision"] == "DATA BLOCK"
+    assert summary["evaluations"][1]["symbol"] == "ETHUSDT"
+    assert summary["evaluations"][1]["decision"] == "DATA BLOCK"
+
+
 def test_a_later_wait_supersedes_the_old_entry(tmp_path, monkeypatch):
     monkeypatch.setenv("AUREON_DATA", str(tmp_path))
     import ops.users as users
