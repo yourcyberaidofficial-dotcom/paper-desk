@@ -322,6 +322,10 @@ class Worker:
                     "source": source.get("name"),
                 })
             observe(user.get("id"), symbol, interval, last_bar, now_ms, source)
+            from ops.autopilot import consider
+            account = dict(user)
+            account["id"] = user.get("id")
+            consider(account, personal, now_ms, outcome.get("opportunity_id"))
             expire_stale(user.get("id"), symbol, interval, now_ms, protect_bar_ms=result.get("bar_close_ms"))
         return delivered
 

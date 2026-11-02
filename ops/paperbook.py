@@ -51,10 +51,31 @@ def save(user_id, book):
     path = _path(user_id)
     if path is None:
         return False
-    path.parent.mkdir(parents=True, exist_ok=True)
+    from ops.files import update_json
     body = migrate(book)
-    path.write_text(json.dumps(body), encoding="utf-8")
+    update_json(path, lambda _current: body, body)
     return True
+
+
+def _update_orders(user_id, fn):
+    path = _path(user_id)
+    if path is None:
+        return {"ok": False, "reason": "bad_user"}
+    from ops.files import update_json
+    holder = {}
+
+    def apply(raw):
+        book = migrate(raw if raw is not None else {"schema": SCHEMA, "orders": []})
+        holder["out"] = fn(book)
+        if isinstance(holder["out"], dict) and holder["out"].get("save") is False:
+            holder["out"].pop("save", None)
+            return None
+        return book
+
+    updated = update_json(path, apply, {"schema": SCHEMA, "orders": []})
+    if isinstance(updated, dict) and updated.get("unreadable"):
+        return {"ok": False, "reason": "record_unreadable"}
+    return holder.get("out")
 
 
 def _day(now_ms):
@@ -113,7 +134,7 @@ def paper_permission(user, result):
     return {"allowed": verdict.get("ok") is True, "reason": verdict.get("reason")}
 
 
-def open_order(user, opportunity, now_ms, commit=True):
+def open_order(user, opportunity, now_ms, commit=True, opened_by="account", automation_cap=None):
     user = user or {}
     user_id = user.get("id")
     row = opportunity or {}
@@ -162,34 +183,58 @@ def open_order(user, opportunity, now_ms, commit=True):
     sized = qualify_size(symbol, profile.get("capital"), risk, profile.get("currency"), entry, stop)
     if not sized.get("ok"):
         return {"ok": False, "reason": sized.get("reason") or "unsized", "size": sized}
-    book = load(user_id)
+    origin = opened_by if opened_by in {"account", "autopilot"} else "account"
+    if not commit:
+        book = load(user_id)
+        if book.get("unreadable"):
+            return {"ok": False, "reason": "record_unreadable"}
+        return _admit(book, row, now_ms, spec, sized, reward, _week(now_ms), origin, automation_cap, float(profile.get("capital")), plan.get("weekly_loss_limit_percent"), commit=False)
+    admitted = _update_orders(
+        user_id,
+        lambda book: _admit(book, row, now_ms, spec, sized, reward, _week(now_ms), origin, automation_cap, float(profile.get("capital")), plan.get("weekly_loss_limit_percent"), commit=True),
+    )
+    if not admitted or not admitted.get("ok"):
+        return admitted or {"ok": False, "reason": "record_unreadable"}
+    _remember_count(user_id, now_ms)
+    return admitted
+
+
+def _admit(book, row, now_ms, spec, sized, reward, week, origin, automation_cap, capital, loss_limit, commit):
     if book.get("unreadable"):
-        return {"ok": False, "reason": "record_unreadable"}
+        return {"ok": False, "reason": "record_unreadable", "save": False}
     orders = book["orders"]
     opportunity_id = row.get("opportunity_id")
+    symbol = row.get("symbol")
+    interval = str(row.get("interval") or "")
+    direction = row.get("direction") or row.get("decision")
+    entry, stop, target = row.get("entry"), row.get("stop"), row.get("target")
+    if origin == "autopilot" and any(item.get("opportunity_id") == opportunity_id for item in orders):
+        return {"ok": False, "reason": "already_recorded", "save": False}
     if any(item.get("opportunity_id") == opportunity_id and item.get("status") == "open" for item in orders):
-        return {"ok": False, "reason": "already_open"}
+        return {"ok": False, "reason": "already_open", "save": False}
     day = _day(now_ms)
     opened_today = [item for item in orders if _day(item.get("opened_ms") or 0) == day and item.get("status") != "refused"]
     if len(opened_today) >= int(spec["max_trades_per_day"]):
-        return {"ok": False, "reason": "daily_count"}
-    capital = float(profile.get("capital"))
+        return {"ok": False, "reason": "daily_count", "save": False}
+    if origin == "autopilot" and automation_cap is not None:
+        automated = [item for item in opened_today if item.get("opened_by") == "autopilot"]
+        if len(automated) >= int(automation_cap):
+            return {"ok": False, "reason": "automation_cap", "save": False}
     closed_today = [item for item in orders if item.get("status") in CLOSED and _day(item.get("closed_ms") or 0) == day]
     loss_today = -sum(float(item.get("pnl_usd") or 0) for item in closed_today if float(item.get("pnl_usd") or 0) < 0)
     if loss_today >= capital * float(spec["max_daily_loss_percent"]) / 100.0:
-        return {"ok": False, "reason": "daily_loss"}
-    week = _week(now_ms)
+        return {"ok": False, "reason": "daily_loss", "save": False}
     week_pnl = sum(float(item.get("pnl_usd") or 0) for item in orders if item.get("status") in CLOSED and item.get("week") == week)
-    loss_limit = plan.get("weekly_loss_limit_percent")
     if loss_limit not in (None, "") and week_pnl <= -capital * float(loss_limit) / 100.0:
-        return {"ok": False, "reason": "weekly_loss"}
+        return {"ok": False, "reason": "weekly_loss", "save": False}
     open_risk = sum(float(item.get("risk_budget_usd") or 0) for item in orders if item.get("status") == "open")
     budget = float(sized["risk_budget_usd"])
     if open_risk + budget > capital * float(spec["max_open_risk_percent"]) / 100.0:
-        return {"ok": False, "reason": "open_risk"}
+        return {"ok": False, "reason": "open_risk", "save": False}
     if not commit:
-        return {"ok": True, "reason": "allowed", "committed": False}
+        return {"ok": True, "reason": "allowed", "committed": False, "save": False}
     quantity = budget / abs(float(entry) - float(stop))
+    opened_note = "Opened by AutoPilot as a paper trade. Not a notification and not a broker order." if origin == "autopilot" else "Opened by the account. Not opened by a notification."
     order = {
         "id": f"paper:{opportunity_id}:{int(now_ms)}",
         "schema": SCHEMA,
@@ -209,6 +254,7 @@ def open_order(user, opportunity, now_ms, commit=True):
         "venue_step_verified": False,
         "status": "open",
         "opened_ms": int(now_ms),
+        "opened_by": origin,
         "week": week,
         "persona": spec["key"],
         "cost_bps_per_fill": COST_BPS_PER_FILL,
@@ -217,27 +263,31 @@ def open_order(user, opportunity, now_ms, commit=True):
         "pnl_usd": None,
         "exit_price": None,
         "note": "Paper estimate. The venue quantity step was not verified, so this is not an exchange order.",
-        "events": [{"state": "opened", "created_ms": int(now_ms), "note": "Opened by the account. Not opened by a notification."}],
+        "events": [{"state": "opened", "created_ms": int(now_ms), "opened_by": origin, "note": opened_note}],
     }
     orders.append(order)
-    save(user_id, book)
-    _remember_count(user_id, now_ms)
     return {"ok": True, "reason": "opened", "order": order}
 
 
 def _remember_count(user_id, now_ms):
+    from ops.files import update_json
     from ops.users import ROOT
     path = ROOT / f"{user_id}.json"
     if not path.exists():
         return
-    user = json.loads(path.read_text(encoding="utf-8"))
     day = _day(now_ms)
-    count = sum(
-        1 for item in load(user_id)["orders"]
-        if _day(item.get("opened_ms") or 0) == day and item.get("status") != "refused"
-    )
-    user["paper_orders_today"] = count
-    path.write_text(json.dumps(user), encoding="utf-8")
+
+    def apply(user):
+        if not isinstance(user, dict):
+            return {"unreadable": True}
+        count = sum(
+            1 for item in load(user_id)["orders"]
+            if _day(item.get("opened_ms") or 0) == day and item.get("status") != "refused"
+        )
+        user["paper_orders_today"] = count
+        return user
+
+    update_json(path, apply, None)
 
 
 def close_order(user_id, order_id, exit_price, now_ms):

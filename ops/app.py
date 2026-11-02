@@ -395,6 +395,102 @@ def paper_close():
     return jsonify(result), (200 if result.get("ok") else 409)
 
 
+@app.get("/api/autopilot")
+def autopilot_state():
+    user_id, user = _session_user()
+    if not user_id:
+        return jsonify({"error": "unauthorized"}), 401
+    from ops.autopilot import view
+    from ops.paperbook import summary
+    state = view(user)
+    orders = summary(user_id)["orders"]
+    state["automated_orders"] = sum(1 for row in orders if row.get("opened_by") == "autopilot")
+    state["open_automated"] = [
+        {"id": row.get("id"), "symbol": row.get("symbol"), "direction": row.get("direction"), "status": row.get("status")}
+        for row in orders if row.get("opened_by") == "autopilot" and row.get("status") == "open"
+    ]
+    return jsonify(state)
+
+
+@app.post("/api/autopilot")
+def autopilot_act():
+    user_id, _user = _session_user()
+    if not user_id:
+        return jsonify({"error": "unauthorized"}), 401
+    from ops.autopilot import act
+    body = request.json or {}
+    result = act(user_id, body.get("action"), int(time.time() * 1000), confirm=body.get("confirm") is True, max_orders_per_day=body.get("max_orders_per_day"))
+    return jsonify(result), (200 if result.get("ok") else 409)
+
+
+@app.get("/api/lab")
+def lab_state():
+    user_id, user = _session_user()
+    if not user_id:
+        return jsonify({"error": "unauthorized"}), 401
+    from ops.academy import catalog, public_rules
+    from ops.autopilot import view
+    from ops.paperbook import summary
+    from ops.profiles import canonical_style, get_profile
+    lab = user.get("lab") if isinstance(user.get("lab"), dict) else {}
+    book = summary(user_id)
+    persona = get_profile(canonical_style((user.get("profile") or {}).get("signal_style")))
+    trades = (book.get("performance") or {}).get("trades") or 0
+    return jsonify({
+        "profile": user.get("profile") or {},
+        "experience": lab.get("experience") or "not_stated",
+        "objective": lab.get("objective") or "",
+        "focus": lab.get("focus") or [],
+        "completed_lessons": lab.get("completed_lessons") or [],
+        "persona": {"name": persona.get("name"), "min_rr": persona.get("min_rr"), "risk_per_trade_percent": persona.get("risk_per_trade_percent"), "paper_timeframes": persona.get("paper_timeframes")} if persona else None,
+        "autopilot": view(user),
+        "performance": book.get("performance"),
+        "lessons": catalog(),
+        "rules": public_rules(user),
+        "observation": "Not enough closed paper trades to describe a strength or a weakness." if trades < 5 else "Counts below are closed paper trades only. They are not a skill score and not a profitable strategy.",
+        "note": "This page reads this account only. It does not create a strategy.",
+    })
+
+
+@app.post("/api/lab")
+def lab_save():
+    user_id, _user = _session_user()
+    if not user_id:
+        return jsonify({"error": "unauthorized"}), 401
+    from ops.academy import catalog
+    from ops.files import update_json
+    from ops.users import ROOT
+    body = request.json or {}
+    experience = body.get("experience") if body.get("experience") in {"new", "developing", "independent"} else None
+    objective = str(body.get("objective") or "")[:160]
+    focus = [item for item in (body.get("focus") or []) if item in {"candles", "risk", "psychology", "prop"}][:4]
+    completed = [str(item)[:40] for item in (body.get("completed_lessons") or [])][:40]
+    rule = str(body.get("custom_rule") or "")[:400]
+    known = {lesson["id"] for lesson in catalog()}
+
+    def apply(user):
+        if not isinstance(user, dict):
+            return {"unreadable": True}
+        lab = user.get("lab") if isinstance(user.get("lab"), dict) else {}
+        if experience:
+            lab["experience"] = experience
+        if "objective" in body:
+            lab["objective"] = objective
+        if "focus" in body:
+            lab["focus"] = focus
+        if "completed_lessons" in body:
+            lab["completed_lessons"] = [item for item in completed if item in known]
+        if rule:
+            rows = list(lab.get("custom_rules") or [])
+            rows.append({"text": rule, "verified": False})
+            lab["custom_rules"] = rows[-10:]
+        user["lab"] = lab
+        return user
+
+    update_json(ROOT / f"{user_id}.json", apply, None)
+    return jsonify({"ok": True})
+
+
 def _remember(key, ttl, loader):
     now = time.time()
     hit = _FEED_CACHE.get(key)
@@ -1229,6 +1325,7 @@ def terminal_history():
 @app.get("/scanner")
 @app.get("/learn")
 @app.get("/plan")
+@app.get("/lab")
 @app.get("/notifications")
 @app.get("/onboarding")
 def index():
@@ -1370,7 +1467,7 @@ footer a{color:#99f6e4}
   <div>
     <p class="muted">Paper trading and research</p>
     <h1>See the market clearly. Research with discipline.</h1>
-    <p class="lede">One account for BTC, ETH, and gold observation. Choose a signal posture, set a real base currency, and read research states without pretending they are trades.</p>
+    <p class="lede">One account for the live desk, free paper AutoPilot, the Academy and your Trading Lab. AutoPilot opens paper trades only after you turn it on. It is not a broker.</p>
     <div class="actions"><a class="btn" href="/register">Create your account</a><a class="btn ghost" href="/login">Sign in</a></div>
   </div>
   <aside class="preview" aria-label="Product preview">
@@ -1385,16 +1482,16 @@ footer a{color:#99f6e4}
   <h2>Three signal styles, one login</h2>
   <p class="muted">Recovered from Awuru's account personas. They change confirmation strictness and risk caps. They do not promote a strategy.</p>
   <div class="grid">
-    <article class="card"><h3>Apex Momentum</h3><p>Aggressive. BTC and ETH may follow an E1 observation alone. Gold still requires agreement. Risk cap 2.5% per trade.</p></article>
-    <article class="card"><h3>Orion Precision</h3><p>Balanced. E1 plus a confirming research state, and no opposing vote. Risk cap 1.5% per trade.</p></article>
-    <article class="card"><h3>Aegis Shield</h3><p>Defensive. All three research states must agree, or the result is WAIT. Risk cap 0.8% per trade.</p></article>
+    <article class="card"><h3>Apex Momentum</h3><p>Up to 2.5% risk and a 1.7 reward floor. Paper timeframes include 1m, 3m, 15m and 1h. Same entry rule as the other styles.</p></article>
+    <article class="card"><h3>Orion Precision</h3><p>Up to 1.5% risk and a 2.0 reward floor. Paper orders on 15m and 1h. A plan below the floor stays visible.</p></article>
+    <article class="card"><h3>Aegis Shield</h3><p>Up to 0.8% risk and a 2.5 reward floor. Paper orders on 15m and 1h. Not a vote of three indicators.</p></article>
   </div>
 </section>
 <section class="wrap" id="platform">
   <div class="grid">
     <article class="card"><h3>Market workspace</h3><p>BTC and ETH from Binance closed candles. Gold only when a real XAUUSD source returns data.</p></article>
     <article class="card"><h3>Research signals</h3><p>E1, SMA20, and RSI14 stay labeled as research. A WAIT result is kept visible.</p></article>
-    <article class="card"><h3>Paper records</h3><p>Portfolio and history show recorded paper orders only. A directional bias is not a holding.</p></article>
+    <article class="card"><h3>AutoPilot</h3><p>Free automated paper trading. It stays off until you enable it. A paper order is not a live broker order.</p></article>
   </div>
   <article class="card" id="risk"><h3>Research and risk</h3><p>The platform operates in paper-trading and research mode. Broker execution is disabled. No strategy has passed promotion gates. There is no guarantee of profitable results. Account balances keep the currency you choose. Aureon does not convert them.</p></article>
 </section>
@@ -1459,6 +1556,7 @@ button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible{ou
     <a href="/trading" data-path="/trading">Trading Terminal</a>
     <a href="/signals" data-path="/signals">Live Signals</a>
     <a href="/learn" data-path="/learn">Academy</a>
+    <a href="/lab" data-path="/lab">Trading Lab</a>
     <a href="/plan" data-path="/plan">My Plan</a>
     <a href="/notifications" data-path="/notifications">Inbox</a>
     <a href="/strategies" data-path="/strategies">Strategies</a>
@@ -1492,7 +1590,7 @@ document.getElementById("signout").onclick = async () => {
 };
 const path = location.pathname === "/" ? "/overview" : location.pathname;
 document.querySelectorAll("aside a").forEach(a => { if (a.dataset.path === path) a.classList.add("active"); });
-const titles = {"/":"Overview","/signals":"Live Signals","/trading":"Trading Terminal","/strategies":"Strategies","/portfolio":"Portfolio","/risk":"Risk Management","/activity":"Orders & Trade History","/live":"Live Activities","/system":"System Status","/settings":"Account & Settings","/research":"Backtesting & Research","/onboarding":"Account setup","/scanner":"Live Scanner","/learn":"Academy","/indicators":"Academy","/plan":"My Trading Plan","/notifications":"Inbox"};
+const titles = {"/":"Overview","/signals":"Live Signals","/trading":"Trading Terminal","/strategies":"Strategies","/portfolio":"Portfolio","/risk":"Risk Management","/activity":"Orders & Trade History","/live":"Live Activities","/system":"System Status","/settings":"Account & Settings","/research":"Backtesting & Research","/onboarding":"Account setup","/scanner":"Live Scanner","/learn":"Academy","/indicators":"Academy","/plan":"My Trading Plan","/notifications":"Inbox","/lab":"Trading Lab"};
 document.getElementById("title").textContent = titles[path] || "Aureon";
 document.title = (titles[path] || "Aureon") + " · Aureon Trading Lab";
 const view = document.getElementById("view");
@@ -1563,7 +1661,9 @@ async function overview(){
   if (!profile.currency) steps.push("Set a base currency. Amounts are not converted.");
   if (!(me && me.telegram_verified)) steps.push("Telegram is not verified. Alerts stay off until you link a chat.");
   const stepHtml = steps.length ? `<article class="card"><h2>Next steps</h2><ul>${steps.map(s => `<li>${s}</li>`).join("")}</ul><p><a href="/settings">Open settings</a></p></article>` : "";
-  const accountCard = `<article class="card"><h2>${who}</h2><div class="row"><span>Signal style</span><span>${styleName}</span></div><div class="row"><span>Configured paper capital</span><span>${balance}</span></div><div class="row"><span>Production</span><span>WAIT_DEFAULT</span></div><p class="muted">Research eligibility is not a trade. Broker execution is disabled. No strategy is promoted. ${profile.currency ? "Amounts use " + profile.currency + ". Quotes stay in their market currency." : "Choose a base currency before treating the balance as money."}</p><p><a href="/settings">Account settings</a> · <a href="/research">Research laboratory</a></p></article>${stepHtml}`;
+  const bot = await fetch("/api/autopilot", {credentials:"same-origin"}).then(r => r.ok ? r.json() : null).catch(()=>null);
+  const botLine = bot ? `AutoPilot is ${bot.status}. New automated paper entries are ${bot.accepts_new_entries ? "allowed" : "blocked"}. This is not a broker.` : "";
+  const accountCard = `<article class="card"><h2>${who}</h2><div class="row"><span>Signal style</span><span>${styleName}</span></div><div class="row"><span>Configured paper capital</span><span>${balance}</span></div><div class="row"><span>AutoPilot</span><span>${bot ? bot.status : "off"}</span></div><p class="muted">${botLine} Research eligibility is not a trade. Broker execution is disabled. No strategy is promoted. ${profile.currency ? "Amounts use " + profile.currency + ". Quotes stay in their market currency." : "Choose a base currency before treating the balance as money."}</p><p><a href="/settings">Account settings</a> · <a href="/lab">Trading Lab</a></p></article>${stepHtml}`;
   view.innerHTML = accountCard + `<p class="muted" id="mload">Loading markets…</p>`;
   const selected = me && me.prefs && me.prefs.markets ? me.prefs.markets : null;
   const m = await Promise.race([
@@ -1805,7 +1905,37 @@ async function scannerPage(){
   window.__scanTimer = setInterval(loadScan, 15000);
 }
 async function learnPage(){
-  view.innerHTML = `<article class="card"><h2>How to read the desk</h2><p>A candlestick shows the open, high, low and close of one completed period. A 15-minute candle is fifteen minutes of trades. A one-hour candle is one hour. The scanner uses only candles that have already closed.</p><p>E1 Donchian-20 compares the latest close with the highest high and lowest low of the previous 20 completed bars. SMA20 is the average of the last 20 closes. RSI14 is a momentum reading. They are research observations. If E1 is waiting, that research note waits. It does not force Apex, Orion or Aegis to wait, and those styles are not votes of E1, SMA20 and RSI14.</p></article><article class="card"><h2>What a result means</h2><ul><li>No qualifying setup yet: the rule did not match.</li><li>Research observation: a condition was seen. It is not an order.</li><li>Paper candidate: the written rule is complete, and it is still not approved.</li><li>Approved signal: only after a promotion record exists. None exists now.</li><li>Paper trade: a simulated fill. Broker execution is off, so this desk does not send one.</li></ul><p>WAIT means the rule or the data does not justify an entry. It is the safe result, not a missing page.</p></article><article class="card"><h2>Accounts and alerts</h2><p>Apex Momentum caps risk at 2.5% of paper capital. Orion Precision caps it at 1.5%. Aegis Shield caps it at 0.8%. These are ceilings. Changing the base currency does not convert the stored amount.</p><p>A paper trade is opened only when you press the button on a saved plan. Apex sizes up to 2.5% when reward/risk is at least 1.7. Orion requires 2.0 and caps risk at 1.5%. Aegis requires 2.5 and caps risk at 0.8%. A plan below the floor stays visible and cannot be opened. The daily loss limit and the weekly loss limit block a new paper order. They do not change the market reading. Gold 1-minute and 3-minute data are not available. A candle that reaches both the stop and the target stays unresolved.</p><p>The evidence grade is a checklist. It is not a probability of profit, and it has not been calibrated. A weekly aim is a personal target. Missing it is shown as a shortfall. The aim does not create a signal or raise risk.</p></article>`;
+  const lab = await fetch("/api/lab", {credentials:"same-origin"}).then(r => r.ok ? r.json() : null).catch(()=>null);
+  if (!lab) { view.innerHTML = `<article class="card"><h2>Academy</h2><p>Lessons are saved on your account. <a href="/login">Sign in</a> to read them and mark progress. A lesson is not a signal, and no firm rule is stored as verified.</p></article>`; return; }
+  const done = new Set(lab.completed_lessons || []);
+  const cards = (lab.lessons || []).map(lesson => `<article class="card"><h2>${lesson.track === "prop" ? "Prop education · " : ""}${lesson.title}</h2><p>${lesson.body}</p><p class="muted">${done.has(lesson.id) ? "Completed." : "Not completed."} ${lesson.verified_firm_rule ? "" : "Not a verified firm rule."}</p><button type="button" data-lesson="${lesson.id}">Mark complete</button></article>`).join("");
+  const custom = ((lab.rules || {}).custom_rules || []).map(rule => `<p>${rule.text}</p><p class="muted">${rule.note}</p>`).join("");
+  view.innerHTML = `<article class="card"><h2>Academy</h2><p>${(lab.rules || {}).verified_note || ""}</p><p class="muted">These lessons explain the desk. They do not open a paper trade.</p></article>${cards}<article class="card"><h2>Your own challenge note</h2>${custom || "<p>No personal note yet.</p>"}<label>Note <input id="rule" maxlength="400"></label><button id="saverule" type="button">Save as my note</button><p class="muted">A note you type is not confirmed as a firm's current rule.</p></article>`;
+  document.querySelectorAll("[data-lesson]").forEach(button => { button.onclick = async () => {
+    const next = [...done, button.dataset.lesson];
+    await fetch("/api/lab", {method:"POST", credentials:"same-origin", headers:{"Content-Type":"application/json"}, body: JSON.stringify({completed_lessons: next})});
+    learnPage();
+  }; });
+  document.getElementById("saverule").onclick = async () => {
+    await fetch("/api/lab", {method:"POST", credentials:"same-origin", headers:{"Content-Type":"application/json"}, body: JSON.stringify({custom_rule: document.getElementById("rule").value})});
+    learnPage();
+  };
+}
+async function labPage(){
+  const lab = await fetch("/api/lab", {credentials:"same-origin"}).then(r => r.ok ? r.json() : null).catch(()=>null);
+  if (!lab) { view.innerHTML = `<article class="card"><h2>Sign in required</h2><p><a href="/login">Sign in</a> to open your Trading Lab.</p></article>`; return; }
+  const persona = lab.persona || {};
+  const bot = lab.autopilot || {};
+  const figures = lab.performance || {};
+  const focus = new Set(lab.focus || []);
+  view.innerHTML = `<article class="card"><h2>Your desk</h2><p>Experience you stated: ${lab.experience}. Objective: ${lab.objective || "not set"}.</p><p>Persona ${persona.name || "not selected"}. Risk cap ${persona.risk_per_trade_percent ?? "—"}%. Reward floor ${persona.min_rr ?? "—"}. Paper timeframes ${(persona.paper_timeframes || []).join(", ") || "—"}.</p><p>AutoPilot is ${bot.status}. Automated paper entries are ${bot.accepts_new_entries ? "allowed" : "blocked"}.</p><p>${lab.observation}</p><p class="muted">${figures.trades ? "Closed paper trades: " + figures.trades + "." : "No completed paper trade."} ${lab.note}</p></article><form id="labform" class="card"><h2>Learning profile</h2><label>Experience <select id="exp"><option value="new">New</option><option value="developing">Developing</option><option value="independent">Independent</option></select></label><label>Objective <input id="objective" maxlength="160" value="${lab.objective || ""}"></label><div class="checks"><label><input type="checkbox" value="candles" ${focus.has("candles")?"checked":""}> Candles</label><label><input type="checkbox" value="risk" ${focus.has("risk")?"checked":""}> Risk</label><label><input type="checkbox" value="psychology" ${focus.has("psychology")?"checked":""}> Psychology</label><label><input type="checkbox" value="prop" ${focus.has("prop")?"checked":""}> Prop education</label></div><button type="submit">Save lab profile</button><p id="labsaved" class="muted"></p></form>`;
+  if (lab.experience && lab.experience !== "not_stated") document.getElementById("exp").value = lab.experience;
+  document.getElementById("labform").onsubmit = async (event) => {
+    event.preventDefault();
+    const chosen = [...document.querySelectorAll("#labform input:checked")].map(box => box.value);
+    const saved = await fetch("/api/lab", {method:"POST", credentials:"same-origin", headers:{"Content-Type":"application/json"}, body: JSON.stringify({experience: document.getElementById("exp").value, objective: document.getElementById("objective").value, focus: chosen})});
+    document.getElementById("labsaved").textContent = saved.ok ? "Saved on this account." : "Could not save.";
+  };
 }
 async function planPage(){
   const response = await fetch("/api/plan", {credentials:"same-origin"});
@@ -1851,6 +1981,7 @@ async function load(){
   if (path === "/plan") return planPage();
   if (path === "/scanner") return scannerPage();
   if (path === "/learn" || path === "/indicators") return learnPage();
+  if (path === "/lab") return labPage();
   if (path === "/trading") return terminal();
   if (path === "/" || path === "/overview") return overview();
   if (path === "/signals") return signals();
@@ -1877,7 +2008,7 @@ async function liveActivities(){
   const age = coverage.evaluated_at_ms ? Math.max(0, Math.round((Date.now() - coverage.evaluated_at_ms) / 1000)) : null;
   const rows = (notes.items || []).filter(item => item.decision === "BUY" || item.decision === "SELL");
   const book = await fetch("/api/paper/book", {credentials:"same-origin"}).then(r => r.ok ? r.json() : {open:[], orders:[]}).catch(()=>({open:[], orders:[]}));
-  const positions = (book.open||[]).concat(book.ambiguous||[]).map(row => `<article class="card"><h2>${row.exit_kind||row.status} · ${row.symbol} ${row.direction}</h2><p>Entry ${row.entry}. Stop ${row.stop}. Target ${row.target}. ${row.exit_price==null?"No paper exit.":"Paper exit "+row.exit_price+"."}</p><p class="muted">${(row.events&&row.events.length)?row.events[row.events.length-1].note:row.note||""} This is not a broker fill.</p></article>`).join("");
+  const positions = (book.open||[]).concat(book.ambiguous||[]).map(row => `<article class="card"><h2>${row.opened_by === "autopilot" ? "AutoPilot paper" : "Account paper"} · ${row.exit_kind||row.status} · ${row.symbol} ${row.direction}</h2><p>Entry ${row.entry}. Stop ${row.stop}. Target ${row.target}. ${row.exit_price==null?"No paper exit.":"Paper exit "+row.exit_price+"."}</p><p class="muted">${(row.events&&row.events.length)?row.events[row.events.length-1].note:row.note||""} This is not a broker fill.</p></article>`).join("");
   const list = rows.map(item => `<article class="card"><h2>${item.lifecycle || "active"} · ${item.decision} · ${item.symbol} ${item.interval}</h2><p>${item.lifecycle_note || "Active means the plan is still the visible one. It does not mean an order was opened."}</p><div class="row"><span>Entry ${item.entry==null?"—":item.entry}</span><span>Stop ${item.stop==null?"—":item.stop}</span><span>Target ${item.target==null?"—":item.target}</span></div><p class="muted">${item.family || item.strategy || ""} · ${item.opportunity_id || ""}</p></article>`).join("");
   view.innerHTML = `<article class="card"><h2>Live Activities</h2><p>Plans come from the inbox. Open positions come from the paper record. Neither is a second signal, and neither is a broker fill.</p><p>Completed candles are judged when the background worker runs, about once a minute. A refresh of this page does not make that scan faster. Last scan ${age==null?"has no recorded time":age+" seconds ago"}.</p></article>${positions}${list || "<article class='card'><p>No open experimental plan for this account.</p></article>"}`;
 }
@@ -1901,7 +2032,7 @@ async function paperPages(){
     }; });
     return;
   }
-  const rows = (book.orders||[]).map(row => `<div class="row"><span>${row.status}</span><span>${row.symbol} ${row.direction}</span></div><p class="muted">${row.exit_kind||"no exit"} · Entry ${row.entry}. Stop ${row.stop}. Target ${row.target}. ${row.exit_price==null?"No exit.":"Exit "+row.exit_price+". Paper result "+money(row.pnl_usd)+" USD."} ${row.slippage_note||""} ${row.note||""}</p>`).join("");
+  const rows = (book.orders||[]).map(row => `<div class="row"><span>${row.status}</span><span>${row.symbol} ${row.direction}</span></div><p class="muted">${row.opened_by === "autopilot" ? "Opened by AutoPilot." : "Opened by the account."} ${row.exit_kind||"no exit"} · Entry ${row.entry}. Stop ${row.stop}. Target ${row.target}. ${row.exit_price==null?"No exit.":"Exit "+row.exit_price+". Paper result "+money(row.pnl_usd)+" USD."} ${row.slippage_note||""} ${row.note||""}</p>`).join("");
   view.innerHTML = `<article class="card"><h2>Orders and trade history</h2>${rows||"<p>No paper orders. Opening one is a separate action from receiving a plan.</p>"}<p class="muted">${book.note||""}</p></article>`;
 }
 async function riskPage(){
@@ -1921,7 +2052,7 @@ async function systemPage(){
   const note = h.notification && h.notification.pipeline ? h.notification.pipeline : (typeof h.notification === "string" ? h.notification : "unknown");
   const monitor = h.worker && h.worker.last_monitor;
   const watched = monitor && monitor.evaluations ? monitor.evaluations.map(row => `${row.symbol} ${row.interval}: ${row.decision}`).join("; ") : "not run yet";
-  view.innerHTML = `<article class="card"><h2>System</h2>${row("Process", h.process||"unknown")}${row("BTC / ETH", market)}${row("Gold scan", gold||"not scanned")}${row("Notifications", note)}${row("Ledger", h.ledger||"unknown")}${row("Strategy", h.strategy_status||"unknown")}${row("Broker", String(h.broker))}${row("Build", h.build_commit||"unknown")}${row("Worker heartbeat", h.worker && h.worker.last_beat_ms ? new Date(h.worker.last_beat_ms).toISOString() : "unknown")}${row("Background scan", h.worker && h.worker.last_monitor_ms ? new Date(h.worker.last_monitor_ms).toISOString() : "not run yet")}${row("Last scan", watched)}</article><p class="muted">A missing field stays unknown. The background scan uses the same decision as the terminal. It does not send Telegram, and a wait is not an inbox card. Gold 1m and 3m are unavailable without a licensed minute feed.</p>`;
+  view.innerHTML = `<article class="card"><h2>System</h2>${row("Process", h.process||"unknown")}${row("BTC / ETH", market)}${row("Gold scan", gold||"not scanned")}${row("Notifications", note)}${row("Ledger", h.ledger||"unknown")}${row("Strategy", h.strategy_status||"unknown")}${row("Broker", String(h.broker))}${row("Build", h.build_commit||"unknown")}${row("Worker heartbeat", h.worker && h.worker.last_beat_ms ? new Date(h.worker.last_beat_ms).toISOString() : "unknown")}${row("Background scan", h.worker && h.worker.last_monitor_ms ? new Date(h.worker.last_monitor_ms).toISOString() : "not run yet")}${row("Last scan", watched)}</article><p class="muted">A missing heartbeat or a scan that has not run is not a healthy bot. The background scan uses the same decision as the terminal. It does not send Telegram. Gold 1m and 3m are unavailable without a licensed minute feed. AutoPilot is paper only and stays off until the account enables it.</p>`;
 }
 async function settings(){
   const me = await fetch("/api/me").then(r => r.ok ? r.json() : null);
@@ -1935,7 +2066,7 @@ async function settings(){
   const profile = me.profile || {};
   const styles = (catalog.profiles||[]).map(p => `<label><input type="radio" name="style" value="${p.key}" ${profile.signal_style===p.key?"checked":""}> ${p.name} — ${p.risk_mode}. ${p.confirmation}</label>`).join("");
   const currencies = (catalog.currencies||[]).map(c => `<option value="${c}" ${profile.currency===c?"selected":""}>${c}</option>`).join("");
-  view.innerHTML = `<article class="card"><h2>${path==="/onboarding"?"Choose a signal style":"Signal style"}</h2><p class="muted">${catalog.note||""}</p><div class="styles">${styles}</div></article><article class="card"><h2>Base currency and capital</h2><div class="field"><span>Currency</span><select id="currency"><option value="">Not set</option>${currencies}</select></div><div class="field"><span>Paper capital</span><input id="capital" type="number" min="0" step="any" value="${profile.capital??""}"></div><p class="muted">Saving a currency does not convert the stored amount. Market quotes stay in USDT or USD/oz.</p></article><article class="card"><h2>Markets</h2><div class="checks"><label><input type="checkbox" id="btc" ${has("BTCUSDT")}> BTCUSDT</label><label><input type="checkbox" id="eth" ${has("ETHUSDT")}> ETHUSDT</label><label><input type="checkbox" id="gold" ${has("XAUUSD")}> XAUUSD</label></div><p class="muted">BTC and ETH use Binance candles. Gold 15-minute and 1-hour readings use spot samples. Gold 1-minute and 3-minute stay unavailable until a licensed minute feed exists.</p></article><article class="card"><h2>Notifications and risk</h2><div class="checks"><label><input type="checkbox" id="exp" ${profile.experimental_alerts?"checked":""}> Experimental alerts</label><label><input type="checkbox" id="digest" ${profile.daily_report!==false?"checked":""}> Daily digest</label></div><div class="field"><span>Max risk per trade %</span><input id="risk" type="number" step="0.1" min="0" value="${profile.max_risk_pct??""}"></div><p class="muted">Risk cannot be set above the active style cap. These caps do not guarantee protection from losses. Production is WAIT_DEFAULT, so no trade alert is sent until a strategy is promoted. Turning experimental alerts on does not bypass that. In-app experimental matches stay labelled unapproved and never become an approved alert. Telegram is ${me.telegram_verified?"verified":"not verified"}.</p><button id="tglink" type="button">Create a one-time Telegram link</button><p id="tglinkout" class="muted"></p></article><article class="card" id="inbox-settings"><h2>In-app inbox</h2><p class="muted" id="inboxnote">Loading delivery settings.</p></article><p><button id="saveall" type="button">Save</button> <button id="skip" type="button">Continue without optional alerts</button> <button id="out" type="button">Sign out</button></p><p id="savedp" class="muted"></p>`;
+  view.innerHTML = `<article class="card"><h2>${path==="/onboarding"?"Choose a signal style":"Signal style"}</h2><p class="muted">${catalog.note||""}</p><div class="styles">${styles}</div></article><article class="card"><h2>Base currency and capital</h2><div class="field"><span>Currency</span><select id="currency"><option value="">Not set</option>${currencies}</select></div><div class="field"><span>Paper capital</span><input id="capital" type="number" min="0" step="any" value="${profile.capital??""}"></div><p class="muted">Saving a currency does not convert the stored amount. Market quotes stay in USDT or USD/oz.</p></article><article class="card"><h2>Markets</h2><div class="checks"><label><input type="checkbox" id="btc" ${has("BTCUSDT")}> BTCUSDT</label><label><input type="checkbox" id="eth" ${has("ETHUSDT")}> ETHUSDT</label><label><input type="checkbox" id="gold" ${has("XAUUSD")}> XAUUSD</label></div><p class="muted">BTC and ETH use Binance candles. Gold 15-minute and 1-hour readings use spot samples. Gold 1-minute and 3-minute stay unavailable until a licensed minute feed exists.</p></article><article class="card" id="autopilot-card"><h2>AutoPilot</h2><p>Loading paper automation.</p></article><article class="card"><h2>Notifications and risk</h2><div class="checks"><label><input type="checkbox" id="exp" ${profile.experimental_alerts?"checked":""}> Experimental alerts</label><label><input type="checkbox" id="digest" ${profile.daily_report!==false?"checked":""}> Daily digest</label></div><div class="field"><span>Max risk per trade %</span><input id="risk" type="number" step="0.1" min="0" value="${profile.max_risk_pct??""}"></div><p class="muted">Risk cannot be set above the active style cap. These caps do not guarantee protection from losses. Production is WAIT_DEFAULT, so no trade alert is sent until a strategy is promoted. Turning experimental alerts on does not bypass that. In-app experimental matches stay labelled unapproved and never become an approved alert. Telegram is ${me.telegram_verified?"verified":"not verified"}.</p><button id="tglink" type="button">Create a one-time Telegram link</button><p id="tglinkout" class="muted"></p></article><article class="card" id="inbox-settings"><h2>In-app inbox</h2><p class="muted" id="inboxnote">Loading delivery settings.</p></article><p><button id="saveall" type="button">Save</button> <button id="skip" type="button">Continue without optional alerts</button> <button id="out" type="button">Sign out</button></p><p id="savedp" class="muted"></p>`;
   const inbox = await fetch("/api/inbox/settings", {credentials:"same-origin"}).then(r => r.ok ? r.json() : null);
   const box = (inbox && inbox.settings) || {};
   const on = (name) => box[name] ? "checked" : "";
@@ -1958,6 +2089,21 @@ async function settings(){
     const saved = await fetch("/api/inbox/settings", {method:"POST", credentials:"same-origin", headers:{"Content-Type":"application/json"}, body: JSON.stringify(payload)});
     document.getElementById("inboxsaved").textContent = saved.ok ? (payload.experimental ? "Inbox delivery saved. Experimental matches are enabled and will be labelled unapproved." : "Inbox delivery saved. Experimental matches stay off.") : "Inbox settings could not be saved.";
   };
+  const bot = await fetch("/api/autopilot", {credentials:"same-origin"}).then(r => r.ok ? r.json() : {status:"off", accepts_new_entries:false, automated_orders:0, rejections:[], note:""});
+  const last = bot.last_evaluation_ms ? new Date(bot.last_evaluation_ms).toISOString() : "no scan yet";
+  const rejected = (bot.rejections || []).slice(-3).map(row => `${row.reason}`).join(", ") || "none";
+  document.getElementById("autopilot-card").innerHTML = `<h2>AutoPilot</h2><p>Status: ${bot.status}. New paper entries: ${bot.accepts_new_entries ? "allowed" : "blocked"}. Automated orders: ${bot.automated_orders || 0}. Last evaluation: ${last}. Recent rejection: ${rejected}.</p><p class="muted">${bot.note || ""} Enabling it lets the worker open paper trades that already pass your persona, plan and risk checks. It does not close an open position when you pause or stop new entries. It is not a broker.</p><label>Daily automated cap, optional <input id="autocap" type="number" min="1" value="${bot.max_orders_per_day || ""}"></label><p><button id="auto-on" type="button">Enable AutoPilot</button> <button id="auto-pause" type="button">Pause</button> <button id="auto-resume" type="button">Resume</button> <button id="auto-stop" type="button">Emergency stop</button> <button id="auto-off" type="button">Disable</button></p><p id="autonote" class="muted"></p>`;
+  async function autoAct(action, confirm){
+    const cap = document.getElementById("autocap").value;
+    const saved = await fetch("/api/autopilot", {method:"POST", credentials:"same-origin", headers:{"Content-Type":"application/json"}, body: JSON.stringify({action, confirm, max_orders_per_day: cap || null})});
+    const payload = await saved.json().catch(()=>({}));
+    document.getElementById("autonote").textContent = saved.ok && payload.ok ? ("AutoPilot is " + payload.autopilot.status + ".") : ("Not changed: " + (payload.reason || "unavailable"));
+  }
+  document.getElementById("auto-on").onclick = () => autoAct("enable", true);
+  document.getElementById("auto-pause").onclick = () => autoAct("pause", false);
+  document.getElementById("auto-resume").onclick = () => autoAct("resume", false);
+  document.getElementById("auto-stop").onclick = () => autoAct("emergency_stop", false);
+  document.getElementById("auto-off").onclick = () => autoAct("disable", false);
   async function save(go){
     const style = (document.querySelector("input[name=style]:checked") || {}).value;
     const markets = [];
