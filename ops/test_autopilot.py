@@ -1,5 +1,6 @@
 """AutoPilot opens paper orders only after this account turns it on. Fixtures, not a live feed."""
 
+import json
 import threading
 
 from ops.autopilot import act, consider, view
@@ -118,6 +119,20 @@ def test_lab_progress_stays_on_one_account_and_a_note_is_not_a_firm_rule(tmp_pat
     assert lab["rules"]["verified_firm_rules"] == []
     assert lab["rules"]["custom_rules"][0]["verified"] is False
     assert "Not confirmed" in lab["rules"]["custom_rules"][0]["note"]
+    assert lab["observation"].startswith("Not enough")
+    assert any(item["lesson_id"] == "journal" for item in lab["improvement"])
+    assert "skill score" not in json.dumps(lab["improvement"]).lower()
+    from ops.app import worker
+    previous = worker.last_beat_ms
+    worker.last_beat_ms = 0
+    worker.last_monitor_error = None
+    try:
+        health = client.get("/api/autopilot").get_json()
+        assert health["worker"]["healthy"] is False
+        assert health["health"] == "off"
+    finally:
+        worker.last_beat_ms = previous
+        worker.last_monitor_error = None
     page = client.get("/settings").get_data(as_text=True)
     assert "Enable AutoPilot" in page
     assert "not a broker" in page.lower() or "Not a broker" in page
