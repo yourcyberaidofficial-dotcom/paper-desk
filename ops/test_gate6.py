@@ -93,6 +93,26 @@ def test_health_names_the_build_without_secrets(tmp_path, monkeypatch):
     assert body["shadow"] == "disabled"
 
 
+def test_an_old_worker_heartbeat_is_not_reported_as_healthy():
+    import time
+    from ops.app import app, worker
+    previous_beat = worker.last_beat_ms
+    previous_error = worker.last_monitor_error
+    app.config["TESTING"] = True
+    client = app.test_client()
+    try:
+        worker.last_monitor_error = None
+        worker.last_beat_ms = int(time.time() * 1000) - 10 * 60 * 1000
+        assert client.get("/health").get_json()["worker"]["status"] == "stale"
+        worker.last_beat_ms = int(time.time() * 1000)
+        assert client.get("/health").get_json()["worker"]["status"] == "beating"
+        worker.last_monitor_error = "TimeoutError"
+        assert client.get("/health").get_json()["worker"]["status"] == "error"
+    finally:
+        worker.last_beat_ms = previous_beat
+        worker.last_monitor_error = previous_error
+
+
 def test_worker_shadow_is_off_unless_enabled(tmp_path, monkeypatch):
     monkeypatch.delenv("AUREON_SHADOW", raising=False)
     monkeypatch.setattr("ops.worker.fetch_last_closed", lambda symbol, interval, now_ms=None: {"symbol": symbol, "close_time_ms": 1000, "fresh": True})

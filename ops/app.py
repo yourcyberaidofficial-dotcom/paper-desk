@@ -118,6 +118,15 @@ def health():
     report = _market_report(markets)
     promoted = _promotion_state()
     beat = worker.last_beat_ms or 0
+    heartbeat_age = None if not beat else max(0, int(time.time() * 1000) - beat)
+    if not beat:
+        worker_status = "unknown"
+    elif getattr(worker, "last_monitor_error", None):
+        worker_status = "error"
+    elif heartbeat_age > 180_000:
+        worker_status = "stale"
+    else:
+        worker_status = "beating"
     return jsonify({
         "status": "ok" if report["BTCUSDT"]["status"] == "fresh" and report["ETHUSDT"]["status"] == "fresh" else "degraded",
         "process": "ok",
@@ -138,8 +147,8 @@ def health():
         "broker": False,
         "worker": {
             "last_beat_ms": beat or None,
-            "heartbeat_age_ms": None if not beat else max(0, int(time.time() * 1000) - beat),
-            "status": "unknown" if not beat else "beating",
+            "heartbeat_age_ms": heartbeat_age,
+            "status": worker_status,
             "last_monitor_ms": getattr(worker, "last_monitor_ms", 0) or None,
             "last_monitor": getattr(worker, "last_monitor", None),
             "last_monitor_error": getattr(worker, "last_monitor_error", None),
