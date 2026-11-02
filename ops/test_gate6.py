@@ -108,6 +108,10 @@ def test_an_old_worker_heartbeat_is_not_reported_as_healthy():
         assert client.get("/health").get_json()["worker"]["status"] == "beating"
         worker.last_monitor_error = "TimeoutError"
         assert client.get("/health").get_json()["worker"]["status"] == "error"
+        text = __import__("pathlib").Path(__file__).with_name("app.py").read_text(encoding="utf-8")
+        assert "Worker status" in text
+        assert "not confirmed" in text
+        assert "The health report could not be read" in text
     finally:
         worker.last_beat_ms = previous_beat
         worker.last_monitor_error = previous_error

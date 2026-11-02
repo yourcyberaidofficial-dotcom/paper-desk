@@ -130,6 +130,13 @@ def test_lab_progress_stays_on_one_account_and_a_note_is_not_a_firm_rule(tmp_pat
         health = client.get("/api/autopilot").get_json()
         assert health["worker"]["healthy"] is False
         assert health["health"] == "off"
+        turned = client.post("/api/autopilot", json={"action": "enable", "confirm": True})
+        assert turned.status_code == 200
+        worker.last_beat_ms = int(__import__("time").time() * 1000) - 10 * 60 * 1000
+        running = client.get("/api/autopilot").get_json()
+        assert running["status"] == "running"
+        assert running["health"] == "not_confirmed"
+        assert running["worker"]["status"] == "stale"
     finally:
         worker.last_beat_ms = previous
         worker.last_monitor_error = None
