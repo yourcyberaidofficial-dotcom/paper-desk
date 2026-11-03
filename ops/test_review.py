@@ -78,6 +78,18 @@ def test_autopilot_facing_does_not_say_running_when_disabled_or_unhealthy():
     assert waiting["facing"] == "Waiting"
     assert waiting["entries_available"] is True
     assert "running" not in waiting["facing"].lower()
+    gated = presentation(
+        {"enabled": True, "status": "running"},
+        True,
+        open_positions=0,
+        gates={"market_data": "rights_withheld", "approved_for_paper": 0},
+    )
+    assert gated["facing"] == "Enabled — new entries blocked"
+    assert gated["entries_available"] is False
+    assert gated["state_kind"] == "blocked"
+    assert set(gated["blockers"]) == {"market_data_rights", "no_approved_strategy"}
+    assert "allowed" not in (gated["facing"] + gated["facing_note"]).lower()
+    assert "running" not in gated["facing"].lower()
 
 
 def test_a_wider_gap_cannot_open_a_paper_order_and_the_boundary_stays_strict():
@@ -187,10 +199,12 @@ def test_autopilot_facing_is_shared_and_off_is_not_called_running(tmp_path, monk
         worker.last_beat_ms = int(__import__("time").time() * 1000)
         waiting = client.get("/api/autopilot").get_json()
         assert waiting["status"] == "running"
-        assert waiting["facing"] == "Waiting"
+        assert waiting["facing"] == "Enabled — new entries blocked"
         assert waiting["health"] == "confirmed"
-        assert waiting["entries_available"] is True
+        assert waiting["entries_available"] is False
+        assert set(waiting["blockers"]) == {"market_data_rights", "no_approved_strategy"}
         assert "running" not in waiting["facing"].lower()
+        assert "allowed" not in (waiting["facing"] + " " + waiting["facing_note"]).lower()
         act(owner["id"], "pause", 1_700_000_100_000)
         paused = client.get("/api/autopilot").get_json()
         assert paused["facing"] == "Paused"

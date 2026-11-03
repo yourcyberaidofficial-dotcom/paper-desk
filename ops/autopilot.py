@@ -25,20 +25,22 @@ def default_state():
     }
 
 
-def presentation(state, worker_healthy, open_positions=None):
+def presentation(state, worker_healthy, open_positions=None, gates=None):
     """One account-facing label. Stored status is unchanged and is not shown as Running."""
     status = (state or {}).get("status") or "off"
     enabled = bool((state or {}).get("enabled")) and status != "off"
     updated = (state or {}).get("updated_ms")
 
-    def pack(facing, entries, note, kind):
-        return {
+    def pack(facing, entries, note, kind, blockers=None):
+        body = {
             "facing": facing,
             "entries_available": entries,
             "facing_note": note,
             "state_kind": kind,
             "updated_ms": updated,
+            "blockers": list(blockers or []),
         }
+        return body
 
     if not enabled:
         return pack("Disabled", False, "Permission is not active. New automated entries are blocked.", "disabled")
@@ -53,7 +55,33 @@ def presentation(state, worker_healthy, open_positions=None):
             "Automation is enabled, but worker health is not confirmed. New entries are not treated as available.",
             "unhealthy",
         )
+    blockers = []
+    if isinstance(gates, dict):
+        if gates.get("market_data") == "rights_withheld":
+            blockers.append("market_data_rights")
+        if gates.get("approved_for_paper") == 0:
+            blockers.append("no_approved_strategy")
+    if blockers:
+        parts = []
+        if "market_data_rights" in blockers:
+            parts.append("Market data rights are unconfirmed.")
+        if "no_approved_strategy" in blockers:
+            parts.append("No strategy is approved for paper.")
+        if blockers == ["market_data_rights"]:
+            facing = "Enabled — new entries blocked by data rights"
+        elif blockers == ["no_approved_strategy"]:
+            facing = "Enabled — no approved strategy"
+        else:
+            facing = "Enabled — new entries blocked"
+        return pack(facing, False, " ".join(parts) + " Existing paper positions stay monitored.", "blocked", blockers)
     if open_positions == 0:
+        if gates is not None:
+            return pack(
+                "Enabled — waiting for an eligible opportunity",
+                True,
+                "Automation is enabled. Market data and strategy approval both allow a new paper entry, and none is open. Nothing is entered until a plan passes every check.",
+                "waiting",
+            )
         return pack(
             "Waiting",
             True,
