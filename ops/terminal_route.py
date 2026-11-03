@@ -78,6 +78,23 @@ def handle_signal(user_id, body, now_ms=None, bars_loader=None, quote_loader=Non
     interval = body.get("interval") or "4h"
     strategy = body.get("strategy") or "auto"
     now_ms = int(now_ms if now_ms is not None else time.time() * 1000)
+    if symbol == "XAUUSD" and interval in {"1m", "3m"}:
+        return 200, attach_request(body, {
+            "decision": "WAIT",
+            "symbol": symbol,
+            "interval": interval,
+            "strategy": "xau-minute-unlicensed",
+            "version": "xau-minute-unlicensed",
+            "reason": "XAUUSD 1-minute and 3-minute plans stay off until a licensed spot feed is confirmed. A candle was not invented from a five-minute sample, and the 1-hour London rule was not used.",
+            "approved": False,
+            "fresh": False,
+            "reference_price": None,
+            "blocked": "xau_minute_unlicensed",
+            "validation_status": "BLOCKED",
+            "delivered": False,
+            "filled": False,
+            "order": False,
+        })
     live_quote = None
     if symbol == "XAUUSD":
         if quote_loader is None:

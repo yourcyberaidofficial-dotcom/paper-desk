@@ -186,6 +186,21 @@ def _evaluate(symbol, interval, strategy, bars, now_ms, user, prior=None, live_q
         "order": False,
         "evaluated_ms": int(now_ms),
     }
+    if symbol == "XAUUSD" and interval in {"1m", "3m"}:
+        return {
+            **base,
+            "strategy": "xau-minute-unlicensed",
+            "version": "xau-minute-unlicensed",
+            "decision": "WAIT",
+            "reason": "XAUUSD 1-minute and 3-minute plans stay off until a licensed spot feed is confirmed. These bars were not turned into an entry, stop or target.",
+            "blocked": "xau_minute_unlicensed",
+            "entry": None,
+            "stop": None,
+            "target": None,
+            "fresh": False,
+            "reference_price": None,
+            "validation_status": "BLOCKED",
+        }
     if symbol not in AUTO:
         return {**base, "decision": "WAIT", "reason": "This market is not supported.", "fresh": False, "reference_price": None}
     if chosen not in RULES or symbol not in (spec.get("instruments") or []):
@@ -219,17 +234,6 @@ def _evaluate(symbol, interval, strategy, bars, now_ms, user, prior=None, live_q
     })
     if not fresh:
         return {**base, "decision": "WAIT", "reason": "The latest candle is missing, still forming, or too old to treat as live.", "blocked": "stale_or_incomplete"}
-    if symbol == "XAUUSD" and interval in {"1m", "3m"}:
-        return {
-            **base,
-            "decision": "WAIT",
-            "reason": "XAUUSD 1-minute and 3-minute plans stay off until a licensed spot feed is confirmed. These bars were not turned into an entry, stop or target.",
-            "blocked": "xau_minute_unlicensed",
-            "entry": None,
-            "stop": None,
-            "target": None,
-            "live_quote": live_quote,
-        }
     if symbol == "XAUUSD" and not completed_bid_ask_bar(last):
         quote = last.get("quote_semantics") or "missing_bid_ask"
         if strategy in {None, "", "auto"} and quote == "spot_sample_not_bid_ask" and len(bars) < 24:
@@ -395,6 +399,11 @@ def apply_persona(result, user):
     }
     result["paper_cap"] = paper_cap_status(spec.get("max_trades_per_day"), (user or {}).get("paper_orders_today"))
     decision = result.get("decision")
+    if result.get("blocked"):
+        result["persona_release"] = False
+        result["account_status"] = "not_a_plan"
+        result["persona_note"] = f"{spec['name']} does not size a blocked reading. No paper order is opened."
+        return result
     if decision not in {"BUY", "SELL"} or result.get("reward_risk") is None:
         result["persona_release"] = False
         result["account_status"] = "not_a_plan"
