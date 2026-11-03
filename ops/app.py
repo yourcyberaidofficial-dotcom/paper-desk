@@ -115,13 +115,15 @@ def _security_headers(response):
 def coverage():
     from ops.worker import COVERAGE, pair_availability
     monitor = worker.last_monitor or {}
+    from ops.customer_release import diagnostic_monitor
+    public = diagnostic_monitor(monitor) or {}
     return jsonify({
         "pairs": [{"symbol": symbol, "interval": interval} for symbol, interval in COVERAGE],
         "availability": pair_availability(),
         "last_monitor_ms": getattr(worker, "last_monitor_ms", 0) or None,
-        "evaluations": monitor.get("evaluations") or [],
+        "evaluations": public.get("evaluations") or [],
         "delivered": monitor.get("delivered"),
-        "error": monitor.get("error"),
+        "error": public.get("error"),
     })
 
 
@@ -147,7 +149,7 @@ def _worker_public():
         "heartbeat_age_ms": heartbeat_age,
         "status": worker_status,
         "last_monitor_ms": getattr(worker, "last_monitor_ms", 0) or None,
-        "last_monitor": getattr(worker, "last_monitor", None),
+        "last_monitor": __import__("ops.customer_release", fromlist=["diagnostic_monitor"]).diagnostic_monitor(getattr(worker, "last_monitor", None)),
         "last_monitor_error": getattr(worker, "last_monitor_error", None),
         "healthy": worker_status == "beating",
     }
@@ -235,12 +237,11 @@ def _market_report(snapshot):
         }
     scan = getattr(worker, "last_monitor", None) or {}
     gold = [row for row in (scan.get("evaluations") or []) if row.get("symbol") == "XAUUSD"]
-    rights_gold = any(is_rights_reason(row.get("reason")) or is_rights_reason(row.get("blocked")) for row in gold)
     out["XAUUSD"] = {
-        "status": "withheld" if rights_gold else ("scanned" if gold else "not_checked"),
-        "source": "xaus.com",
+        "status": "not_shown",
         "source_reachable": "not_checked",
-        "rows": [{k: row.get(k) for k in ("interval", "decision", "reason")} for row in gold],
+        "rows": [{"interval": row.get("interval")} for row in gold],
+        "note": "A verified live reading is not available.",
     }
     return out
 
@@ -263,6 +264,9 @@ def klines():
         return blocked
     symbol = request.args.get("symbol", "BTCUSDT")
     interval = request.args.get("interval", "15m")
+    from ops.customer_release import candles_released, unavailable_candles
+    if not candles_released(symbol, interval):
+        return jsonify(unavailable_candles(symbol, interval))
     if symbol in {"BTCUSDT", "ETHUSDT"} and interval in {"1m", "3m", "15m", "1h"}:
         from ops.bars import to_chart_candles
         from ops.desk_snapshot import observe
@@ -292,7 +296,12 @@ def klines():
 @app.get("/api/market")
 def market():
     blocked = _limited()
-    return blocked if blocked else jsonify(market_snapshot())
+    if blocked:
+        return blocked
+    from ops.customer_release import any_customer_display, unavailable_quote
+    if not any_customer_display():
+        return jsonify({symbol: unavailable_quote(symbol) for symbol in ("BTCUSDT", "ETHUSDT")})
+    return jsonify(market_snapshot())
 
 
 @app.get("/api/signal")
@@ -311,13 +320,17 @@ def signal():
 @app.get("/api/state")
 @require_token
 def state():
+    from ops.customer_release import any_customer_display
+    if not any_customer_display():
+        return jsonify({"production": "WAIT_DEFAULT", "customer_status": "reading_unavailable", "broker": False, "paper_only": True})
     return jsonify(engine.snapshot())
 
 
 @app.get("/api/events")
 @require_token
 def events():
-    return jsonify(ledger.read()[-50:])
+    from ops.customer_release import redact_public_numbers
+    return jsonify(redact_public_numbers(ledger.read()[-50:]))
 
 
 @app.post("/api/bar")
@@ -373,7 +386,8 @@ def evaluations():
     except ValueError:
         limit = 20
     rows = [row for row in ledger.read() if row.get("type") == "evaluation"]
-    return jsonify({"rows": rows[-limit:], "total": len(rows)})
+    from ops.customer_release import redact_public_numbers
+    return jsonify({"rows": redact_public_numbers(rows[-limit:]), "total": len(rows)})
 
 
 @app.get("/api/deep-board")
@@ -435,14 +449,15 @@ def paper_status():
             book = ExperimentalBook(path)
             rows = book.read()
             shown = present_book(rows, book.open_position())
-            return jsonify({
+            from ops.customer_release import redact_public_numbers
+            return jsonify(redact_public_numbers({
                 "open": shown["open"],
                 "rows": shown["trades"][-10:],
                 "observations": shown["observations"][-8:],
                 "label": "Research notes are not orders.",
                 "broker": False,
                 "note": "A directional research observation is not a holding or an order.",
-            })
+            }))
         except Exception as exc:
             return jsonify({"open": None, "rows": [], "label": "Research notes are not orders.", "broker": False, "error": "unavailable"})
     return jsonify({"open": None, "rows": [], "label": "Research notes are not orders.", "broker": False})
@@ -830,11 +845,18 @@ def _gold():
         return payload
     cached = (load() or {}).get("spot")
     if cached:
-        cached = dict(cached)
-        cached["fresh"] = False
-        cached["quote_semantics"] = "indicative_mid"
-        cached["note"] = "Provider limited. Last known indicative mid, not a live quote."
-        return cached
+        return {
+            "symbol": "XAUUSD",
+            "price": None,
+            "close": None,
+            "fresh": False,
+            "status": "not_shown",
+            "customer_status": "reading_unavailable",
+            "quote_semantics": "indicative_mid",
+            "not_bid_ask": True,
+            "not_a_candle": True,
+            "note": "A verified live reading is not available.",
+        }
     return {
         "symbol": "XAUUSD",
         "source": "xaus.com",
@@ -848,6 +870,9 @@ def _gold():
 
 @app.get("/api/markets")
 def markets():
+    from ops.customer_release import any_customer_display, customer_markets, candles_released, reading_released, verified, source_for, STATUS
+    if not any_customer_display():
+        return jsonify(customer_markets())
     from ops.desk_snapshot import headline_board, public_reading
 
     now_ms = int(time.time() * 1000)
@@ -856,37 +881,66 @@ def markets():
     except Exception:
         snaps, readings = [], []
     by_symbol = {snap.get("instrument"): (snap, readings[index] if index < len(readings) else {}) for index, snap in enumerate(snaps)}
-    def row(symbol, row_id, source=None):
+
+    def row(symbol, row_id, frame, source=None):
         snap, reading = by_symbol.get(symbol) or ({}, {})
-        payload = {
-            "id": row_id,
-            "symbol": symbol,
-            "status": "configured",
-            "snapshot_id": snap.get("snapshot_id"),
-            "data": snap.get("display") or {"price": None, "close": None, "fresh": False, "quality": "unavailable"},
-            "reading": public_reading(reading) if reading else None,
-        }
-        if source:
+        semantics = (snap.get("candle_semantics") if snap else None)
+        sampled = semantics == "spot_sample_not_bid_ask"
+        sample = "spot_sample_not_bid_ask" if sampled else None
+        display = dict((snap.get("display") or {}) if snap else {})
+        if not candles_released(symbol, frame, sample):
+            display = {
+                "price": None,
+                "close": None,
+                "fresh": False,
+                "quality": "unavailable",
+                "timeframe": frame,
+                "customer_status": "reading_unavailable",
+                "note": STATUS,
+            }
+        elif isinstance(display.get("quote"), dict) and not verified(source_for(symbol, sample), "quote_display", symbol=symbol, interval=frame):
+            display["quote"] = {"status": "reference_quote_unavailable", "price": None}
+        shown = public_reading(reading) if reading else None
+        if shown and not reading_released(symbol, frame, sample):
+            shown = dict(shown)
+            shown["entry"] = None
+            shown["stop"] = None
+            shown["target"] = None
+            shown["decision"] = "WAIT"
+            shown["direction_label"] = "neutral"
+            shown["explanation"] = STATUS
+            shown["customer_status"] = "reading_unavailable"
+            shown["manual_paper"] = False
+            shown["source_id"] = None
+            shown["provider"] = None
+        payload = {"id": row_id, "symbol": symbol, "status": "configured", "data": display, "reading": shown}
+        if source and candles_released(symbol, frame, sample):
             payload["source"] = source
-            semantics = ((snap.get("display") or {}).get("candle_semantics"))
-            payload["kind"] = "sampled_reference" if semantics == "spot_sample_not_bid_ask" else "completed_bar"
+            payload["kind"] = "sampled_reference" if sampled else "completed_bar"
+            payload["snapshot_id"] = snap.get("snapshot_id")
         return payload
+
     return jsonify({
         "markets": [
-            row("BTCUSDT", "BTC"),
-            row("ETHUSDT", "ETH"),
-            row("XAUUSD", "GOLD", "xaus.com"),
+            row("BTCUSDT", "BTC", "15m"),
+            row("ETHUSDT", "ETH", "15m"),
+            row("XAUUSD", "GOLD", "1h", "xaus.com"),
         ],
         "broker": False,
         "production": "WAIT_DEFAULT",
-        "reading_version": (snaps[0].get("reading_version") if snaps else None),
+        "customer_status": "reading_unavailable" if not any_customer_display() else None,
     })
 
 
 @app.get("/api/triad")
 def triad():
-    from ops.awuru_triad import triad as align
+    from ops.customer_release import derived_withheld, reading_released
     symbol = request.args.get("symbol", "BTCUSDT")
+    if not reading_released(symbol, "15m"):
+        body = derived_withheld(symbol, "15m")
+        body["note"] = "No eligible live reading is available. Adapted research states are not calculated from an unverified feed."
+        return jsonify(body)
+    from ops.awuru_triad import triad as align
     data = fetch_klines(symbol, "15m", limit=50)
     bars = [{"high": c["h"], "low": c["l"], "close": c["c"]} for c in data.get("candles") or []]
     states = research_states(bars) if bars else []
@@ -1134,6 +1188,34 @@ def eligibility_api():
     symbol = request.args.get("symbol", "BTCUSDT")
     if symbol not in {"BTCUSDT", "ETHUSDT", "XAUUSD"}:
         return jsonify({"error": "symbol_not_allowed"}), 400
+    from ops.customer_release import STATUS, reading_released
+    interval = "1h" if symbol == "XAUUSD" else "15m"
+    if not reading_released(symbol, interval, "spot_sample_not_bid_ask" if symbol == "XAUUSD" else None):
+        from ops.profiles import get_profile
+        spec = get_profile(profile.get("signal_style"))
+        return jsonify({
+            "customer_status": "reading_unavailable",
+            "eligible": False,
+            "reason": STATUS,
+            "message": STATUS,
+            "symbol": symbol,
+            "fresh": False,
+            "trading_policy": None if not spec else {
+                "name": spec["name"],
+                "risk_cap": spec["risk_per_trade_percent"],
+                "min_rr": spec["min_rr"],
+                "max_daily_loss_percent": spec["max_daily_loss_percent"],
+                "note": "The terminal uses this risk policy. No live reading was used, and this is not a research-strategy result.",
+            },
+            "account": {
+                "signal_style": profile.get("signal_style"),
+                "signal_style_name": profile.get("signal_style_name"),
+                "max_risk_pct": profile.get("max_risk_pct"),
+                "currency": profile.get("currency"),
+                "capital": profile.get("capital"),
+                "experimental_alerts": profile.get("experimental_alerts", False),
+            },
+        })
     e1, sma, rsi, fresh = _research_votes(symbol)
     out = evaluate(profile.get("signal_style"), e1, sma, rsi, fresh, symbol)
     from ops.profiles import get_profile
@@ -1170,10 +1252,16 @@ def link_telegram(user_id):
 
 @app.get("/api/council")
 def api_council():
-    from ops.council import council
-    from ops.e1 import e1_side
+    from ops.customer_release import derived_withheld, reading_released
     out = []
     for symbol in ("BTCUSDT", "ETHUSDT"):
+        if not reading_released(symbol, "15m"):
+            row = derived_withheld(symbol, "15m")
+            row["timeframe"] = "15m"
+            row["council"] = None
+            out.append(row)
+            continue
+        from ops.council import council
         data = fetch_klines(symbol, "15m", limit=50)
         bars = [{"high": c["h"], "low": c["l"], "close": c["c"]} for c in data.get("candles") or [] if c.get("h") is not None]
         withheld = data.get("reason") == "commercial_use_unverified" or not bars
@@ -1189,37 +1277,36 @@ def api_council():
             "limitation": data.get("message") if withheld else None,
             "council": None if withheld else council(by.get("E1-donchian-20", "WAIT"), by.get("SMA20-state", "WAIT"), by.get("RSI14-state", "WAIT"), True, candle),
         })
-    try:
-        series = _gold_bars("1h", int(time.time() * 1000))
-        if series.get("reason") == "commercial_use_unverified" or series.get("rights_status") or not series.get("ok"):
-            out.append({
-                "symbol": "XAUUSD",
-                "timeframe": "1h",
-                "fresh": False,
-                "rights_status": series.get("rights_status") or "rights_unconfirmed",
-                "reason": "commercial_use_unverified",
-                "limitation": series.get("message") or "Market data access unavailable — commercial use permissions are being verified.",
-                "council": None,
-            })
-        else:
-            bars = series.get("bars") or []
-            norm = [{"high": bar["high"], "low": bar["low"], "close": bar["close"]} for bar in bars]
-            states = research_states(norm) if len(norm) >= 21 else []
-            by = {s["strategy"]: s["direction"] for s in states}
-            last = bars[-1] if bars else {}
-            out.append({
-                "symbol": "XAUUSD",
-                "timeframe": "1h",
-                "fresh": bool(series.get("ok") and last.get("fresh")),
-                "history": len(bars),
-                "quote_semantics": "ohlc_not_bid_ask",
-                "states": states,
-                "limitation": "Completed XAUUSD chart OHLC. Not bid/ask. Not a daily close copied into the open. Weekend gaps are a closed market.",
-                "council": council(by.get("E1-donchian-20", "WAIT"), by.get("SMA20-state", "WAIT"), by.get("RSI14-state", "WAIT"), bool(last.get("fresh")), last.get("open_time_ms")),
-            })
-    except Exception as exc:
-        out.append({"symbol": "XAUUSD", "timeframe": "1h", "fresh": False, "error": type(exc).__name__, "reason": "GOLD_FEED_UNAVAILABLE"})
-    return jsonify({"markets": out, "source": "awuru-goal-signal-engine council idea, simplified"})
+    if not reading_released("XAUUSD", "1h", "spot_sample_not_bid_ask") and not reading_released("XAUUSD", "1h"):
+        row = derived_withheld("XAUUSD", "1h")
+        row["timeframe"] = "1h"
+        row["council"] = None
+        out.append(row)
+    else:
+        from ops.council import council
+        try:
+            series = _gold_bars("1h", int(time.time() * 1000))
+            if series.get("reason") == "commercial_use_unverified" or series.get("rights_status") or not series.get("ok"):
+                out.append(derived_withheld("XAUUSD", "1h"))
+            else:
+                bars = series.get("bars") or []
+                norm = [{"high": bar["high"], "low": bar["low"], "close": bar["close"]} for bar in bars]
+                states = research_states(norm) if len(norm) >= 21 else []
+                by = {s["strategy"]: s["direction"] for s in states}
+                last = bars[-1] if bars else {}
+                out.append({
+                    "symbol": "XAUUSD",
+                    "timeframe": "1h",
+                    "fresh": bool(series.get("ok") and last.get("fresh")),
+                    "history": len(bars),
+                    "quote_semantics": "ohlc_not_bid_ask",
+                    "states": states,
+                    "limitation": "Completed XAUUSD chart OHLC. Not bid/ask. Not a daily close copied into the open. Weekend gaps are a closed market.",
+                    "council": council(by.get("E1-donchian-20", "WAIT"), by.get("SMA20-state", "WAIT"), by.get("RSI14-state", "WAIT"), bool(last.get("fresh")), last.get("open_time_ms")),
+                })
+        except Exception as exc:
+            out.append({"symbol": "XAUUSD", "timeframe": "1h", "fresh": False, "error": type(exc).__name__, "reason": "GOLD_FEED_UNAVAILABLE", "council": None, "price": None})
+    return jsonify({"markets": out, "customer_status": "reading_unavailable", "source": "research observation, not a live price"})
 
 
 @app.get("/api/signal-history")
@@ -1242,17 +1329,24 @@ def signal_history():
         })
         if len(rows) >= 40:
             break
-    return jsonify({"signals": rows, "note": "Assurance is not a win probability."})
+    from ops.customer_release import redact_public_numbers
+    return jsonify({"signals": redact_public_numbers(rows), "note": "Assurance is not a win probability. Live prices are not included."})
 
 
 @app.get("/api/notify-history")
 def notify_history():
     rows = [r for r in reversed(ledger.read()) if r.get("type") == "notify"]
-    return jsonify({"deliveries": rows[:30], "note": "Accepted by Telegram is not proof the user read it."})
+    from ops.customer_release import redact_public_numbers
+    return jsonify({"deliveries": redact_public_numbers(rows[:30]), "note": "Accepted by Telegram is not proof the user read it."})
 
 
 @app.get("/api/gold/signal")
 def gold_signal():
+    from ops.customer_release import derived_withheld, reading_released
+    if not reading_released("XAUUSD", "1h") and not reading_released("XAUUSD", "1h", "spot_sample_not_bid_ask"):
+        body = derived_withheld("XAUUSD", "1h")
+        body["quote_semantics"] = "unavailable"
+        return jsonify(body)
     view = _engine_view("XAUUSD")
     head = view.get("headline") or {}
     return jsonify({
@@ -1288,6 +1382,10 @@ def gold_candles():
             "quote_semantics": "unavailable",
             "note": "Licensed spot minute data is unavailable. A quote was not drawn as a candle, and a longer candle was not substituted.",
         })
+    from ops.customer_release import candles_released, unavailable_candles
+    sample = "spot_sample_not_bid_ask" if interval in {"15m", "1h"} else None
+    if not candles_released("XAUUSD", interval, sample):
+        return jsonify(unavailable_candles("XAUUSD", interval))
     if interval in {"15m", "1h"}:
         from ops.desk_snapshot import observe
         snap = observe("XAUUSD", interval, int(time.time() * 1000))
@@ -1368,7 +1466,12 @@ def gold_candles():
 
 @app.get("/api/engine")
 def engine_api():
+    from ops.customer_release import derived_withheld, reading_released
     symbol = request.args.get("symbol", "BTCUSDT")
+    interval = "1h" if symbol == "XAUUSD" else "15m"
+    sample = "spot_sample_not_bid_ask" if symbol == "XAUUSD" else None
+    if not reading_released(symbol, interval, sample):
+        return jsonify(derived_withheld(symbol, interval))
     view = _engine_view(symbol)
     view.pop("headline", None)
     return jsonify(view)
@@ -1504,9 +1607,18 @@ def research_lab():
 
 @app.get("/api/research-signals")
 def research_signals():
+    from ops.customer_release import derived_withheld, reading_released
     symbol = request.args.get("symbol", "BTCUSDT")
     if symbol not in {"BTCUSDT", "ETHUSDT", "XAUUSD"}:
         return jsonify({"error": "symbol_not_allowed"}), 400
+    interval = "1h" if symbol == "XAUUSD" else "15m"
+    sample = "spot_sample_not_bid_ask" if symbol == "XAUUSD" else None
+    if not reading_released(symbol, interval, sample):
+        body = derived_withheld(symbol, interval)
+        body["kind"] = "research_observation"
+        body["label"] = "RESEARCH OBSERVATION — NOT VALIDATED"
+        body["note"] = "No eligible live reading is available. A missing market permission is not a failed research strategy. Production remains WAIT_DEFAULT."
+        return jsonify(body)
     view = _engine_view(symbol)
     e1, sma, rsi, fresh = _research_votes(symbol)
     states = [
@@ -1536,8 +1648,9 @@ def research_signals():
 @app.get("/api/experimental")
 @require_token
 def experimental():
+    from ops.customer_release import redact_public_numbers
     rows = worker.book.read()
-    return jsonify({"rows": rows[-50:], "total": len(rows), "label": "Research notes are not orders."})
+    return jsonify(redact_public_numbers({"rows": rows[-50:], "total": len(rows), "label": "Research notes are not orders."}))
 
 
 @app.get("/api/prefs")
@@ -1609,12 +1722,16 @@ def register_page():
 def scanner_api():
     if not _user_ok() and not _owner_ok():
         return jsonify({"error": "unauthorized"}), 401
-    from ops.desk_snapshot import desk_scan
+    from ops.customer_release import any_customer_display, empty_desk, release_scan
     now_ms = int(time.time() * 1000)
-    try:
-        body = desk_scan(now_ms)
-    except Exception:
-        body = {"markets": [], "notice": "The scan did not return a reading. No price was invented."}
+    if not any_customer_display():
+        body = empty_desk()
+    else:
+        from ops.desk_snapshot import desk_scan
+        try:
+            body = release_scan(desk_scan(now_ms))
+        except Exception:
+            body = {"markets": [], "notice": "The scan did not return a reading. No price was invented."}
     if not body.get("markets"):
         from ops.worker import pair_availability
         body["markets"] = []
@@ -1654,12 +1771,15 @@ def scanner_api():
 def desk_api():
     if not _user_ok() and not _owner_ok():
         return jsonify({"error": "unauthorized"}), 401
+    from ops.customer_release import any_customer_display, empty_desk, release_scan
     from ops.desk_snapshot import desk_scan
     now_ms = int(time.time() * 1000)
+    if not any_customer_display():
+        return jsonify(empty_desk())
     try:
-        return jsonify(desk_scan(now_ms))
+        return jsonify(release_scan(desk_scan(now_ms)))
     except Exception as exc:
-        return jsonify({"error": "unavailable", "reason": type(exc).__name__, "markets": [], "broker": False}), 502
+        return jsonify({"error": "unavailable", "reason": type(exc).__name__, "markets": [], "broker": False, "snapshots": []}), 502
 
 
 @app.post("/api/desk/plan")
@@ -1671,93 +1791,69 @@ def desk_plan():
     body = request.json or {}
     symbol = str(body.get("symbol") or "")
     interval = str(body.get("interval") or "")
-    from ops.desk_snapshot import public_reading, reading_for
+    from ops.data_rights import DESK
+    from ops.customer_release import STATUS
     from ops.inbox import build_user_plan, record_desk_plan
     from ops.paperbook import opportunity_row, plan_preview
-    now_ms = int(time.time() * 1000)
-    card = reading_for(symbol, interval, now_ms)
-    if card is None:
-        return jsonify({"ok": False, "reason": "unsupported", "order_opened": False, "broker": False}), 400
+    if (symbol, interval) not in DESK:
+        return jsonify({"ok": False, "reason": "unsupported", "order_opened": False, "broker": False, "entry": None, "stop": None, "target": None}), 400
     user = dict(user)
     user["id"] = user_id
-    shown = public_reading(card)
-    if body.get("authored") is True:
-        built = build_user_plan(card, body)
-        if not built.get("ok"):
-            return jsonify({
-                "ok": False,
-                "reason": built.get("reason"),
-                "reading": shown,
-                "order_opened": False,
-                "broker": False,
-                "levels_persisted": False,
-                "autopilot_eligible": False,
-                "approved": False,
-            })
-        saved = record_desk_plan(user_id, user, built["plan"])
-        stored = opportunity_row(user_id, saved.get("opportunity_id")) if saved.get("opportunity_id") else None
-        plan_row = stored or built["plan"]
-        preview = plan_preview(user, plan_row)
-        return jsonify({
-            "ok": bool(saved.get("opportunity_id")),
-            "stored": bool(saved.get("stored")),
-            "duplicate": bool(saved.get("duplicate")),
-            "reason": saved.get("reason"),
-            "opportunity_id": saved.get("opportunity_id"),
-            "snapshot_id": (stored or {}).get("snapshot_id") or card.get("snapshot_id"),
-            "reading_version": (stored or {}).get("reading_version") or card.get("reading_version"),
-            "reading_class": "manual_plan",
-            "provenance": "user_authored",
-            "source_id": "user_authored",
-            "entry": plan_row.get("entry"),
-            "stop": plan_row.get("stop"),
-            "target": plan_row.get("target"),
-            "explanation": (stored or {}).get("explanation") or built["plan"].get("explanation"),
-            "invalidation": plan_row.get("invalidation"),
-            "levels_persisted": saved.get("levels_persisted") is True,
-            "paper": preview,
-            "autopilot_eligible": False,
-            "approved": False,
-            "order_opened": False,
-            "broker": False,
-        })
-    if card.get("manual_paper") is not True:
+    if body.get("authored") is not True:
         return jsonify({
             "ok": False,
-            "reason": "not_a_manual_plan",
-            "reading": shown,
-            "reading_class": card.get("reading_class"),
-            "snapshot_id": card.get("snapshot_id"),
-            "autopilot_eligible": False,
-            "approved": False,
+            "reason": "reading_unavailable",
+            "message": STATUS,
+            "customer_status": "reading_unavailable",
+            "entry": None,
+            "stop": None,
+            "target": None,
             "order_opened": False,
             "broker": False,
+            "approved": False,
+            "autopilot_eligible": False,
+            "levels_persisted": False,
         })
-    saved = record_desk_plan(user_id, user, card)
+    now_ms = int(time.time() * 1000)
+    try:
+        from ops.desk_snapshot import reading_for
+        card = reading_for(symbol, interval, now_ms) or {}
+    except Exception:
+        card = {}
+    built = build_user_plan(card, {**body, "symbol": symbol, "interval": interval})
+    if not built.get("ok"):
+        return jsonify({
+            "ok": False,
+            "reason": built.get("reason"),
+            "order_opened": False,
+            "broker": False,
+            "levels_persisted": False,
+            "autopilot_eligible": False,
+            "approved": False,
+            "entry": None,
+            "stop": None,
+            "target": None,
+        })
+    saved = record_desk_plan(user_id, user, built["plan"])
     stored = opportunity_row(user_id, saved.get("opportunity_id")) if saved.get("opportunity_id") else None
-    preview = plan_preview(user, card)
+    plan_row = stored or built["plan"]
+    preview = plan_preview(user, plan_row)
     return jsonify({
         "ok": bool(saved.get("opportunity_id")),
         "stored": bool(saved.get("stored")),
         "duplicate": bool(saved.get("duplicate")),
         "reason": saved.get("reason"),
         "opportunity_id": saved.get("opportunity_id"),
-        "snapshot_id": (stored or {}).get("snapshot_id") or card.get("snapshot_id"),
-        "reading_version": (stored or {}).get("reading_version") or card.get("reading_version"),
+        "snapshot_id": (stored or {}).get("snapshot_id"),
         "reading_class": "manual_plan",
-        "provenance": "market_observation",
-        "screen_only": True,
-        "levels_persisted": False,
-        "persistence_capability": "paper_ledger_persistence",
-        "persistence_state": "unverified",
-        "persistence_note": "Market levels stay on this screen. Paper history was not written because ledger persistence is unverified.",
-        "entry": card.get("entry"),
-        "stop": card.get("stop"),
-        "target": card.get("target"),
-        "stored_entry": None if stored is None else stored.get("entry"),
-        "explanation": card.get("explanation"),
-        "invalidation": card.get("invalidation"),
-        "changes_when": card.get("changes_when"),
+        "provenance": "user_authored",
+        "source_id": "user_authored",
+        "entry": plan_row.get("entry"),
+        "stop": plan_row.get("stop"),
+        "target": plan_row.get("target"),
+        "explanation": (stored or {}).get("explanation") or built["plan"].get("explanation"),
+        "invalidation": plan_row.get("invalidation"),
+        "levels_persisted": saved.get("levels_persisted") is True,
         "paper": preview,
         "autopilot_eligible": False,
         "approved": False,
@@ -1771,16 +1867,19 @@ def workspace_api():
     user_id = session.get("user_id")
     if not user_id:
         return jsonify({"error": "unauthorized"}), 401
+    from ops.customer_release import any_customer_display, empty_desk, release_scan
     from ops.desk_snapshot import desk_scan
     from ops.signal_book import read_events, remember_live
     from ops.users import get
     from ops.workspace import compose
     now_ms = int(time.time() * 1000)
-    try:
-        body = desk_scan(now_ms)
-    except Exception:
-        from ops.scanner import scan
-        body = scan([], now_ms=now_ms)
+    if not any_customer_display():
+        body = empty_desk()
+    else:
+        try:
+            body = release_scan(desk_scan(now_ms))
+        except Exception:
+            body = empty_desk()
     remember_live(body)
     from ops.leader_run import published_leaders
     body["leaders"] = published_leaders()
@@ -1792,9 +1891,10 @@ def notifications_api():
     user_id = session.get("user_id")
     if not user_id:
         return jsonify({"error": "unauthorized"}), 401
+    from ops.customer_release import redact_feed_view
     from ops.inbox import items, notice_view, unread_count
     now_ms = int(time.time() * 1000)
-    return jsonify({"items": [notice_view(item, now_ms) for item in items(user_id)], "unread": unread_count(user_id)})
+    return jsonify({"items": [redact_feed_view(notice_view(item, now_ms)) for item in items(user_id)], "unread": unread_count(user_id)})
 
 
 @app.post("/api/notifications/read")
@@ -1835,8 +1935,21 @@ def terminal_signal():
     user_id = session.get("user_id")
     if not user_id or not _user_ok():
         return jsonify({"error": "unauthorized"}), 401
+    body = request.get_json(silent=True) or {}
+    symbol = body.get("symbol") or "BTCUSDT"
+    interval = body.get("interval") or "4h"
+    from ops.customer_release import customer_terminal, reading_released
+    sample = "spot_sample_not_bid_ask" if symbol == "XAUUSD" and interval in {"15m", "1h"} else None
+    if not reading_released(symbol, interval, sample):
+        payload = customer_terminal(symbol, interval)
+        payload["request_id"] = str(body.get("request_id") or "")
+        payload["requested_symbol"] = symbol
+        payload["requested_interval"] = interval
+        payload["requested_strategy"] = body.get("strategy") or "auto"
+        payload["rejected"] = None
+        return jsonify(payload), 200
     from ops.terminal_route import handle_signal
-    status, payload = handle_signal(user_id, request.get_json(silent=True) or {})
+    status, payload = handle_signal(user_id, body)
     return jsonify(payload), status
 
 
@@ -1845,8 +1958,9 @@ def terminal_history():
     user_id = session.get("user_id")
     if not user_id or not _user_ok():
         return jsonify({"error": "unauthorized"}), 401
+    from ops.customer_release import redact_feed_view
     from ops.terminal_signal import read_history
-    rows = list(reversed(read_history(user_id)))
+    rows = [redact_feed_view(row) for row in reversed(read_history(user_id))]
     return jsonify({"items": rows[:40]})
 
 
@@ -2227,10 +2341,7 @@ fetch("/health").then(r => r.ok ? r.json() : null).then(health => {
   const badge = document.getElementById("feedbadge");
   if (!badge || !health) return;
   const worker = health.worker || {};
-  const btc = health.market_data && health.market_data.BTCUSDT ? health.market_data.BTCUSDT.status : "unknown";
-  badge.textContent = (health.status === "rights_withheld" || btc === "withheld")
-    ? ("Worker " + (worker.status || "unknown") + " · market data withheld")
-    : ("Worker " + (worker.status || "unknown") + " · BTC " + btc);
+  badge.textContent = "Worker " + (worker.status || "unknown");
 }).catch(() => {
   const badge = document.getElementById("feedbadge");
   if (badge) badge.textContent = "Health not confirmed";
@@ -2297,6 +2408,34 @@ function priceText(symbol, value){
   if (!Number.isFinite(n)) return "—";
   const digits = Math.abs(n) >= 1 ? 2 : 4;
   return n.toLocaleString(undefined, {minimumFractionDigits: digits, maximumFractionDigits: digits});
+}
+function manualPlanCard(){
+  return `<article class="card" id="manual-plan-card"><h2>Manual paper plan</h2><p class="muted">Type the entry, stop and target yourself. These fields stay empty. Nothing is copied from a market feed. Confirm records a paper estimate on this account, not a broker fill.</p><form id="manual-plan"><div class="fieldrow"><label>Market <select name="symbol"><option>BTCUSDT</option><option>ETHUSDT</option><option>XAUUSD</option></select></label><label>Timeframe <select name="interval"><option>15m</option><option>1h</option><option>1m</option><option>3m</option></select></label><label>Side <select name="decision"><option>BUY</option><option>SELL</option></select></label><label>Entry <input name="entry" inputmode="decimal" autocomplete="off" /></label><label>Stop <input name="stop" inputmode="decimal" autocomplete="off" /></label><label>Target <input name="target" inputmode="decimal" autocomplete="off" /></label></div><button type="submit">Review my levels</button></form><div id="manual-out"></div></article>`;
+}
+function bindManualPlan(){
+  const form = document.getElementById("manual-plan");
+  if (!form || form.dataset.bound) return;
+  form.dataset.bound = "1";
+  form.onsubmit = async (event) => {
+    event.preventDefault();
+    const data = new FormData(form);
+    const slot = document.getElementById("manual-out");
+    const sent = await fetch("/api/desk/plan", {method:"POST", credentials:"same-origin", headers:{"Content-Type":"application/json"}, body: JSON.stringify({symbol: data.get("symbol"), interval: data.get("interval"), authored: true, decision: data.get("decision"), entry: data.get("entry"), stop: data.get("stop"), target: data.get("target")})});
+    const mine = await sent.json().catch(() => ({}));
+    if (!sent.ok || !mine.opportunity_id || mine.levels_persisted !== true) {
+      if (slot) slot.innerHTML = `<p>Your levels were not saved. ${plainReason(mine.reason || "not available")}. No order was opened.</p>`;
+      return;
+    }
+    const allow = mine.paper && mine.paper.allowed;
+    if (slot) slot.innerHTML = `<p>Your levels. Entry ${priceText(data.get("symbol"), mine.entry)}. Stop ${priceText(data.get("symbol"), mine.stop)}. Target ${priceText(data.get("symbol"), mine.target)}. Not a feed plan. Not a broker fill.</p>${allow ? `<p><button type="button" id="manual-confirm" data-confirm="${mine.opportunity_id}">Confirm manual paper order</button></p>` : `<p>The account rules did not allow an order. ${plainReason((mine.paper && mine.paper.reason) || "")}</p>`}`;
+    const confirm = document.getElementById("manual-confirm");
+    if (confirm) confirm.onclick = async () => {
+      confirm.disabled = true;
+      const opened = await fetch("/api/paper/orders", {method:"POST", credentials:"same-origin", headers:{"Content-Type":"application/json"}, body: JSON.stringify({opportunity_id: confirm.dataset.confirm})});
+      const done = await opened.json().catch(() => ({}));
+      confirm.textContent = opened.ok && done.ok ? "Paper trade recorded. It is an estimate, not a broker fill." : ("Not opened. " + plainReason(done.reason || "Try again."));
+    };
+  };
 }
 function stamp(ms){ return ms ? new Date(ms).toISOString() : "unknown"; }
 function when(ms){
@@ -2407,21 +2546,25 @@ async function overview(){
   if (market) {
     const quotes = ((markets && markets.markets) || []).map(row => {
       const data = (row && row.data) || {};
+      const reading = row.reading || {};
       const value = data.price != null ? data.price : data.close;
-      const shown = value == null ? "—" : priceText(row.symbol, value);
+      const unavailable = data.customer_status === "reading_unavailable" || reading.customer_status === "reading_unavailable" || value == null;
+      if (unavailable) {
+        return `<div class="row"><span>${row.symbol}</span><span class="num">—</span></div><p class="muted">${data.note || reading.explanation || "A verified live reading is not available."}</p>`;
+      }
+      const shown = priceText(row.symbol, value);
       const sampled = data.candle_semantics === "spot_sample_not_bid_ask";
       const frame = sampled ? ((data.timeframe || "Gold") + " sampled reference close") : ((data.timeframe ? data.timeframe + " " : "") + "completed close");
       const when = data.close_time_ms ? new Date(data.close_time_ms).toISOString().slice(0, 16).replace("T", " ") + " UTC" : "";
-      const note = value == null ? "not returned" : (frame + (when ? " · " + when : "") + " · " + (data.quality || "unknown"));
+      const note = frame + (when ? " · " + when : "") + " · " + (data.quality || "unknown");
       const quote = data.quote && data.quote.price != null
-        ? `<p class="muted">Separate quote ${priceText(row.symbol, data.quote.price)}${data.quote.timestamp_ms ? " at " + new Date(data.quote.timestamp_ms).toISOString().slice(0, 16).replace("T", " ") + " UTC" : ""}. Not the completed close.</p>`
+        ? `<p class="muted">Separate quote ${priceText(row.symbol, data.quote.price)}. Not the completed close.</p>`
         : (data.quote && data.quote.status === "reference_quote_unavailable" ? `<p class="muted">Reference quote unavailable. Not the completed close.</p>` : "");
-      const reading = row.reading || {};
-      const context = reading.reading_class ? `<p class="muted">${reading.direction_label || "neutral"} · ${reading.reading_class} · ${reading.setup_state || "none"}. ${plainReason(reading.explanation || "")} ${plainReason(reading.changes_when || "")}</p>` : "";
-      return `<div class="row"><span>${row.symbol}</span><span class="num">${shown}</span></div><p class="muted">${note}${row.snapshot_id ? " · " + row.snapshot_id : ""}</p>${quote}${context}`;
+      const context = reading.reading_class && reading.customer_status !== "reading_unavailable" ? `<p class="muted">${reading.direction_label || "neutral"} · ${reading.reading_class}. ${plainReason(reading.explanation || "")}</p>` : "";
+      return `<div class="row"><span>${row.symbol}</span><span class="num">${shown}</span></div><p class="muted">${note}</p>${quote}${context}`;
     }).join("");
     const states = ((platform && platform.states) || []).map(row => `<div class="row"><span>${row.label}</span><span>${row.value}</span></div>`).join("");
-    market.innerHTML = `<h2>Market data</h2>${quotes || "<p>Prices could not be loaded. No price was invented.</p>"}<p class="muted">These three readings use the same snapshot as the rest of the desk. Research approval is not required to see them. Gold 1-minute and 3-minute stay unlicensed.</p>${states}${markets ? "" : `<p><button type="button" id="ov-retry2">Retry prices</button></p>`}<p><a href="/trading">Open the terminal</a> · <a href="/signals">Today's setups</a> · <a href="/scanner">Scanner</a></p>`;
+    market.innerHTML = `<h2>Market data</h2>${quotes || "<p>A verified live reading is not available.</p>"}${states}<p><a href="/trading">Open the terminal</a> · <a href="/signals">Today's setups</a> · <a href="/scanner">Scanner</a></p>`;
     const again = document.getElementById("ov-retry2");
     if (again) again.onclick = () => overview();
   }
@@ -2438,7 +2581,15 @@ async function signals(){
   const scan = await timed("/api/scanner", 12000);
   const now = document.getElementById("live-now");
   if (now) {
-    const cards = ((scan && scan.markets) || []).map(item => {
+    const grouped = {};
+    ((scan && scan.markets) || []).forEach(item => { (grouped[item.symbol] ||= []).push(item); });
+    const cards = Object.keys(grouped).map(symbol => {
+      const items = grouped[symbol];
+      if (items.every(item => item.customer_status === "reading_unavailable")) {
+        const minute = items.some(item => item.blocked === "xau_minute_unlicensed");
+        return `<div class="row"><span>${symbol}</span><span>—</span></div><p class="muted">${items.map(item => item.interval).filter(Boolean).join(", ")}. A verified live reading is not available.${minute ? " 1-minute and 3-minute are not offered." : ""}</p>`;
+      }
+      return items.map(item => {
       const headline = item.decision_label || item.scanner_state || "WAIT";
       const minute = item.blocked === "xau_minute_unlicensed" || headline === "UNAVAILABLE" || item.reading_class === "unavailable";
       const px = item.price == null ? "—" : priceText(item.symbol, item.price);
@@ -2446,20 +2597,23 @@ async function signals(){
       const dir = item.direction_label || "neutral";
       const kind = item.reading_class || "observational";
       const whenText = item.candle_close_ms ? when(item.candle_close_ms) : "time not available";
-      const stance = item.reading_class === "unavailable"
+      const stance = item.customer_status === "reading_unavailable"
+        ? `<p class="muted">A verified live reading is not available.</p>`
+        : (item.reading_class === "unavailable"
         ? `<p class="muted">This timeframe is unavailable. That is not a missed setup.</p>`
         : (item.reading_class === "insufficient"
           ? `<p class="muted">The candle is not fresh enough to plan. That is not a missed setup.</p>`
           : (item.reading_class === "developing"
             ? `<p class="muted">The setup is forming. It is not a paper plan yet. ${plainReason(item.changes_when || "")}</p>`
             : (item.manual_paper
-              ? `<p>Entry ${priceText(item.symbol, item.entry)}. Stop ${priceText(item.symbol, item.stop)}. Target ${priceText(item.symbol, item.target)}. ${plainReason(item.invalidation || "")}</p><p><button type="button" data-review="${item.symbol}" data-frame="${item.interval}">Review paper plan</button></p><div data-review-box="${item.symbol}:${item.interval}"></div><p class="muted">A paper trade opens only after you confirm it. AutoPilot will not open it. Not an approved strategy.</p>`
-              : `<p class="muted">Observation only. Not a paper plan and not AutoPilot. ${plainReason(item.changes_when || "")}</p>`)));
-      const sampled = item.source_id === "xaus_spot_samples" || item.quote === "spot_sample_not_bid_ask";
-      const closeLabel = minute ? "Not available" : (sampled ? "Sampled reference close" : "Completed close");
-      return `<div class="row"><span>${item.symbol} ${item.interval || ""}</span><span>${decision}</span></div><div class="row"><span>${closeLabel}</span><span class="num">${minute ? "—" : px}</span></div><p class="muted">${dir} · ${kind} · ${whenText}. ${item.source_id || item.provider || "source unnamed"}. ${plainReason(item.explanation || item.message || "")} Not a probability. ${item.snapshot_id || ""}</p>${stance}`;
+              ? `<p>Entry ${priceText(item.symbol, item.entry)}. Stop ${priceText(item.symbol, item.stop)}. Target ${priceText(item.symbol, item.target)}. ${plainReason(item.invalidation || "")}</p><p class="muted">Use the manual paper plan below. Levels are not filled in from this reading.</p>`
+              : `<p class="muted">Observation only. Not a paper plan and not AutoPilot. ${plainReason(item.changes_when || "")}</p>`))));
+      const closeLabel = minute || item.customer_status === "reading_unavailable" ? "Reading" : "Completed close";
+      return `<div class="row"><span>${item.symbol} ${item.interval || ""}</span><span>${decision}</span></div><div class="row"><span>${closeLabel}</span><span class="num">${item.customer_status === "reading_unavailable" || minute ? "—" : px}</span></div><p class="muted">${dir} · ${kind} · ${whenText}. ${plainReason(item.explanation || item.message || "")}</p>${stance}`;
+      }).join("");
     }).join("");
-    now.innerHTML = `<h2>Today's readings</h2><p class="muted">No live approved signals are currently available. These are today's desk readings. A failed historical study is not a current market leader. Nothing here is an order.</p>${cards || "<p>No reading was returned. No price was invented.</p>"}${scan ? "" : `<p><button type="button" id="sig-retry">Retry</button></p>`}<p><a href="/scanner">Open the scanner</a> · <a href="/trading">Terminal</a></p>`;
+    now.innerHTML = `<h2>Live signals</h2><p class="muted">No eligible live reading is available. That is separate from whether a research strategy is approved. Nothing here is an order.</p>${cards || "<p>No eligible live reading is available.</p>"}${manualPlanCard()}<p><a href="/scanner">Open the scanner</a> · <a href="/trading">Terminal</a></p>`;
+    bindManualPlan();
     const again = document.getElementById("sig-retry");
     if (again) again.onclick = () => signals();
     document.querySelectorAll("[data-review]").forEach(button => { button.onclick = async () => {
@@ -2516,7 +2670,7 @@ async function signals(){
   hist.innerHTML = `<h2>Historical research record</h2><p class="muted">These are saved study outcomes, not live leaders and not an approved signal. Holdout opened for: ${(discovery.holdout_opened_for || []).join(", ") || "nobody"}.</p>${markets || "<p>No scored market is listed on this card.</p>"}<p><a href="/research">Read the full research record</a></p>`;
 }
 async function terminal(){
-  view.innerHTML = `<div class="desk"><article class="card" id="watch"><h2>Market watch</h2><p class="muted">Loading availability. An unavailable market is not shown as a live price.</p></article><article class="card"><h2>Completed candles</h2><div class="fieldrow"><label>Market <select id="term-symbol"><option>BTCUSDT</option><option>ETHUSDT</option><option>XAUUSD</option></select></label><label>Timeframe <select id="term-interval"><option value="1m">1m</option><option value="3m">3m</option><option value="15m" selected>15m</option><option value="1h">1h</option></select></label><label>Reading <select id="term-strategy"><option value="auto">Auto</option><option value="compress-break-4h-20261028">BTC compression breakout</option><option value="sweep-reclaim-4h-20261028">ETH failed-breakdown</option><option value="london-reclaim-1h-20261028">Gold London reclaim</option><option value="dip-in-trend-1d-20261028">Daily dip in trend</option><option value="quiet-week-reversal-1d-20261028">Quiet week reversal</option></select></label></div><canvas id="chart" class="is-empty"></canvas><p class="empty-chart" id="chartempty">Loading closed candles.</p><p id="chartnote" class="muted"></p><p id="crosshair" class="muted"></p><button id="generate" type="button">Evaluate market</button><p id="termstatus" role="status"></p><p class="muted">This requests an analysis. It is not an approved signal and it does not place an order. Gold 1-minute and 3-minute stay unavailable. The chart does not invent ticks.</p></article><article class="card" id="intel"><h2>Market intelligence</h2><div id="termout"><p>No evaluation yet. An empty panel is not a signal.</p></div></article></div><article class="card" id="termbook"><h2>Paper record</h2><p class="muted">Loading this account's paper book.</p></article><article class="card"><h2>Saved evaluations</h2><p class="muted">Older requests on this account. They are not live prices, and a past wait is not the current market.</p><div id="termhist"><p>No requested evaluation yet.</p></div></article>`;
+  view.innerHTML = `<div class="desk"><article class="card" id="watch"><h2>Market watch</h2><p class="muted">Loading availability. An unavailable market is not shown as a live price.</p></article><article class="card"><h2>Completed candles</h2><div class="fieldrow"><label>Market <select id="term-symbol"><option>BTCUSDT</option><option>ETHUSDT</option><option>XAUUSD</option></select></label><label>Timeframe <select id="term-interval"><option value="1m">1m</option><option value="3m">3m</option><option value="15m" selected>15m</option><option value="1h">1h</option></select></label><label>Reading <select id="term-strategy"><option value="auto">Auto</option><option value="compress-break-4h-20261028">BTC compression breakout</option><option value="sweep-reclaim-4h-20261028">ETH failed-breakdown</option><option value="london-reclaim-1h-20261028">Gold London reclaim</option><option value="dip-in-trend-1d-20261028">Daily dip in trend</option><option value="quiet-week-reversal-1d-20261028">Quiet week reversal</option></select></label></div><canvas id="chart" class="is-empty"></canvas><p class="empty-chart" id="chartempty">Loading closed candles.</p><p id="chartnote" class="muted"></p><p id="crosshair" class="muted"></p><button id="generate" type="button">Evaluate market</button><p id="termstatus" role="status"></p><p class="muted">This requests an analysis. It is not an approved signal and it does not place an order. The chart does not invent ticks.</p></article><article class="card" id="intel"><h2>Market intelligence</h2><div id="termout"><p>No evaluation yet. An empty panel is not a signal.</p></div></article></div><article class="card" id="termbook"><h2>Paper record</h2><p class="muted">Loading this account's paper book.</p></article>${manualPlanCard()}<article class="card"><h2>Saved evaluations</h2><p class="muted">Older requests on this account. They are not live prices, and a past wait is not the current market.</p><div id="termhist"><p>No requested evaluation yet.</p></div></article>`;
   const symbolEl = document.getElementById("term-symbol");
   const intervalEl = document.getElementById("term-interval");
   const strategyEl = document.getElementById("term-strategy");
@@ -2555,7 +2709,8 @@ async function terminal(){
       const shown = value == null ? "—" : priceText(row.symbol, value);
       return `<div class="row"><span>${row.symbol}</span><span class="num">${shown}</span></div>`;
     }).join("");
-    box.innerHTML = `<h2>Market watch</h2>${lines}<p class="muted">Closes come from one desk snapshot. Gold 15-minute and 1-hour readings can be sampled reference bars, not exchange candles. A separate quote is not the close. Gold 1-minute and 3-minute stay unlicensed. A price is not an order.</p>`;
+    const hidden = rows.every(row => ((row.data || {}).price == null) && ((row.data || {}).close == null));
+    box.innerHTML = `<h2>Market watch</h2>${lines}<p class="muted">${hidden ? "A verified live reading is not available." : "Closes come from one desk snapshot. A price is not an order."}</p>`;
   }
   async function loadDeskChart(){
     const note = document.getElementById("chartnote");
@@ -2569,12 +2724,10 @@ async function terminal(){
     }
     const url = requested.symbol === "XAUUSD" ? `/api/gold/candles?interval=${requested.interval}` : `/api/klines?symbol=${requested.symbol}&interval=${requested.interval}`;
     const bars = await fetch(url).then(r => r.json()).catch(() => null);
-    if (!bars || bars.blocked === "xau_minute_unlicensed" || !(bars.candles || []).length) {
+    if (!bars || bars.blocked === "xau_minute_unlicensed" || bars.customer_status === "reading_unavailable" || !(bars.candles || []).length) {
       const minute = bars && bars.blocked === "xau_minute_unlicensed";
-      chartHold(minute ? "Licensed spot minute data unavailable. No candle was drawn." : ((bars && (bars.message || bars.error)) || "No closed candles were returned. No candle was invented."));
-      if (note) note.innerHTML = minute
-        ? `Gold ${requested.interval} is unlicensed. It is not built from a five-minute sample, and no evaluation is sent. <a href="/system">System status</a>`
-        : `The chart feed did not return candles for this selection. Nothing was invented. <a href="/system">System status</a>`;
+      chartHold(minute ? "This timeframe is not available." : "A verified live reading is not available.");
+      if (note) note.textContent = minute ? "Gold 1-minute and 3-minute are not offered. No candle was drawn." : "A verified live reading is not available.";
       if (hover) hover.textContent = "";
       return;
     }
@@ -2656,9 +2809,14 @@ async function terminal(){
         out.innerHTML = `<article class="card"><h2>Rejected</h2><p>That response was not for ${requested.symbol} ${requested.interval}. It was not presented as this selection.</p></article>`;
         return;
       }
-      status.textContent = "";
-      const size = body.size_presentation && body.size_presentation.text ? body.size_presentation.text : (body.size && body.size.reason ? `Executable sizing is unavailable: ${plainReason(body.size.reason)}.` : "No position size on this result.");
+      if (body.customer_status === "reading_unavailable") {
+        status.textContent = "";
+        const minute = body.blocked === "xau_minute_unlicensed";
+        out.innerHTML = `<article class="card" data-request="${requestId}" data-symbol="${body.symbol}" data-interval="${body.interval}"><h2>${body.symbol || ""} ${body.interval || ""}</h2><p>${minute ? "This timeframe is not available." : "A verified live reading is not available."}</p><p class="muted">No evaluation was calculated. The manual paper plan on this page is empty until you type it.</p></article>`;
+        return;
+      }
       const licensed = body.blocked === "xau_minute_unlicensed";
+      const size = body.size_presentation && body.size_presentation.text ? body.size_presentation.text : (body.size && body.size.reason ? `Executable sizing is unavailable: ${plainReason(body.size.reason)}.` : "No position size on this result.");
       const headline = licensed ? "UNAVAILABLE" : (body.decision_label || body.decision || "WAIT");
       const rightsHold = headline === "RIGHTS" || body.reason === "commercial_use_unverified";
       const headlineShown = rightsHold ? "Not shown" : headline;
@@ -2722,6 +2880,7 @@ async function terminal(){
   loadDeskChart();
   loadBook();
   history();
+  bindManualPlan();
 }
 async function signalsLegacy(){
   const rows = await Promise.all(["BTCUSDT","ETHUSDT"].map(s=>fetch("/api/research-signals?symbol="+s+"&interval=15m").then(r=>r.json())));
@@ -2780,6 +2939,10 @@ async function scannerPage(){
   view.innerHTML = `<article class="card"><h2>Live Scanner</h2><p id="scanstatus" role="status">Checking which prices can be shown.</p><p class="muted" id="scanwhen">A reading uses the latest completed candle. It is not a tick feed and not an order.</p><p id="scanstale" class="stale-note" hidden></p><div id="scancards"><p class="muted">Loading coverage. No price is invented while this loads.</p></div></article><article class="card" id="scanboard"><h2>Market coverage</h2><div class="skeleton lg"></div></article>`;
   const draw = (body, staleNote) => {
     const cards = (body.markets||[]).map(m => {
+      if (m.customer_status === "reading_unavailable") {
+        const minute = m.blocked === "xau_minute_unlicensed";
+        return `<article class="card" data-symbol="${m.symbol}"><h2>${m.symbol} · ${m.interval||""}</h2><div class="row"><span>${minute ? "Unavailable" : "WAIT"}</span><span class="num">—</span></div><p class="muted">${minute ? "This timeframe is not available." : "A verified live reading is not available."}</p></article>`;
+      }
       const headline = m.decision_label || m.scanner_state || m.state || "WAIT";
       if (isRightsHold(headline, m.scanner_state, m.status)) {
         return `<article class="card blocked" data-symbol="${m.symbol}"><p class="badge block">Price withheld</p><h2>${m.symbol} · ${m.interval||""}</h2><div class="row"><span>Not shown</span><span class="num">—</span></div><p>${m.message || RIGHTS_MESSAGE}</p><p class="muted">No rule was run. This is not a missed setup and not a provider outage.</p></article>`;
@@ -2806,7 +2969,18 @@ async function scannerPage(){
     }).join("");
     const qualifying = (body.markets||[]).some(m => m.approved || m.scanner_state === "APPROVED_SIGNAL");
     const heldOnly = (body.markets||[]).length > 0 && (body.markets||[]).every(m => isRightsHold(m.decision_label, m.scanner_state, m.status));
+    const readingOff = (body.markets||[]).length > 0 && (body.markets||[]).every(m => m.customer_status === "reading_unavailable");
     const box = document.getElementById("scancards");
+    if (readingOff) {
+      if (box) box.innerHTML = cards;
+      const status = document.getElementById("scanstatus");
+      if (status) status.textContent = body.notice || "No eligible live reading is available.";
+      const when = document.getElementById("scanwhen");
+      if (when) when.textContent = "The instruments stay listed. No price was invented. This is not an order.";
+      const stale = document.getElementById("scanstale");
+      if (stale) { stale.hidden = !staleNote; stale.textContent = staleNote || ""; }
+      return;
+    }
     if (heldOnly) {
       if (box) box.innerHTML = `<article class="card blocked"><p class="badge block">Rights withheld</p><h2>No reading was performed</h2><p>${RIGHTS_MESSAGE}</p><p class="muted">The rights gate stopped the request before any candle was read. That is not a missed setup and not a provider outage. The twelve pairs are in the table below.</p></article>`;
       const status = document.getElementById("scanstatus");
@@ -2837,7 +3011,7 @@ async function scannerPage(){
         return;
       }
       const lines = platform.pairs.map(pair => `<tr><td>${pair.instrument}</td><td>${pair.timeframe}</td><td><span class="badge${pair.evaluation === "Unavailable" ? " block" : ""}">${pair.rights}</span></td><td>${pair.source}</td><td>${pair.history}</td><td>${pair.latest_read}</td><td>${pair.evaluation}</td><td>${pair.approval}</td></tr>`).join("");
-      box.innerHTML = `<h2>Market coverage</h2><p class="muted">Gold one-minute and three-minute stay unlicensed. The other pairs are read on the desk. A row is not an order.</p><div class="tablewrap"><table class="matrix"><thead><tr><th>Instrument</th><th>Time</th><th>Status</th><th>Source</th><th>History</th><th>Latest read</th><th>Evaluation</th><th>Note</th></tr></thead><tbody>${lines}</tbody></table></div>`;
+      box.innerHTML = `<h2>Market coverage</h2><p class="muted">Gold one-minute and three-minute are not offered. A verified live reading is not available for the other pairs. A row is not an order.</p><div class="tablewrap"><table class="matrix"><thead><tr><th>Instrument</th><th>Time</th><th>Status</th><th>Source</th><th>History</th><th>Latest read</th><th>Evaluation</th><th>Note</th></tr></thead><tbody>${lines}</tbody></table></div>`;
     });
   };
   const fail = (message) => {
@@ -3128,7 +3302,7 @@ async function settings(){
   const profile = me.profile || {};
   const styles = (catalog.profiles||[]).map(p => `<label><input type="radio" name="style" value="${p.key}" ${profile.signal_style===p.key?"checked":""}> ${p.name} — ${p.risk_mode}. ${p.confirmation}</label>`).join("");
   const currencies = (catalog.currencies||[]).map(c => `<option value="${c}" ${profile.currency===c?"selected":""}>${c}</option>`).join("");
-  view.innerHTML = `<article class="card"><h2>${path==="/onboarding"?"Choose a signal style":"Signal style"}</h2><p class="muted">${catalog.note||""}</p><div class="styles">${styles}</div></article><article class="card"><h2>Base currency and capital</h2><div class="field"><span>Currency</span><select id="currency"><option value="">Not set</option>${currencies}</select></div><div class="field"><span>Paper capital</span><input id="capital" type="number" min="0" step="any" value="${profile.capital??""}"></div><p class="muted">Saving a currency does not convert the stored amount. Market quotes stay in USDT or USD/oz.</p></article><article class="card"><h2>Markets</h2><div class="checks"><label><input type="checkbox" id="btc" ${has("BTCUSDT")}> BTCUSDT</label><label><input type="checkbox" id="eth" ${has("ETHUSDT")}> ETHUSDT</label><label><input type="checkbox" id="gold" ${has("XAUUSD")}> XAUUSD</label></div><p class="muted">BTC, ETH, and gold 15-minute and 1-hour prices are read on the desk. Gold 1-minute and 3-minute stay unavailable until a licensed minute feed exists.</p></article><article class="card"><h2>Experience</h2><label>How you describe your experience <select id="labexp"><option value="">Not stated</option><option value="new">New</option><option value="developing">Developing</option><option value="independent">Independent</option></select></label><p class="muted">This is what you say about yourself. It is stored on this account and is not a skill score.</p></article><article class="card" id="autopilot-card"><h2>AutoPilot</h2><p>Loading paper automation.</p></article><article class="card"><h2>Notifications and risk</h2><div class="checks"><label><input type="checkbox" id="exp" ${profile.experimental_alerts?"checked":""}> Experimental alerts</label><label><input type="checkbox" id="digest" ${profile.daily_report!==false?"checked":""}> Daily digest</label></div><div class="field"><span>Max risk per trade %</span><input id="risk" type="number" step="0.1" min="0" value="${profile.max_risk_pct??""}"></div><p class="muted">Risk cannot be set above the active style cap. These caps do not guarantee protection from losses. Production is WAIT_DEFAULT, so no trade alert is sent until a strategy is promoted. Turning experimental alerts on does not bypass that. In-app experimental matches stay labelled unapproved and never become an approved alert. Telegram is ${me.telegram_verified?"verified":"not verified"}.</p><button id="tglink" type="button">Create a one-time Telegram link</button><p id="tglinkout" class="muted"></p></article><article class="card" id="inbox-settings"><h2>In-app inbox</h2><p class="muted" id="inboxnote">Loading delivery settings.</p></article><p><button id="saveall" type="button">Save</button> <button id="skip" type="button">Continue without optional alerts</button> <button id="out" type="button">Sign out</button></p><p id="savedp" class="muted"></p>`;
+  view.innerHTML = `<article class="card"><h2>${path==="/onboarding"?"Choose a signal style":"Signal style"}</h2><p class="muted">${catalog.note||""}</p><div class="styles">${styles}</div></article><article class="card"><h2>Base currency and capital</h2><div class="field"><span>Currency</span><select id="currency"><option value="">Not set</option>${currencies}</select></div><div class="field"><span>Paper capital</span><input id="capital" type="number" min="0" step="any" value="${profile.capital??""}"></div><p class="muted">Saving a currency does not convert the stored amount. Market quotes stay in USDT or USD/oz.</p></article><article class="card"><h2>Markets</h2><div class="checks"><label><input type="checkbox" id="btc" ${has("BTCUSDT")}> BTCUSDT</label><label><input type="checkbox" id="eth" ${has("ETHUSDT")}> ETHUSDT</label><label><input type="checkbox" id="gold" ${has("XAUUSD")}> XAUUSD</label></div><p class="muted">BTC, ETH, and gold stay on the desk. A verified live reading is not available until that source is approved. Gold 1-minute and 3-minute stay unavailable.</p></article><article class="card"><h2>Experience</h2><label>How you describe your experience <select id="labexp"><option value="">Not stated</option><option value="new">New</option><option value="developing">Developing</option><option value="independent">Independent</option></select></label><p class="muted">This is what you say about yourself. It is stored on this account and is not a skill score.</p></article><article class="card" id="autopilot-card"><h2>AutoPilot</h2><p>Loading paper automation.</p></article><article class="card"><h2>Notifications and risk</h2><div class="checks"><label><input type="checkbox" id="exp" ${profile.experimental_alerts?"checked":""}> Experimental alerts</label><label><input type="checkbox" id="digest" ${profile.daily_report!==false?"checked":""}> Daily digest</label></div><div class="field"><span>Max risk per trade %</span><input id="risk" type="number" step="0.1" min="0" value="${profile.max_risk_pct??""}"></div><p class="muted">Risk cannot be set above the active style cap. These caps do not guarantee protection from losses. Production is WAIT_DEFAULT, so no trade alert is sent until a strategy is promoted. Turning experimental alerts on does not bypass that. In-app experimental matches stay labelled unapproved and never become an approved alert. Telegram is ${me.telegram_verified?"verified":"not verified"}.</p><button id="tglink" type="button">Create a one-time Telegram link</button><p id="tglinkout" class="muted"></p></article><article class="card" id="inbox-settings"><h2>In-app inbox</h2><p class="muted" id="inboxnote">Loading delivery settings.</p></article><p><button id="saveall" type="button">Save</button> <button id="skip" type="button">Continue without optional alerts</button> <button id="out" type="button">Sign out</button></p><p id="savedp" class="muted"></p>`;
   const inbox = await fetch("/api/inbox/settings", {credentials:"same-origin"}).then(r => r.ok ? r.json() : null);
   const box = (inbox && inbox.settings) || {};
   const on = (name) => box[name] ? "checked" : "";

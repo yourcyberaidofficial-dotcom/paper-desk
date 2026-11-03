@@ -51,7 +51,9 @@ PERSISTENCE_CAPABILITIES = frozenset({
     "manual_plan_review",
 })
 
-# The desk may still render these unverified observations. That is not a grant.
+# Internal calculation may still run so a typed plan can be refused when it
+# copies the feed. Customer HTTP responses do not render these readings.
+# operational_observation is not a customer-display grant.
 OBSERVATION_OPERATIONAL = {
     "binance_spot_rest_klines": frozenset({
         "candle_display",
@@ -165,8 +167,9 @@ def legacy_decision(source_id, use):
     if use not in OBSERVE_LEGACY:
         return _decision(False, "unverified", "unverified", source_id=source_id, use=use)
     if source_id in OBSERVE_SOURCES:
-        # Operational render only. allowed in the legacy audit row means the
-        # desk may show the reading. verified stays false.
+        # Internal observation only. allowed in the legacy audit row lets a
+        # calculation run. It does not release a customer response, and
+        # verified stays false. DESK_LIVE is not read.
         row = _decision(False, "unverified", "unverified_observation", source_id=source_id, use=use, operational=True)
         row["allowed"] = True
         row["verified"] = False

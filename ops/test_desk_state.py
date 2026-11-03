@@ -11,6 +11,7 @@ def test_gates_keep_the_desk_open_and_research_closed():
     assert gates["historical_research"] == "unavailable"
     assert "Research approval is separate" in gates["message"]
     assert "commercial use permissions are being verified" not in gates["message"]
+    assert "Desk prices are shown" not in gates["message"]
 
 
 def test_platform_state_names_each_capability_without_a_price():
@@ -28,7 +29,7 @@ def test_platform_state_names_each_capability_without_a_price():
     assert body["broker"] is False
     labels = {row["label"]: row["value"] for row in body["states"]}
     assert labels["Application"] == "Operational"
-    assert labels["Market data"] == "Shown, not licensed"
+    assert labels["Market data"] == "Not available"
     assert labels["Feed health"] == "Not checked"
     assert labels["Approved strategies"] == "0"
     assert labels["Paper trading"] == "Available for eligible account actions"
@@ -43,10 +44,10 @@ def test_platform_state_names_each_capability_without_a_price():
     assert all(row["evaluation"] == "Unavailable" for row in minutes)
     live = [row for row in pairs if not (row["instrument"] == "XAUUSD" and row["timeframe"] in {"1m", "3m"})]
     assert live and all(row["rights"] == "Unverified" for row in live)
-    assert all(row["latest_read"] == "Shown" and row["evaluation"] == "Ready" for row in live)
+    assert all(row["latest_read"] == "Not shown" and row["evaluation"] == "Waiting" for row in live)
     assert {row["source"] for row in live if row["instrument"] == "XAUUSD"} == {"Gold chart"}
     assert {row["source"] for row in live if row["instrument"] == "BTCUSDT"} == {"Binance spot"}
-    assert all(row["approval"] == "Reading, not a promoted strategy" for row in pairs)
+    assert all(row["approval"] == "Not a promoted strategy" for row in pairs)
     assert "Rights unconfirmed" not in blob
     assert "Withheld" not in blob
     assert pair_board() == pairs

@@ -6,7 +6,7 @@ The pages render these labels. They do not invent a second decision.
 
 from ops.data_rights import MESSAGE, use_permission
 
-OPERATING = "Desk prices are shown. They are not a commercial licence. Research approval is separate and is not required to read a candle."
+OPERATING = "A verified live reading is not available. Research approval is separate. Account tools stay open."
 
 
 def product_gates():
@@ -39,7 +39,7 @@ def pair_board():
             rights, source, latest, evaluation = "Gold minute unlicensed", "No licensed minute source", "Not read", "Unavailable"
         else:
             source = "Gold chart" if row["symbol"] == "XAUUSD" else "Binance spot"
-            rights, latest, evaluation = "Unverified", "Shown", "Ready"
+            rights, latest, evaluation = "Unverified", "Not shown", "Waiting"
         rows.append({
             "instrument": row["symbol"],
             "timeframe": row["interval"],
@@ -48,7 +48,7 @@ def pair_board():
             "history": "No retained historical data",
             "latest_read": latest,
             "evaluation": evaluation,
-            "approval": "Reading, not a promoted strategy",
+            "approval": "Not a promoted strategy",
         })
     return rows
 
@@ -74,7 +74,7 @@ def platform_state(worker=None):
         "broker": False,
         "message": gates["message"],
         "requirement": (
-            "Live desk readings use the public spot feeds. Historical research, archive retention, and strategy promotion stay closed."
+            "A verified live reading is not available. Account tools stay open. Historical research and strategy promotion stay closed."
             if operating else
             "A written licence for that exact commercial use, and a strategy approved for paper, "
             "are both required before a candle or an evaluation can be shown."
@@ -82,7 +82,7 @@ def platform_state(worker=None):
         "states": [
             {"id": "application", "label": "Application", "value": "Operational"},
             {"id": "worker", "label": "Worker", "value": "Operational" if beating else "Not confirmed"},
-            {"id": "market_data", "label": "Market data", "value": "Shown, not licensed" if operating else "Rights withheld"},
+            {"id": "market_data", "label": "Market data", "value": "Not available"},
             {"id": "market_technical", "label": "Feed health", "value": "Not checked"},
             {"id": "history", "label": "Historical research", "value": "Unavailable"},
             {"id": "strategies", "label": "Approved strategies", "value": str(approved)},

@@ -322,14 +322,15 @@ def test_terminal_route_requires_a_user_and_uses_completed_bars(tmp_path, monkey
     with client.session_transaction() as sess:
         sess["user_id"] = created["id"]
         sess["user_exp"] = time.time() + 3600
-    response = client.post("/api/terminal/signal", json={"symbol": "BTCUSDT", "interval": "4h", "strategy": "auto"})
+    response = client.post("/api/terminal/signal", json={"symbol": "BTCUSDT", "interval": "4h", "strategy": "auto", "request_id": "t1"})
     body = response.get_json()
     assert response.status_code == 200
+    assert body["customer_status"] == "reading_unavailable"
     assert body["decision"] == "WAIT"
-    assert body["decision_label"] == "WAIT"
-    assert body["blocked"] == "feed_error"
     assert body["approved"] is False
     assert body["entry"] is None
-    assert body["reason"] == "The market feed could not be read."
+    assert body["price"] is None
+    assert body["request_id"] == "t1"
+    assert "424242.42" not in response.get_data(as_text=True)
     history = client.get("/api/terminal/history").get_json()
     assert history["items"] == []

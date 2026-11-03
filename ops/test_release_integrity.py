@@ -97,25 +97,15 @@ def test_health_names_its_own_completed_kline_and_not_the_desk_snapshot(monkeypa
 
 def test_klines_and_the_snapshot_are_the_same_reading(monkeypatch):
     from ops.app import app
-    bucket = _bucket(NOW, 900_000)
-    bar = make_bar(
-        symbol="BTCUSDT", interval="15m", open_time_ms=bucket, close_time_ms=bucket + 899_999,
-        open=100, high=110, low=90, close=105, volume=1, complete=True, fresh=True,
-        provider="fixture", source_type="fixture", quote_semantics="last_trade",
-    )
-    snap = {
-        "_loaded": [bar],
-        "snapshot_id": "BTCUSDT:15m:fixture:desk-read",
-        "reading_version": "desk-read-fixture",
-        "candle_semantics": "last_trade",
-        "quality": "ok",
-    }
-    monkeypatch.setattr("ops.desk_snapshot.observe", lambda *_args, **_kwargs: snap)
+    def boom(*_args, **_kwargs):
+        raise AssertionError("customer klines must not read an unverified candle")
+    monkeypatch.setattr("ops.desk_snapshot.observe", boom)
+    monkeypatch.setattr("ops.market.fetch_klines", boom)
     body = app.test_client().get("/api/klines?symbol=BTCUSDT&interval=15m").get_json()
-    assert body["snapshot_id"] == snap["snapshot_id"]
-    assert body["kind"] == "completed_bar"
-    assert body["not_a_quote"] is True
-    assert body["candles"] == [{"t": bucket, "o": 100, "h": 110, "l": 90, "c": 105, "v": 1}]
+    assert body["candles"] == []
+    assert body["customer_status"] == "reading_unavailable"
+    assert body["kind"] == "unavailable"
+    assert "105" not in str(body)
 
 
 def _reward(entry, stop, target):

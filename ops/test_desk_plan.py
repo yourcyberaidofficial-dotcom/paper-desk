@@ -142,36 +142,37 @@ def test_the_plan_route_reviews_without_opening(tmp_path, monkeypatch):
     blocked = client.post("/api/desk/plan", json={"symbol": "BTCUSDT", "interval": "15m"})
     assert blocked.status_code == 200
     assert blocked.get_json()["order_opened"] is False
-    assert blocked.get_json()["reason"] == "not_a_manual_plan"
+    assert blocked.get_json()["reason"] == "reading_unavailable"
+    assert blocked.get_json()["entry"] is None
+    assert blocked.get_json()["stop"] is None
+    assert blocked.get_json()["target"] is None
     assert items(owner["id"]) == []
     monkeypatch.setattr("ops.desk_snapshot.reading_for", lambda *_args, **_kwargs: card)
     reviewed = client.post("/api/desk/plan", json={"symbol": "BTCUSDT", "interval": "15m"})
     body = reviewed.get_json()
     assert reviewed.status_code == 200
-    assert body["order_opened"] is False
-    assert body["approved"] is False
-    assert body["autopilot_eligible"] is False
-    assert body["broker"] is False
-    assert body["opportunity_id"]
-    assert body["snapshot_id"] == card["snapshot_id"]
-    assert body["paper"]["order_opened"] is False
-    assert body["levels_persisted"] is False
-    assert body["entry"] == card["entry"]
-    stored = opportunity_row(owner["id"], body["opportunity_id"])
-    assert stored["entry"] is None
-    repeated = client.post("/api/desk/plan", json={"symbol": "BTCUSDT", "interval": "15m"}).get_json()
-    assert repeated["duplicate"] is True
-    assert opportunity_row(owner["id"], body["opportunity_id"])["entry"] is None
-    refused = client.post("/api/paper/orders", json={"opportunity_id": body["opportunity_id"]})
-    assert refused.status_code == 409
-    assert refused.get_json()["reason"] == "paper_ledger_persistence"
+    assert body["reason"] == "reading_unavailable"
+    assert body.get("opportunity_id") in {None, ""}
+    assert body["entry"] is None
+    assert str(card["entry"]) not in reviewed.get_data(as_text=True)
+    assert items(owner["id"]) == []
     copied = client.post("/api/desk/plan", json={"symbol": "BTCUSDT", "interval": "15m", "authored": True, "decision": "BUY", "entry": card["entry"], "stop": card["stop"], "target": card["target"]})
-    assert copied.get_json()["reason"] == "feed_copy"
+    copied_body = copied.get_json()
+    assert copied_body["reason"] == "feed_copy"
+    assert copied_body["entry"] is None
+    assert str(card["entry"]) not in copied.get_data(as_text=True)
     authored = client.post("/api/desk/plan", json={"symbol": "BTCUSDT", "interval": "15m", "authored": True, "decision": "BUY", "entry": 100, "stop": 98, "target": 104}).get_json()
     assert authored["levels_persisted"] is True
     assert authored["provenance"] == "user_authored"
+    assert authored["source_id"] == "user_authored"
     assert authored["entry"] == 100
+    assert authored["snapshot_id"] in {None, ""}
     assert authored["order_opened"] is False
+    stored = opportunity_row(owner["id"], authored["opportunity_id"])
+    assert stored["entry"] == 100
+    assert stored["provenance"] == "user_authored"
+    assert stored.get("snapshot_id") in {None, ""}
+    assert card.get("snapshot_id") not in (stored.get("snapshot_id"), stored.get("bar_close_ms"))
     if authored["paper"]["allowed"]:
         opened = client.post("/api/paper/orders", json={"opportunity_id": authored["opportunity_id"]})
         assert opened.status_code == 200

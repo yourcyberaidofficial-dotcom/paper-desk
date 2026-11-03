@@ -626,7 +626,13 @@ def record_desk_plan(user_id, user, result):
 
 
 def build_user_plan(card, body):
-    """Levels typed by the account. They are refused when they copy the feed plan."""
+    """Levels typed by the account. They are refused when they copy the feed plan.
+
+    The stored anchor is a hash of the typed levels. A provider snapshot,
+    candle time, or reference price is not attached.
+    """
+    import hashlib
+
     from ops.entitlements import matches_feed_levels
 
     card = card or {}
@@ -642,8 +648,11 @@ def build_user_plan(card, body):
         return {"ok": False, "reason": "incomplete"}
     if matches_feed_levels(card, entry, stop, target):
         return {"ok": False, "reason": "feed_copy", "order_opened": False, "levels_persisted": False}
-    symbol = card.get("symbol") or card.get("instrument")
-    interval = str(card.get("interval") or card.get("timeframe") or "")
+    symbol = str(body.get("symbol") or card.get("symbol") or card.get("instrument") or "")
+    interval = str(body.get("interval") or card.get("interval") or card.get("timeframe") or "")
+    if symbol in ("", "None") or interval in ("", "None"):
+        return {"ok": False, "reason": "unsupported"}
+    anchor = int(hashlib.sha256(f"{symbol}|{interval}|{decision}|{entry}|{stop}|{target}".encode()).hexdigest()[:15], 16)
     return {
         "ok": True,
         "plan": {
@@ -663,15 +672,17 @@ def build_user_plan(card, body):
             "source_name": "account",
             "provenance": "user_authored",
             "authored_by": "account",
-            "snapshot_id": card.get("snapshot_id"),
-            "reading_version": card.get("reading_version"),
-            "bar_close_ms": card.get("bar_close_ms") or card.get("candle_close_ms"),
-            "candle_open_ms": card.get("candle_open_ms"),
+            "snapshot_id": None,
+            "reading_version": None,
+            "bar_close_ms": anchor,
+            "candle_open_ms": None,
+            "candle_close_ms": None,
             "strategy": "account-authored",
             "rule": "account-authored",
             "explanation": "The account supplied these levels. They were not taken from the market feed.",
             "invalidation": "The account's own stop. This is not a market-system plan.",
             "reference_price": None,
+            "price": None,
             "validation_status": "FAIL",
             "fresh": True,
         },
