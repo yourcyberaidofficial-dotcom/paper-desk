@@ -97,7 +97,90 @@ LESSONS = [
         "title": "Payouts and evaluations are the firm's own rules",
         "body": "Profit targets, trailing drawdown, news bans, weekend bans and payout conditions are defined by each firm for a named account. Aureon does not store those numbers as verified. A comparison with your paper trades is practice, not a pass.",
     },
+    {
+        "id": "costs",
+        "track": "desk",
+        "course": "risk",
+        "title": "Costs are assumptions until they are measured",
+        "objective": "Read a paper result without mistaking a model cost for an exchange fee.",
+        "body": "The paper book subtracts 11 basis points per side and, on a market-candle exit, assumes 2 basis points of adverse slippage. Those figures are declared assumptions. They are not a measured commission and not a broker fill.",
+        "sections": [
+            "A gross candle move is not the paper result. The book subtracts the declared cost on both the entry and the exit.",
+            "The 2 basis point slippage figure applies only to the estimated paper exit from a completed candle. An account-supplied exit is labelled separately.",
+            "If the same candle touches both the stop and the target, the outcome stays unresolved. The book does not pick the favourable one.",
+        ],
+        "exercise": "Write the two cost assumptions in your own words and note which one is not a broker fill.",
+        "check": {
+            "question": "Is the 11 basis point figure an observed exchange fee?",
+            "choices": ["Yes. It is the live commission.", "No. It is a paper-book assumption."],
+            "answer": 1,
+        },
+    },
+    {
+        "id": "approval",
+        "track": "desk",
+        "course": "research",
+        "title": "What would have to be true before a strategy is approved",
+        "objective": "Separate a research observation from an approved paper rule.",
+        "body": "Approval needs a frozen rule version, a dataset fingerprint, a chronological test that was not used to tune the rule, costs, and a large enough sample. A failed or too-small result stays failed or insufficient. No strategy in the current registry has that approval.",
+        "sections": [
+            "Training, validation and a final untouched holdout are different periods. Shuffling candles is not a valid test.",
+            "The least-bad strategy in a comparison is still unapproved. Comparing many rules makes a lucky result look stronger than it is.",
+            "Paper approval would still not be permission to send a broker order.",
+        ],
+        "exercise": "Pick one registry strategy and write its current lifecycle in one sentence. Do not change its result.",
+        "check": {
+            "question": "Can a failed backtest be shown as approved because the desk would otherwise be empty?",
+            "choices": ["Yes, if the card would otherwise be empty.", "No. A failed or incomplete result stays unapproved."],
+            "answer": 1,
+        },
+    },
+    {
+        "id": "freshness",
+        "track": "desk",
+        "course": "foundations",
+        "title": "Freshness is a timestamp, not a heartbeat",
+        "objective": "Tell a running process apart from a fresh completed candle.",
+        "body": "A worker heartbeat says the process is alive. It does not say the latest candle is fresh, and it does not say a strategy is approved. Gold 1-minute and 3-minute candles stay unavailable without a licensed feed.",
+        "sections": [
+            "BTC and ETH freshness is judged from the last completed Binance candle, not from a cached price labelled as live.",
+            "Gold 15-minute and 1-hour readings use spot samples and are withheld when the separate quote diverges by more than 0.08 percent.",
+            "Gold 1-minute and 3-minute plans are not calculated from a five-minute sample.",
+        ],
+        "exercise": "Name one desk state that can be true at the same time as a healthy worker heartbeat.",
+        "check": {
+            "question": "Does a current worker heartbeat mean a gold 1-minute plan can be calculated?",
+            "choices": ["Yes.", "No. That timeframe stays unlicensed."],
+            "answer": 1,
+        },
+    },
 ]
+
+
+COURSES = (
+    {"id": "foundations", "title": "How a completed candle becomes an observation", "lesson_ids": ("candles", "structure", "price-action", "levels", "sessions", "freshness")},
+    {"id": "risk", "title": "Risk, costs and the written process", "lesson_ids": ("risk", "psychology", "discipline", "journal", "performance", "costs")},
+    {"id": "research", "title": "Testing without pretending", "lesson_ids": ("indicators", "testing", "approval")},
+    {"id": "prop", "title": "Prop-firm education", "lesson_ids": ("prop-what", "prop-limits", "prop-honesty", "prop-payout")},
+)
+
+
+def _structured(lesson):
+    body = lesson["body"]
+    return {
+        **lesson,
+        "course": lesson.get("course") or ("prop" if lesson.get("track") == "prop" else "foundations"),
+        "objective": lesson.get("objective") or f"Understand {lesson['title'].lower()} without treating it as an order.",
+        "sections": lesson.get("sections") or [body],
+        "exercise": lesson.get("exercise") or "Write what you would expect the desk to show, and what it must refuse to invent.",
+        "check": lesson.get("check") or {
+            "question": "Does finishing this lesson approve a strategy or open a trade?",
+            "choices": ["Yes. Completion is an order.", "No. A lesson is not a signal and not an order."],
+            "answer": 1,
+        },
+        "verified_firm_rule": False,
+        "video": False,
+    }
 
 
 def suggestions(lab, performance):
@@ -121,7 +204,16 @@ def suggestions(lab, performance):
 
 
 def catalog():
-    return [{**lesson, "verified_firm_rule": False} for lesson in LESSONS]
+    return [_structured(lesson) for lesson in LESSONS]
+
+
+def courses():
+    known = {lesson["id"]: _structured(lesson) for lesson in LESSONS}
+    grouped = []
+    for course in COURSES:
+        lessons = [known[item] for item in course["lesson_ids"] if item in known]
+        grouped.append({"id": course["id"], "title": course["title"], "lessons": lessons, "count": len(lessons)})
+    return grouped
 
 
 def public_rules(user):

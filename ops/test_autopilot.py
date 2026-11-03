@@ -29,9 +29,22 @@ def test_pause_blocks_a_new_entry_and_the_open_position_can_still_close(tmp_path
     users, owner, _other = _account(tmp_path, monkeypatch)
     act(owner["id"], "enable", 1_700_000_100_000, confirm=True)
     user = _user(users, owner)
-    first = consider(user, _plan(), 1_700_000_100_000, "opp:BTCUSDT:15m:Trend pullback:BUY:1")
-    assert first["ok"] is True
-    assert first["order"]["opened_by"] == "autopilot"
+    refused = consider(user, _plan(), 1_700_000_100_000, "opp:BTCUSDT:15m:Trend pullback:BUY:1")
+    assert refused["reason"] == "no_approved_strategy"
+    assert summary(owner["id"])["orders"] == []
+    from ops.paperbook import open_order
+    opened = open_order(user, {
+        "opportunity_id": "opp:manual-monitor",
+        "symbol": "BTCUSDT",
+        "interval": "15m",
+        "direction": "SELL",
+        "entry": 100.0,
+        "stop": 101.0,
+        "target": 97.0,
+        "family": "Trend pullback",
+    }, 1_700_000_100_000)
+    assert opened["ok"] is True
+    assert opened["order"]["opened_by"] == "account"
     assert act(owner["id"], "pause", 1_700_000_200_000)["autopilot"]["status"] == "paused"
     user = _user(users, owner)
     second = consider(user, _plan(entry=110, stop=109, target=113), 1_700_000_200_000, "opp:BTCUSDT:15m:Trend pullback:BUY:2")
@@ -57,10 +70,10 @@ def test_a_repeated_opportunity_and_a_low_reward_plan_do_not_open_twice(tmp_path
     act(owner["id"], "enable", 1_700_000_100_000, confirm=True)
     user = _user(users_mod, owner)
     opened = consider(user, _plan(), 1_700_000_100_000, "opp:once")
-    assert opened["ok"] is True
+    assert opened["reason"] == "no_approved_strategy"
     again = consider(_user(users_mod, owner), _plan(), 1_700_000_200_000, "opp:once")
-    assert again["reason"] == "already_recorded"
-    assert len(summary(owner["id"])["orders"]) == 1
+    assert again["reason"] == "no_approved_strategy"
+    assert summary(owner["id"])["orders"] == []
 
 
 def test_emergency_stop_stale_data_and_gold_minutes_open_nothing(tmp_path, monkeypatch):
@@ -97,8 +110,8 @@ def test_two_overlapping_attempts_leave_one_order(tmp_path, monkeypatch):
     second.start()
     first.join()
     second.join()
-    assert sorted(row.get("reason") for row in results) == ["already_recorded", "opened"]
-    assert len(summary(owner["id"])["orders"]) == 1
+    assert sorted(row.get("reason") for row in results) == ["no_approved_strategy", "no_approved_strategy"]
+    assert summary(owner["id"])["orders"] == []
 
 
 def test_lab_progress_stays_on_one_account_and_a_note_is_not_a_firm_rule(tmp_path, monkeypatch):

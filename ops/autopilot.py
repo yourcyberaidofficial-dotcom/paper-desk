@@ -173,7 +173,7 @@ def note(user_id, now_ms, opportunity_id=None, rejection=None, error=None):
 
 
 def consider(user, result, now_ms, opportunity_id=None):
-    """Open one paper order only when this account's bot is running and every existing check passes."""
+    """Open a paper order only when the account allowed automation and the strategy version is approved for paper."""
     user = user or {}
     user_id = user.get("id")
     state = view(user)
@@ -191,6 +191,7 @@ def consider(user, result, now_ms, opportunity_id=None):
         note(user_id, now_ms, opportunity_id, rejection=reason)
         return {"attempted": True, "ok": False, "reason": reason}
     from ops.paperbook import open_order
+    from ops.qualification import autopilot_may_open
     row = {
         "opportunity_id": opportunity_id or result.get("id"),
         "symbol": result.get("symbol"),
@@ -202,6 +203,13 @@ def consider(user, result, now_ms, opportunity_id=None):
         "lifecycle": "active",
         "family": result.get("rule") or result.get("strategy"),
     }
+    probe = open_order(user, row, now_ms, commit=False, opened_by="autopilot", automation_cap=state.get("max_orders_per_day"))
+    if not probe.get("ok"):
+        note(user_id, now_ms, row.get("opportunity_id"), rejection=probe.get("reason"))
+        return {"attempted": True, "ok": False, "reason": probe.get("reason")}
+    if not autopilot_may_open(result):
+        note(user_id, now_ms, row.get("opportunity_id"), rejection="no_approved_strategy")
+        return {"attempted": True, "ok": False, "reason": "no_approved_strategy", "approved_strategy": False}
     opened = open_order(user, row, now_ms, opened_by="autopilot", automation_cap=state.get("max_orders_per_day"))
     if opened.get("ok"):
         note(user_id, now_ms, row.get("opportunity_id"))

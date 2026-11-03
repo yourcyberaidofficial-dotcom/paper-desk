@@ -65,8 +65,18 @@ def load_gold_ohlc(interval, now_ms):
     return bars
 
 
+def _publish(request_body, payload):
+    from ops.qualification import evidence_chain
+    from ops.terminal_signal import attach_request
+
+    stamped = attach_request(request_body, payload)
+    stamped["evidence_chain"] = evidence_chain(stamped)
+    stamped["approved_strategy_available"] = False
+    return stamped
+
+
 def handle_signal(user_id, body, now_ms=None, bars_loader=None, quote_loader=None, session_loader=None, ohlc_loader=None):
-    from ops.terminal_signal import attach_request, auto_strategy, decide, open_idea, stamp
+    from ops.terminal_signal import auto_strategy, decide, open_idea, stamp
     from ops.users import get
 
     body = body or {}
@@ -75,7 +85,7 @@ def handle_signal(user_id, body, now_ms=None, bars_loader=None, quote_loader=Non
     strategy = body.get("strategy") or "auto"
     now_ms = int(now_ms if now_ms is not None else time.time() * 1000)
     if symbol == "XAUUSD" and interval in {"1m", "3m"}:
-        return 200, attach_request(body, {
+        return 200, _publish(body, {
             "decision": "WAIT",
             "symbol": symbol,
             "interval": interval,
@@ -117,7 +127,7 @@ def handle_signal(user_id, body, now_ms=None, bars_loader=None, quote_loader=Non
             detail = bars[1]
             bars = []
         if interval in {"1m", "3m"} and not bars:
-            return 200, attach_request(body, {
+            return 200, _publish(body, {
                 "decision": "WAIT",
                 "decision_label": "UNAVAILABLE",
                 "symbol": symbol,
@@ -143,7 +153,7 @@ def handle_signal(user_id, body, now_ms=None, bars_loader=None, quote_loader=Non
     else:
         bars = (bars_loader or load_crypto_bars)(symbol, interval, now_ms)
     if isinstance(bars, tuple):
-        return 200, attach_request(body, {
+        return 200, _publish(body, {
             "decision": "WAIT",
             "symbol": symbol,
             "interval": interval,
@@ -163,7 +173,7 @@ def handle_signal(user_id, body, now_ms=None, bars_loader=None, quote_loader=Non
         symbol, interval, strategy, bars, now_ms, user,
         open_idea(user_id, symbol, chosen), live_quote=live_quote,
     )
-    stamped = stamp(user_id, attach_request(body, result))
+    stamped = stamp(user_id, _publish(body, result))
     from ops.inbox import deliver_evaluation
     stamped["inbox_delivery"] = deliver_evaluation(user_id, user, stamped)
     return 200, stamped

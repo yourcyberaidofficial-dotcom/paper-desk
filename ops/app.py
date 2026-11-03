@@ -97,6 +97,19 @@ def _expire():
     if session.get("user_id") and not _user_ok():
         session.pop("user_id", None)
         session.pop("user_exp", None)
+    if "aureon_request_id" not in request.environ:
+        request.environ["aureon_request_id"] = os.urandom(8).hex()
+
+
+@app.after_request
+def _security_headers(response):
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["Referrer-Policy"] = "same-origin"
+    response.headers["Permissions-Policy"] = "geolocation=(), microphone=(), camera=()"
+    response.headers["Content-Security-Policy"] = "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; frame-ancestors 'none'"
+    response.headers["X-Request-Id"] = request.environ.get("aureon_request_id", "")
+    return response
 
 @app.get("/api/coverage")
 def coverage():
@@ -158,12 +171,18 @@ def health():
         "paper_only": True,
         "broker": False,
         "worker": _worker_public(),
+        "qualification": _qualification_public(),
     })
 
 
 def _promotion_state():
     from ops.delivery import load_promotions
     return "present" if load_promotions() else "empty"
+
+
+def _qualification_public():
+    from ops.qualification import summary
+    return summary()
 
 
 def _market_report(snapshot):
@@ -453,7 +472,7 @@ def lab_state():
     user_id, user = _session_user()
     if not user_id:
         return jsonify({"error": "unauthorized"}), 401
-    from ops.academy import catalog, public_rules, suggestions
+    from ops.academy import catalog, courses, public_rules, suggestions
     from ops.autopilot import presentation, view
     from ops.paperbook import summary
     from ops.profiles import canonical_style, get_profile
@@ -484,8 +503,10 @@ def lab_state():
         "autopilot": auto,
         "performance": book.get("performance"),
         "lessons": catalog(),
+        "courses": courses(),
         "rules": public_rules(user),
         "journal": journal,
+        "journal_notes": lab.get("journal_notes") or [],
         "improvement": suggestions(lab, book.get("performance")),
         "preferences": {"markets": (user.get("prefs") or {}).get("markets") or [], "plan_markets": (user.get("plan") or {}).get("markets")},
         "observation": "Not enough closed paper trades to describe a strength or a weakness." if trades < 5 else "Counts below are closed paper trades only. They are not a skill score and not a profitable strategy.",
@@ -507,6 +528,7 @@ def lab_save():
     focus = [item for item in (body.get("focus") or []) if item in {"candles", "risk", "psychology", "prop"}][:4]
     completed = [str(item)[:40] for item in (body.get("completed_lessons") or [])][:40]
     rule = str(body.get("custom_rule") or "")[:400]
+    reflection = str(body.get("journal_note") or "")[:500]
     known = {lesson["id"] for lesson in catalog()}
 
     def apply(user):
@@ -525,6 +547,10 @@ def lab_save():
             rows = list(lab.get("custom_rules") or [])
             rows.append({"text": rule, "verified": False})
             lab["custom_rules"] = rows[-10:]
+        if reflection:
+            notes = list(lab.get("journal_notes") or [])
+            notes.append({"text": reflection, "inferred_behaviour": False})
+            lab["journal_notes"] = notes[-20:]
         user["lab"] = lab
         return user
 
@@ -756,6 +782,14 @@ def registry_api():
     if not _gate():
         return jsonify({"error": "unauthorized"}), 401
     from ops.registry import catalog
+    return jsonify(catalog())
+
+
+@app.get("/api/qualification")
+def qualification_api():
+    if not _gate():
+        return jsonify({"error": "unauthorized"}), 401
+    from ops.qualification import catalog
     return jsonify(catalog())
 
 
@@ -1588,7 +1622,9 @@ header{display:flex;justify-content:space-between;align-items:flex-start;gap:12p
 .muted{color:var(--muted);font-size:.82rem}
 .row{display:flex;justify-content:space-between;gap:8px;padding:6px 0;border-bottom:1px solid rgba(255,255,255,.05)}
 .long{color:var(--ok)} .short{color:var(--bad)} .wait{color:var(--warn)}
-.workspace{display:grid;grid-template-columns:minmax(0,2fr) minmax(280px,1fr);gap:12px}
+.desk{display:grid;grid-template-columns:220px minmax(0,1fr) minmax(260px,320px);gap:12px;align-items:start}
+.matrix{width:100%;border-collapse:collapse}
+.matrix th,.matrix td{white-space:normal;vertical-align:top}
 canvas{width:100%;height:320px;background:#0a0e14;border-radius:12px;display:block}
 canvas.spark{height:46px;background:transparent;border-radius:0}
 a{color:#99f6e4}
@@ -1634,7 +1670,8 @@ table{width:100%;border-collapse:collapse;font-size:.88rem}
 th,td{text-align:left;padding:10px 12px;border-bottom:1px solid #222a36;white-space:nowrap}
 th{color:#93a0b4;font-weight:600;font-size:.75rem;letter-spacing:.04em;text-transform:uppercase}
 tr:last-child td{border-bottom:0}
-@media(max-width:900px){header{flex-direction:column;align-items:flex-start}.shell{grid-template-columns:1fr}#menu{display:inline-block}aside{display:none;position:fixed;inset:0 auto 0 0;width:min(260px,88vw);z-index:20;overflow:auto}aside.open{display:block}.markets,.courses,.workspace,.empty-grid,.sections{grid-template-columns:1fr}button,select{min-height:40px}main{padding:12px 12px 28px}}
+@media(max-width:1100px){.desk{grid-template-columns:1fr}}
+@media(max-width:900px){header{flex-direction:column;align-items:flex-start}.shell{grid-template-columns:1fr}#menu{display:inline-block}aside{display:none;position:fixed;inset:0 auto 0 0;width:min(260px,88vw);z-index:20;overflow:auto}aside.open{display:block}.markets,.courses,.workspace,.empty-grid,.sections,.desk{grid-template-columns:1fr}button,select{min-height:40px}main{padding:12px 12px 28px}}
 </style>
 </head>
 <body>
@@ -1935,7 +1972,7 @@ async function signals(){
   };
 }
 async function terminal(){
-  view.innerHTML = `<article class="card"><h2>Evaluate market</h2><div class="fieldrow"><label>Market <select id="term-symbol"><option>BTCUSDT</option><option>ETHUSDT</option><option>XAUUSD</option></select></label><label>Timeframe <select id="term-interval"><option value="1m">1m</option><option value="3m">3m</option><option value="15m" selected>15m</option><option value="1h">1h</option></select></label><label>Reading <select id="term-strategy"><option value="auto">Auto</option><option value="compress-break-4h-20261028">BTC compression breakout</option><option value="sweep-reclaim-4h-20261028">ETH failed-breakdown</option><option value="london-reclaim-1h-20261028">Gold London reclaim</option><option value="dip-in-trend-1d-20261028">Daily dip in trend</option><option value="quiet-week-reversal-1d-20261028">Quiet week reversal</option></select></label></div><button id="generate" type="button">Evaluate market</button><p id="termstatus" role="status"></p><p class="muted">This requests an analysis. It is not an approved signal and it does not place an order. Gold 1-minute and 3-minute stay unavailable.</p></article><div id="termout"></div><article class="card"><h2>Saved evaluations</h2><div id="termhist"><p>No requested evaluation yet.</p></div></article>`;
+  view.innerHTML = `<div class="desk"><article class="card" id="watch"><h2>Market watch</h2><p class="muted">Loading availability. An unavailable market is not shown as a live price.</p></article><article class="card"><h2>Completed candles</h2><div class="fieldrow"><label>Market <select id="term-symbol"><option>BTCUSDT</option><option>ETHUSDT</option><option>XAUUSD</option></select></label><label>Timeframe <select id="term-interval"><option value="1m">1m</option><option value="3m">3m</option><option value="15m" selected>15m</option><option value="1h">1h</option></select></label><label>Reading <select id="term-strategy"><option value="auto">Auto</option><option value="compress-break-4h-20261028">BTC compression breakout</option><option value="sweep-reclaim-4h-20261028">ETH failed-breakdown</option><option value="london-reclaim-1h-20261028">Gold London reclaim</option><option value="dip-in-trend-1d-20261028">Daily dip in trend</option><option value="quiet-week-reversal-1d-20261028">Quiet week reversal</option></select></label></div><canvas id="chart"></canvas><p id="chartnote" class="muted">Loading closed candles.</p><p id="crosshair" class="muted"></p><button id="generate" type="button">Evaluate market</button><p id="termstatus" role="status"></p><p class="muted">This requests an analysis. It is not an approved signal and it does not place an order. Gold 1-minute and 3-minute stay unavailable. The chart does not invent ticks.</p></article><article class="card" id="intel"><h2>Market intelligence</h2><div id="termout"><p>No evaluation yet. An empty panel is not a signal.</p></div></article></div><article class="card" id="termbook"><h2>Paper record</h2><p class="muted">Loading this account's paper book.</p></article><article class="card"><h2>Saved evaluations</h2><div id="termhist"><p>No requested evaluation yet.</p></div></article>`;
   const symbolEl = document.getElementById("term-symbol");
   const intervalEl = document.getElementById("term-interval");
   const strategyEl = document.getElementById("term-strategy");
@@ -1948,6 +1985,60 @@ async function terminal(){
     });
   }
   markFrames();
+  async function loadWatch(){
+    const box = document.getElementById("watch");
+    if (!box) return;
+    try {
+      const cov = await fetch("/api/coverage", {credentials:"same-origin"}).then(r => r.json());
+      const rows = (cov.availability || []).map(pair => {
+        const unavailable = pair.status === "unavailable";
+        return `<tr><td>${pair.symbol}</td><td>${pair.interval}</td><td>${unavailable ? "Unavailable" : plainReason(pair.status)}</td><td>${plainReason(pair.reason || "")}</td></tr>`;
+      }).join("");
+      box.innerHTML = `<h2>Market watch</h2><p class="muted">Twelve combinations. A feed name is not a live tick, and an unavailable row has no price.</p><div class="tablewrap"><table class="matrix"><thead><tr><th>Market</th><th>Time</th><th>State</th><th>Why</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+    } catch (err) {
+      box.innerHTML = `<h2>Market watch</h2><p>Availability could not be read. No prices were invented.</p>`;
+    }
+  }
+  async function loadDeskChart(){
+    const note = document.getElementById("chartnote");
+    const hover = document.getElementById("crosshair");
+    const requested = requestedNow();
+    if (requested.symbol === "XAUUSD" && (requested.interval === "1m" || requested.interval === "3m")) {
+      if (note) note.textContent = "Licensed spot minute data unavailable. No candle was drawn.";
+      if (hover) hover.textContent = "";
+      const canvas = document.getElementById("chart");
+      if (canvas) { const ctx = canvas.getContext("2d"); ctx.clearRect(0, 0, canvas.width, canvas.height); }
+      return;
+    }
+    const url = requested.symbol === "XAUUSD" ? `/api/gold/candles?interval=${requested.interval}` : `/api/klines?symbol=${requested.symbol}&interval=${requested.interval}`;
+    const bars = await fetch(url).then(r => r.json()).catch(() => null);
+    if (!bars || bars.blocked === "xau_minute_unlicensed" || !(bars.candles || []).length) {
+      if (note) note.textContent = bars && bars.error ? "Chart unavailable: " + bars.error : "No completed candles returned. Nothing was invented.";
+      return;
+    }
+    draw(bars.candles);
+    if (note) note.textContent = plainReason(bars.source || bars.quote_semantics || "completed candles") + " · " + requested.interval + " · closed candles only";
+    const canvas = document.getElementById("chart");
+    if (canvas && !canvas.dataset.bound) {
+      canvas.dataset.bound = "1";
+      canvas.onmousemove = (event) => {
+        const line = document.getElementById("crosshair");
+        if (!line) return;
+        const rect = canvas.getBoundingClientRect();
+        line.textContent = "Pointer " + Math.round(event.clientX - rect.left) + "×" + Math.round(event.clientY - rect.top) + " on the completed-candle chart. This is not an order ticket.";
+      };
+    }
+  }
+  async function loadBook(){
+    const box = document.getElementById("termbook");
+    if (!box) return;
+    const response = await fetch("/api/paper/book", {credentials:"same-origin"});
+    if (!response.ok) { box.innerHTML = `<h2>Paper record</h2><p>Sign in to see this account's paper trades. No sample trades are shown.</p>`; return; }
+    const book = await response.json();
+    const open = (book.open || []).map(row => `<div class="row"><span>${row.symbol} ${row.direction}</span><span>${priceText(row.symbol, row.entry)}</span></div><p class="muted">${row.opened_by === "autopilot" ? "AutoPilot paper" : "Account paper"}. Stop ${priceText(row.symbol, row.stop)}. Target ${priceText(row.symbol, row.target)}. Not a broker fill.</p>`).join("");
+    const closed = (book.closed || []).slice(-5).map(row => `<div class="row"><span>${row.symbol} ${row.exit_kind || row.status}</span><span>${row.pnl_usd == null ? "—" : Number(row.pnl_usd).toFixed(2) + " USD"}</span></div>`).join("");
+    box.innerHTML = `<h2>Paper record</h2>${open || "<p>No open paper position.</p>"}${closed || '<p class="muted">No closed paper trade on this account.</p>'}<p class="muted">These rows are the paper book. A candle estimate is not a broker fill.</p>`;
+  }
   function labelPrevious(){
     ticket += 1;
     const status = document.getElementById("termstatus");
@@ -1961,8 +2052,8 @@ async function terminal(){
     status.textContent = "Selection changed. Evaluate market for " + next.symbol + " " + next.interval + ".";
     if (next.symbol === "XAUUSD" && (next.interval === "1m" || next.interval === "3m")) status.textContent = "XAUUSD " + next.interval + " is unavailable. The restriction is xau_minute_unlicensed. No plan, size or paper order will be calculated.";
   }
-  symbolEl.onchange = () => { markFrames(); labelPrevious(); };
-  intervalEl.onchange = labelPrevious;
+  symbolEl.onchange = () => { markFrames(); labelPrevious(); loadDeskChart(); };
+  intervalEl.onchange = () => { labelPrevious(); loadDeskChart(); };
   strategyEl.onchange = labelPrevious;
   async function history(){
     const response = await fetch("/api/terminal/history", {credentials:"same-origin"});
@@ -2010,9 +2101,10 @@ async function terminal(){
       const sourceLine = licensed ? "Licensed spot minute data unavailable. A quote was not used as a candle." : (plainReason(body.source_name || "unknown") + ". " + plainReason(body.quote || "source not named"));
       const candleLine = licensed ? "Not evaluated. No 1-minute or 3-minute candle was requested." : ((body.fresh ? "Completed candle is fresh." : "Not a fresh live candle.") + " " + stamp(body.bar_close_ms));
       const audit = body.research_levels && body.research_levels.audit_only ? `<details><summary>Audit only, not a trade plan</summary><p class="muted">Stored research levels stay off the plan. Entry ${px(body.research_levels.entry)}. Stop ${px(body.research_levels.stop)}. Target ${px(body.research_levels.target)}.</p></details>` : "";
+      const chain = body.evidence_chain ? `<details><summary>Evidence chain</summary><p class="muted">Source ${plainReason(body.evidence_chain.data_source || "unnamed")}. Candle ${stamp(body.evidence_chain.completed_candle_ms)}. Rule ${body.evidence_chain.strategy_version || "unnamed"}. Decision ${body.evidence_chain.decision || "WAIT"}. Approved: ${body.evidence_chain.approved ? "yes" : "no"}. No calibrated probability is shown.</p></details>` : "";
       const persona = body.persona_name ? `${body.persona_name}. ${body.persona_note || ""}` : "No persona note.";
       const paper = (!withheld && body.paper && body.paper.allowed) ? `<p><button id="openpaper" type="button">Open a paper trade on this plan</button></p><p class="muted">This records a paper estimate for your account. It does not send a broker order. The quantity is not an exchange lot.</p>` : `<p class="muted">Paper trade unavailable${body.paper&&body.paper.reason?": "+plainReason(body.paper.reason):"."} ${withheld ? "No order is created from a blocked reading." : "The market plan is unchanged."}</p>`;
-      out.innerHTML = `<article class="card ${klass}" data-request="${requestId}" data-symbol="${body.symbol}" data-interval="${body.interval}"><p data-stale-note></p><p class="badge ${klass === "blocked" ? "block" : (klass === "approved" ? "ok" : "research")}">${kind}</p><h2>${headline}</h2><dl class="sections"><dt>Evaluation status</dt><dd>${headline}</dd><dt>Market and timeframe</dt><dd>${body.symbol||""} ${body.interval||""}</dd><dt>Data source</dt><dd>${sourceLine}</dd><dt>Candle completion</dt><dd>${candleLine}</dd><dt>Observation</dt><dd>${headline}</dd><dt>Validation</dt><dd>${body.validation_status||"unknown"}. ${body.approved?"Approved.":"Not an approved strategy and not a claim of profit."}</dd><dt>Entry condition</dt><dd>${entryLine}</dd><dt>Stop and target</dt><dd>${stopTarget}</dd><dt>Reward/risk</dt><dd class="num">${rr}</dd><dt>Persona eligibility</dt><dd>${persona}</dd><dt>Sizing</dt><dd>${withheld ? "Not calculated." : plainReason(size)}</dd><dt>Why it is waiting or blocked</dt><dd>${why}${gap}${times}</dd></dl>${audit}<details><summary>Technical record</summary><p class="muted">Request ${requestId}. Requested ${body.requested_symbol||""} ${body.requested_interval||""} ${body.requested_strategy||""}. Resolved ${body.strategy||""}. ${body.evidence_semantics||""} ${body.invalidation||""}</p></details>${paper}</article>`;
+      out.innerHTML = `<article class="card ${klass}" data-request="${requestId}" data-symbol="${body.symbol}" data-interval="${body.interval}"><p data-stale-note></p><p class="badge ${klass === "blocked" ? "block" : (klass === "approved" ? "ok" : "research")}">${kind}</p><h2>${headline}</h2><dl class="sections"><dt>Evaluation status</dt><dd>${headline}</dd><dt>Market and timeframe</dt><dd>${body.symbol||""} ${body.interval||""}</dd><dt>Data source</dt><dd>${sourceLine}</dd><dt>Candle completion</dt><dd>${candleLine}</dd><dt>Observation</dt><dd>${headline}</dd><dt>Validation</dt><dd>${body.validation_status||"unknown"}. ${body.approved?"Approved.":"Not an approved strategy and not a claim of profit."}</dd><dt>Entry condition</dt><dd>${entryLine}</dd><dt>Stop and target</dt><dd>${stopTarget}</dd><dt>Reward/risk</dt><dd class="num">${rr}</dd><dt>Persona eligibility</dt><dd>${persona}</dd><dt>Sizing</dt><dd>${withheld ? "Not calculated." : plainReason(size)}</dd><dt>Why it is waiting or blocked</dt><dd>${why}${gap}${times}</dd></dl>${audit}${chain}<details><summary>Technical record</summary><p class="muted">Request ${requestId}. Requested ${body.requested_symbol||""} ${body.requested_interval||""} ${body.requested_strategy||""}. Resolved ${body.strategy||""}. ${body.evidence_semantics||""} ${body.invalidation||""}</p></details>${paper}</article>`;
       const opener = document.getElementById("openpaper");
       if (opener && body.inbox_delivery && body.inbox_delivery.opportunity_id) {
         opener.onclick = async () => {
@@ -2025,11 +2117,15 @@ async function terminal(){
         opener.disabled = true;
       }
       history();
+      loadBook();
     } catch (err) {
       if (mine !== ticket) return;
       status.textContent = "The evaluation could not be completed. Please retry.";
     }
   };
+  loadWatch();
+  loadDeskChart();
+  loadBook();
   history();
 }
 async function signalsLegacy(){
@@ -2088,8 +2184,12 @@ async function scannerPage(){
     fetch("/api/coverage", {credentials:"same-origin"}).then(r=>r.json()).then(cov => {
       const box = document.getElementById("scanboard");
       if (!box) return;
-      const lines = (cov.availability||[]).map(pair => `<div class="row"><span>${pair.symbol} ${pair.interval}</span><span>${pair.status === "unavailable" ? "unavailable" : plainReason(pair.status)}</span></div><p class="muted">${plainReason(pair.reason)}${pair.blocked ? " " + plainReason(pair.blocked) : ""}</p>`).join("");
-      box.innerHTML = `<h2>Twelve combinations</h2><p class="muted">Gold 1-minute and 3-minute stay unavailable. The other ten use the feed named here. A status is not a trade.</p>${lines}`;
+      const lines = (cov.availability||[]).map(pair => {
+        const evaluated = ((cov.evaluations || []).find(row => row.symbol === pair.symbol && row.interval === pair.interval) || {});
+        const state = pair.status === "unavailable" ? "Unavailable" : (evaluated.decision || plainReason(pair.status));
+        return `<tr><td>${pair.symbol}</td><td>${pair.interval}</td><td>${pair.status === "unavailable" ? "No feed" : plainReason(pair.feed || pair.status)}</td><td>${state}</td><td>${plainReason(pair.reason || "")}${evaluated.blocked ? " " + plainReason(evaluated.blocked) : ""}</td></tr>`;
+      }).join("");
+      box.innerHTML = `<h2>Twelve combinations</h2><p class="muted">Gold 1-minute and 3-minute stay unavailable. The other ten use the feed named here. A status is not a trade. Validation is shown before any direction.</p><div class="tablewrap"><table class="matrix"><thead><tr><th>Market</th><th>Time</th><th>Source</th><th>Evaluation</th><th>Reason</th></tr></thead><tbody>${lines}</tbody></table></div>`;
     }).catch(()=>{ const box = document.getElementById("scanboard"); if (box) box.innerHTML = `<h2>Twelve combinations</h2><p>The coverage list could not be read. The cards above are unchanged.</p>`; });
   };
   const fail = (message) => {
@@ -2124,12 +2224,29 @@ async function learnPage(){
   const lab = await fetch("/api/lab", {credentials:"same-origin"}).then(r => r.ok ? r.json() : null).catch(()=>null);
   if (!lab) { view.innerHTML = `<article class="card"><h2>Academy</h2><p>Lessons are saved on your account. <a href="/login">Sign in</a> to read them and mark progress. A lesson is not a signal, and no firm rule is stored as verified.</p></article>`; return; }
   const done = new Set(lab.completed_lessons || []);
+  const courses = lab.courses || [];
   const total = (lab.lessons || []).length;
-  const cards = (lab.lessons || []).map(lesson => `<article class="card course"><p class="muted">${lesson.track === "prop" ? "Prop education" : "Desk lesson"}</p><h2>${lesson.title}</h2><p>${lesson.body}</p><div class="bar" aria-hidden="true"><span style="width:${done.has(lesson.id) ? "100%" : "0%"}"></span></div><p class="muted">${done.has(lesson.id) ? "Completed on this account." : "Not completed."} Not a verified firm rule.</p><button type="button" data-lesson="${lesson.id}">${done.has(lesson.id) ? "Completed" : "Mark complete"}</button></article>`).join("");
+  const cards = courses.map(course => {
+    const lessons = (course.lessons || []).map(lesson => {
+      const sections = (lesson.sections || [lesson.body]).map(part => `<p>${part}</p>`).join("");
+      const choices = ((lesson.check || {}).choices || []).map((choice, index) => `<label><input type="radio" name="check-${lesson.id}" value="${index}"> ${choice}</label>`).join("");
+      return `<article class="card course" id="lesson-${lesson.id}"><p class="muted">${course.title}</p><h2>${lesson.title}</h2><p><strong>Objective.</strong> ${lesson.objective || ""}</p>${sections}<p class="muted">Exercise: ${lesson.exercise || ""}</p><div class="checks">${choices}</div><p class="checknote muted" id="check-${lesson.id}"></p><div class="bar" aria-hidden="true"><span style="width:${done.has(lesson.id) ? "100%" : "0%"}"></span></div><p class="muted">${done.has(lesson.id) ? "Completed on this account." : "Not completed."} Not a verified firm rule. No video is attached.</p><button type="button" data-lesson="${lesson.id}">${done.has(lesson.id) ? "Completed" : "Mark complete"}</button></article>`;
+    }).join("");
+    return `<h2>${course.title}</h2>${lessons}`;
+  }).join("");
   const custom = ((lab.rules || {}).custom_rules || []).map(rule => `<p>${rule.text}</p><p class="muted">${rule.note}</p>`).join("");
   view.innerHTML = `<article class="card"><h2>Academy</h2><p>${done.size} of ${total} lessons completed on this account.</p><p>${(lab.rules || {}).verified_note || ""}</p><p class="muted">These lessons explain the desk. They do not open a paper trade. Completion is not a skill score.</p></article><div class="courses">${cards}</div><article class="card"><h2>Your own challenge note</h2>${custom || "<p>No personal note yet.</p>"}<label>Note <input id="rule" maxlength="400"></label><button id="saverule" type="button">Save as my note</button><p class="muted">A note you type is not confirmed as a firm's current rule.</p></article>`;
   document.querySelectorAll("[data-lesson]").forEach(button => { button.onclick = async () => {
-    const next = [...done, button.dataset.lesson];
+    const lessonId = button.dataset.lesson;
+    const selected = document.querySelector(`input[name="check-${lessonId}"]:checked`);
+    const note = document.getElementById("check-" + lessonId);
+    const lesson = (lab.lessons || []).find(item => item.id === lessonId) || {};
+    const expected = lesson.check ? String(lesson.check.answer) : null;
+    if (expected != null && (!selected || selected.value !== expected)) {
+      if (note) note.textContent = "The check does not match the lesson. Completion was not saved.";
+      return;
+    }
+    const next = [...done, lessonId];
     await fetch("/api/lab", {method:"POST", credentials:"same-origin", headers:{"Content-Type":"application/json"}, body: JSON.stringify({completed_lessons: next})});
     learnPage();
   }; });
@@ -2145,16 +2262,22 @@ async function labPage(){
   const bot = lab.autopilot || {};
   const figures = lab.performance || {};
   const focus = new Set(lab.focus || []);
-  const ideas = (lab.improvement || []).map(item => `<li>${item.lesson_id}: ${item.because}</li>`).join("");
+  const ideas = (lab.improvement || []).map(item => `<li><a href="/learn#lesson-${item.lesson_id}">${item.lesson_id}</a>: ${item.because}</li>`).join("");
   const journal = (lab.journal || []).map(row => `<p>${row.opened_by === "autopilot" ? "AutoPilot" : "Account"} · ${row.symbol || ""} · ${row.status || ""} · ${row.exit_kind || "no exit"}. ${row.note || ""}</p>`).join("");
+  const reflections = (lab.journal_notes || []).map(row => `<p>${row.text}</p>`).join("");
   const botLine = `${bot.facing || "Disabled"}. New automated paper entries are ${bot.entries_available === true ? "allowed" : "blocked"}. ${bot.facing_note || ""}`;
-  view.innerHTML = `<article class="card"><h2>Your desk</h2><p>Experience you stated: ${lab.experience}. Objective: ${lab.objective || "not set"}.</p><p>Persona ${persona.name || "not selected"}. Risk cap ${persona.risk_per_trade_percent ?? "—"}%. Reward floor ${persona.min_rr ?? "—"}. Paper timeframes ${(persona.paper_timeframes || []).join(", ") || "—"}.</p><p>Markets saved on the account: ${((lab.preferences || {}).markets || []).join(", ") || "not set"}.</p><p>AutoPilot ${botLine}</p><p>${lab.observation}</p><p class="muted">${figures.trades ? "Closed paper trades: " + figures.trades + "." : "No completed paper trade."} ${lab.note}</p></article><article class="card"><h2>Journal</h2>${journal || "<p>No paper order is recorded for this account.</p>"}<p class="muted">These lines come from the paper book. They are not a broker history.</p></article><article class="card"><h2>What to study next</h2><ul>${ideas || "<li>No further suggestion.</li>"}</ul><p class="muted">A suggestion is an unfinished lesson. It is not a skill score. <a href="/learn">Open Academy</a></p></article><form id="labform" class="card"><h2>Learning profile</h2><label>Experience <select id="exp"><option value="new">New</option><option value="developing">Developing</option><option value="independent">Independent</option></select></label><label>Objective <input id="objective" maxlength="160" value="${lab.objective || ""}"></label><div class="checks"><label><input type="checkbox" value="candles" ${focus.has("candles")?"checked":""}> Candles</label><label><input type="checkbox" value="risk" ${focus.has("risk")?"checked":""}> Risk</label><label><input type="checkbox" value="psychology" ${focus.has("psychology")?"checked":""}> Psychology</label><label><input type="checkbox" value="prop" ${focus.has("prop")?"checked":""}> Prop education</label></div><button type="submit">Save lab profile</button><p id="labsaved" class="muted"></p></form>`;
+  view.innerHTML = `<article class="card"><h2>Your desk</h2><p>Experience you stated: ${lab.experience}. Objective: ${lab.objective || "not set"}.</p><p>Persona ${persona.name || "not selected"}. Risk cap ${persona.risk_per_trade_percent ?? "—"}%. Reward floor ${persona.min_rr ?? "—"}. Paper timeframes ${(persona.paper_timeframes || []).join(", ") || "—"}.</p><p>Markets saved on the account: ${((lab.preferences || {}).markets || []).join(", ") || "not set"}.</p><p>AutoPilot ${botLine}</p><p>${lab.observation}</p><p class="muted">${figures.trades ? "Closed paper trades: " + figures.trades + "." : "No completed paper trade."} ${lab.note}</p></article><article class="card"><h2>Journal</h2>${journal || "<p>No paper order is recorded for this account.</p>"}<p class="muted">These lines come from the paper book. They are not a broker history, and they do not diagnose discipline.</p><h3>Your notes</h3>${reflections || "<p>No reflection saved.</p>"}<label>Reflection <input id="journalnote" maxlength="500"></label><button id="savenote" type="button">Save reflection</button><p class="muted">A note is what you wrote. It is not an inferred weakness.</p></article><article class="card"><h2>What to study next</h2><ul>${ideas || "<li>No further suggestion.</li>"}</ul><p class="muted">A suggestion is an unfinished lesson. It is not a skill score. <a href="/learn">Open Academy</a></p></article><form id="labform" class="card"><h2>Learning profile</h2><label>Experience <select id="exp"><option value="new">New</option><option value="developing">Developing</option><option value="independent">Independent</option></select></label><label>Objective <input id="objective" maxlength="160" value="${lab.objective || ""}"></label><div class="checks"><label><input type="checkbox" value="candles" ${focus.has("candles")?"checked":""}> Candles</label><label><input type="checkbox" value="risk" ${focus.has("risk")?"checked":""}> Risk</label><label><input type="checkbox" value="psychology" ${focus.has("psychology")?"checked":""}> Psychology</label><label><input type="checkbox" value="prop" ${focus.has("prop")?"checked":""}> Prop education</label></div><button type="submit">Save lab profile</button><p id="labsaved" class="muted"></p></form>`;
   if (lab.experience && lab.experience !== "not_stated") document.getElementById("exp").value = lab.experience;
   document.getElementById("labform").onsubmit = async (event) => {
     event.preventDefault();
     const chosen = [...document.querySelectorAll("#labform input:checked")].map(box => box.value);
     const saved = await fetch("/api/lab", {method:"POST", credentials:"same-origin", headers:{"Content-Type":"application/json"}, body: JSON.stringify({experience: document.getElementById("exp").value, objective: document.getElementById("objective").value, focus: chosen})});
     document.getElementById("labsaved").textContent = saved.ok ? "Saved on this account." : "Could not save.";
+  };
+  const saveNote = document.getElementById("savenote");
+  if (saveNote) saveNote.onclick = async () => {
+    const saved = await fetch("/api/lab", {method:"POST", credentials:"same-origin", headers:{"Content-Type":"application/json"}, body: JSON.stringify({journal_note: document.getElementById("journalnote").value})});
+    if (saved.ok) labPage();
   };
 }
 async function planPage(){
@@ -2238,6 +2361,11 @@ async function load(){
     const registry = await fetch("/api/registry", {credentials:"same-origin"}).then(r => r.ok ? r.json() : {strategies:[]});
     const box = document.getElementById("reg");
     if (box) box.innerHTML = (registry.strategies||[]).map(s => `<div class="row"><span>${s.name}</span><span>${s.research_status}</span></div><div class="muted">${s.instruments.join(", ")} · ${s.timeframe}. ${s.evidence} Promoted: no.</div>`).join("") || "<p>The registry could not be loaded.</p>";
+    const qualification = await fetch("/api/qualification", {credentials:"same-origin"}).then(r => r.ok ? r.json() : null);
+    if (box && qualification) {
+      const life = (qualification.strategies || []).map(s => `<div class="row"><span>${s.name}</span><span>${s.lifecycle}</span></div><div class="muted">${s.version}. Approved for paper: ${s.approved_for_paper ? "yes" : "no"}. ${s.failure_reason || ""}</div>`).join("");
+      box.innerHTML += `<h3>Qualification lifecycle</h3><p class="muted">${qualification.note || ""} Approved count: ${qualification.approved_for_paper}.</p>${life}`;
+    }
     return;
   }
   if (path === "/risk") return riskPage();
@@ -2252,8 +2380,8 @@ async function liveActivities(){
   const age = coverage.evaluated_at_ms ? Math.max(0, Math.round((Date.now() - coverage.evaluated_at_ms) / 1000)) : null;
   const rows = (notes.items || []).filter(item => item.decision === "BUY" || item.decision === "SELL");
   const book = await fetch("/api/paper/book", {credentials:"same-origin"}).then(r => r.ok ? r.json() : {open:[], orders:[]}).catch(()=>({open:[], orders:[]}));
-  const positions = (book.open||[]).concat(book.ambiguous||[]).map(row => `<article class="card"><h2>${row.opened_by === "autopilot" ? "AutoPilot paper" : "Account paper"} · ${row.exit_kind||row.status} · ${row.symbol} ${row.direction}</h2><p>Entry ${row.entry}. Stop ${row.stop}. Target ${row.target}. ${row.exit_price==null?"No paper exit.":"Paper exit "+row.exit_price+"."}</p><p class="muted">${(row.events&&row.events.length)?row.events[row.events.length-1].note:row.note||""} This is not a broker fill.</p></article>`).join("");
-  const list = rows.map(item => `<article class="card"><h2>${item.lifecycle || "active"} · ${item.decision} · ${item.symbol} ${item.interval}</h2><p>${item.lifecycle_note || "Active means the plan is still the visible one. It does not mean an order was opened."}</p><div class="row"><span>Entry ${item.entry==null?"—":item.entry}</span><span>Stop ${item.stop==null?"—":item.stop}</span><span>Target ${item.target==null?"—":item.target}</span></div><p class="muted">${item.family || item.strategy || ""} · ${item.opportunity_id || ""}</p></article>`).join("");
+  const positions = (book.open||[]).concat(book.ambiguous||[]).map(row => `<article class="card"><h2>${row.opened_by === "autopilot" ? "AutoPilot paper" : "Account paper"} · ${row.exit_kind||row.status} · ${row.symbol} ${row.direction}</h2><p>Entry ${priceText(row.symbol, row.entry)}. Stop ${priceText(row.symbol, row.stop)}. Target ${priceText(row.symbol, row.target)}. ${row.exit_price==null?"No paper exit.":"Paper exit "+priceText(row.symbol, row.exit_price)+"."}</p><p class="muted">${(row.events&&row.events.length)?row.events[row.events.length-1].note:row.note||""} This is not a broker fill.</p></article>`).join("");
+  const list = rows.map(item => `<article class="card"><h2>${item.lifecycle || "active"} · ${item.decision} · ${item.symbol} ${item.interval}</h2><p>${item.lifecycle_note || "Active means the plan is still the visible one. It does not mean an order was opened."}</p><div class="row"><span>Entry ${priceText(item.symbol, item.entry)}</span><span>Stop ${priceText(item.symbol, item.stop)}</span><span>Target ${priceText(item.symbol, item.target)}</span></div><p class="muted">${item.family || item.strategy || ""}</p></article>`).join("");
   view.innerHTML = `<article class="card"><h2>Live Activities</h2><p>AutoPilot ${autoLine}</p><p>Plans come from the inbox. Open positions come from the paper record. Neither is a second signal, and neither is a broker fill.</p><p>Completed candles are judged when the background worker runs, about once a minute. A refresh of this page does not make that scan faster. Last scan ${age==null?"has no recorded time":age+" seconds ago"}.</p></article>${positions}${list || "<article class='card'><p>No open experimental plan for this account.</p></article>"}`;
 }
 async function paperPages(){
@@ -2299,14 +2427,17 @@ async function systemPage(){
   const row = (name, value) => `<div class="row"><span>${name}</span><span>${value}</span></div>`;
   const market = h.market_data && h.market_data.BTCUSDT ? h.market_data.BTCUSDT.status + " / " + (h.market_data.ETHUSDT ? h.market_data.ETHUSDT.status : "unknown") : "unknown";
   const gold = h.market_data && h.market_data.XAUUSD ? (h.market_data.XAUUSD.status || "unknown") + (h.market_data.XAUUSD.reason ? " · " + h.market_data.XAUUSD.reason : "") : "not scanned";
-  const note = h.notification && h.notification.pipeline ? h.notification.pipeline : (typeof h.notification === "string" ? h.notification : "unknown");
+  const note = h.notification && h.notification.reason === "promotion_registry_empty"
+    ? "Approved-signal alerts blocked: no promoted strategy. Account notices still exist separately."
+    : (h.notification && h.notification.pipeline ? h.notification.pipeline : (typeof h.notification === "string" ? h.notification : "unknown"));
+  const qual = h.qualification ? (h.qualification.approved_for_paper + " approved") : "not reported";
   const monitor = h.worker && h.worker.last_monitor;
   const watched = monitor && monitor.evaluations ? monitor.evaluations.map(row => `${row.symbol} ${row.interval}: ${row.decision}`).join("; ") : "not run yet";
   const workerStatus = h.worker && h.worker.status ? h.worker.status : "unknown";
   const workerHealthy = h.worker && h.worker.healthy === true ? "confirmed" : "not confirmed";
   const bot = await fetch("/api/autopilot", {credentials:"same-origin"}).then(r => r.ok ? r.json() : null).catch(()=>null);
   const autoLine = bot ? `${bot.facing || bot.status}. Entries ${bot.entries_available === true ? "allowed" : "blocked"}. ${bot.facing_note || ""}` : "not signed in";
-  view.innerHTML = `<article class="card"><h2>System</h2>${row("Process", h.process||"unknown")}${row("BTC / ETH", market)}${row("Gold", gold||"not scanned")}${row("Notifications", note)}${row("Ledger", h.ledger||"unknown")}${row("Strategy", h.strategy_status||"unknown")}${row("Broker", String(h.broker))}${row("Build", h.build_commit||"unknown")}${row("Worker status", workerStatus + " · " + workerHealthy)}${row("This account AutoPilot", autoLine)}${row("Worker heartbeat", h.worker && h.worker.last_beat_ms ? new Date(h.worker.last_beat_ms).toISOString() : "unknown")}${row("Background scan", h.worker && h.worker.last_monitor_ms ? new Date(h.worker.last_monitor_ms).toISOString() : "not run yet")}${row("Last scan", watched)}</article><p class="muted">A missing, stale or failed heartbeat is not a healthy worker. AutoPilot is not confirmed while that is true. The background scan uses the same decision as the terminal. It does not send Telegram. Gold 1m and 3m are unavailable without a licensed minute feed. AutoPilot is paper only and stays off until the account enables it.</p>`;
+  view.innerHTML = `<article class="card"><h2>System</h2>${row("Process", h.process||"unknown")}${row("BTC / ETH", market)}${row("Gold", gold||"not scanned")}${row("Notifications", note)}${row("Approved strategies", qual)}${row("Ledger", h.ledger||"unknown")}${row("Strategy", h.strategy_status||"unknown")}${row("Broker", String(h.broker))}${row("Build", h.build_commit||"unknown")}${row("Worker status", workerStatus + " · " + workerHealthy)}${row("This account AutoPilot", autoLine)}${row("Worker heartbeat", h.worker && h.worker.last_beat_ms ? new Date(h.worker.last_beat_ms).toISOString() : "unknown")}${row("Background scan", h.worker && h.worker.last_monitor_ms ? new Date(h.worker.last_monitor_ms).toISOString() : "not run yet")}${row("Last scan", watched)}</article><p class="muted">A missing, stale or failed heartbeat is not a healthy worker. AutoPilot is not confirmed while that is true. The background scan uses the same decision as the terminal. It does not send Telegram. Gold 1m and 3m are unavailable without a licensed minute feed. AutoPilot is paper only and stays off until the account enables it.</p>`;
 }
 async function settings(){
   const me = await fetch("/api/me").then(r => r.ok ? r.json() : null);
@@ -2348,7 +2479,13 @@ async function settings(){
     const lastEval = current.last_evaluation_ms ? new Date(current.last_evaluation_ms).toISOString() : "no scan yet";
     const rejected = (current.rejections || []).slice(-3).map(row => `${row.reason}`).join(", ") || "none";
     const entries = current.entries_available === true ? "allowed" : "blocked";
-    document.getElementById("autopilot-card").innerHTML = `<h2>AutoPilot</h2><p id="autostate">State: ${current.facing || "Disabled"}. Automation health: ${current.health || "not confirmed"}. New paper entries: ${entries}. Automated orders: ${current.automated_orders || 0}. State updated: ${current.updated_ms ? new Date(current.updated_ms).toISOString() : "not changed"}. Last evaluation: ${lastEval}. Recent rejection: ${rejected}.</p><p class="muted">${current.facing_note || current.health_note || ""} ${current.note || ""} Worker: ${(current.worker && current.worker.status) || "unknown"}. Enabling it requires a confirmation. It lets the worker open paper trades that already pass your persona, plan and risk checks. Pause and emergency stop do not close an open position. It is not a broker.</p><label>Daily automated cap, optional <input id="autocap" type="number" min="1" value="${current.max_orders_per_day || ""}"></label><p><button id="auto-on" type="button">Enable AutoPilot</button> <button id="auto-pause" type="button">Pause</button> <button id="auto-resume" type="button">Resume</button> <button id="auto-stop" type="button">Emergency stop</button> <button id="auto-off" type="button">Disable</button></p><p id="autonote" class="muted"></p>`;
+    const kind = current.state_kind || "disabled";
+    const buttons = [];
+    if (kind === "disabled") buttons.push(`<button id="auto-on" type="button">Enable AutoPilot</button>`);
+    if (kind === "waiting" || kind === "enabled") buttons.push(`<button id="auto-pause" type="button">Pause</button> <button id="auto-stop" type="button">Emergency stop</button> <button id="auto-off" type="button">Disable</button>`);
+    if (kind === "paused" || kind === "stopped") buttons.push(`<button id="auto-resume" type="button">Resume</button> <button id="auto-stop" type="button">Emergency stop</button> <button id="auto-off" type="button">Disable</button>`);
+    if (kind === "unhealthy") buttons.push(`<button id="auto-pause" type="button">Pause</button> <button id="auto-stop" type="button">Emergency stop</button> <button id="auto-off" type="button">Disable</button>`);
+    document.getElementById("autopilot-card").innerHTML = `<h2>AutoPilot</h2><p id="autostate">State: ${current.facing || "Disabled"}. Automation health: ${current.health || "not confirmed"}. New paper entries: ${entries}. Automated orders: ${current.automated_orders || 0}. State updated: ${current.updated_ms ? new Date(current.updated_ms).toISOString() : "not changed"}. Last evaluation: ${lastEval}. Recent rejection: ${rejected}.</p><p class="muted">${current.facing_note || current.health_note || ""} ${current.note || ""} Worker: ${(current.worker && current.worker.status) || "unknown"}. Enabling it requires a confirmation. It can open a paper trade only when a strategy version is approved for paper. None is. Pause and emergency stop do not close an open position. It is not a broker.</p><label>Daily automated cap, optional <input id="autocap" type="number" min="1" value="${current.max_orders_per_day || ""}"></label><p>${buttons.join(" ")}</p><p id="autonote" class="muted"></p>`;
     async function autoAct(action, confirm){
       const cap = document.getElementById("autocap").value;
       const saved = await fetch("/api/autopilot", {method:"POST", credentials:"same-origin", headers:{"Content-Type":"application/json"}, body: JSON.stringify({action, confirm, max_orders_per_day: cap || null})});
@@ -2362,14 +2499,19 @@ async function settings(){
       const note = document.getElementById("autonote");
       if (note) note.textContent = "Saved. " + (fresh.facing || fresh.status) + ". " + (fresh.facing_note || "");
     }
-    document.getElementById("auto-on").onclick = () => {
-      if (!window.confirm("Enable paper AutoPilot on this account? It may open paper trades that already pass your checks. It does not send a broker order.")) return;
+    const enable = document.getElementById("auto-on");
+    if (enable) enable.onclick = () => {
+      if (!window.confirm("Enable paper AutoPilot on this account? It will not open an order unless a strategy version is approved for paper. It does not send a broker order.")) return;
       autoAct("enable", true);
     };
-    document.getElementById("auto-pause").onclick = () => autoAct("pause", false);
-    document.getElementById("auto-resume").onclick = () => autoAct("resume", false);
-    document.getElementById("auto-stop").onclick = () => autoAct("emergency_stop", false);
-    document.getElementById("auto-off").onclick = () => autoAct("disable", false);
+    const pause = document.getElementById("auto-pause");
+    if (pause) pause.onclick = () => autoAct("pause", false);
+    const resume = document.getElementById("auto-resume");
+    if (resume) resume.onclick = () => autoAct("resume", false);
+    const stop = document.getElementById("auto-stop");
+    if (stop) stop.onclick = () => autoAct("emergency_stop", false);
+    const off = document.getElementById("auto-off");
+    if (off) off.onclick = () => autoAct("disable", false);
   }
   paintAutopilot(bot);
   async function save(go){
