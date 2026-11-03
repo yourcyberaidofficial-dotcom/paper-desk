@@ -125,13 +125,16 @@ def present_window(window, now_ms):
         if quote != "dukascopy_xauusd_bid_ask" or not completed_bid_ask_bar(last):
             shown = quote if quote != "dukascopy_xauusd_bid_ask" else "missing_bid_ask"
             if quote in {"ohlc_not_bid_ask", "spot_sample_not_bid_ask"} and last and last.get("complete") and last.get("fresh") and len(bars) >= (24 if quote == "spot_sample_not_bid_ask" else 60):
-                live_quote = None
-                if last.get("source_type") != "fixture":
+                if "live_quote" in window:
+                    live_quote = window.get("live_quote")
+                elif last.get("source_type") != "fixture":
                     try:
                         from ops.gold_live import swissquote_xau
                         live_quote = swissquote_xau(now_ms)
                     except Exception:
                         live_quote = None
+                else:
+                    live_quote = None
                 shared = _shared_reading(symbol, interval, bars, now_ms, price, live_quote)
                 if shared is not None:
                     shared["quote"] = quote

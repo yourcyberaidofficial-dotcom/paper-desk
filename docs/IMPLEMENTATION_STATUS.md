@@ -1,5 +1,7 @@
 # Implementation status
 
+2026-11-03. The daily desk shares one snapshot across Overview, Scanner and Live Signals. A candle close is not a quote. Gold 1-minute and 3-minute stay unlicensed. Vision archives, historical retention, the holdout and strategy promotion stay closed. A manual paper plan still needs an explicit confirm. AutoPilot still needs an approved strategy. Not deployed.
+
 2026-11-03. The live paper desk reads public spot prices again on `completion/integrated-desk`. Overview, Terminal, Scanner, and Live Signals show those readings. Gold 15-minute and 1-hour are included. Gold 1-minute and 3-minute stay unlicensed. Binance Vision archives, historical retention, the sealed holdout, and strategy promotion stay closed. Approved strategies remain zero, so AutoPilot does not open a paper order. This is not a commercial-archive licence. Production stays on the previous build until that host is updated by hand.
 
 2026-11-03. Restricted-data product recovery is on `completion/integrated-desk`. That presentation pass is what production showed before this desk restore. Approved strategies remain zero.
