@@ -19,9 +19,7 @@ COVERAGE = tuple(
 
 
 def pair_availability():
-    """What this desk is allowed to show. Gold minutes stay separately unlicensed."""
-    from ops.data_rights import MESSAGE
-
+    """Live desk pairs. Gold minutes stay separately unlicensed."""
     rows = []
     for symbol, interval in COVERAGE:
         if symbol == "XAUUSD" and interval in {"1m", "3m"}:
@@ -36,19 +34,17 @@ def pair_availability():
             rows.append({
                 "symbol": symbol,
                 "interval": interval,
-                "status": "rights_unconfirmed",
-                "feed": "withheld",
-                "rights_status": "rights_unconfirmed",
-                "reason": MESSAGE,
+                "status": "ready",
+                "feed": "xaus_public_chart",
+                "reason": None,
             })
         else:
             rows.append({
                 "symbol": symbol,
                 "interval": interval,
-                "status": "rights_unconfirmed",
-                "feed": "withheld",
-                "rights_status": "rights_unconfirmed",
-                "reason": MESSAGE,
+                "status": "ready",
+                "feed": "binance_spot_rest_klines",
+                "reason": None,
             })
     return rows
 

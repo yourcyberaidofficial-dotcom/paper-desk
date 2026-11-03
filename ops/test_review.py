@@ -199,10 +199,10 @@ def test_autopilot_facing_is_shared_and_off_is_not_called_running(tmp_path, monk
         worker.last_beat_ms = int(__import__("time").time() * 1000)
         waiting = client.get("/api/autopilot").get_json()
         assert waiting["status"] == "running"
-        assert waiting["facing"] == "Enabled — new entries blocked"
+        assert waiting["facing"] == "Enabled — no approved strategy"
         assert waiting["health"] == "confirmed"
         assert waiting["entries_available"] is False
-        assert set(waiting["blockers"]) == {"market_data_rights", "no_approved_strategy"}
+        assert waiting["blockers"] == ["no_approved_strategy"]
         assert "running" not in waiting["facing"].lower()
         assert "allowed" not in (waiting["facing"] + " " + waiting["facing_note"]).lower()
         act(owner["id"], "pause", 1_700_000_100_000)

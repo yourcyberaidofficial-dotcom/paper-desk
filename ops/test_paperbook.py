@@ -184,8 +184,9 @@ def test_twelve_pairs_name_gold_minutes_as_unavailable():
     assert len(rows) == 12
     blocked = [row for row in rows if row["status"] == "unavailable"]
     assert {(row["symbol"], row["interval"]) for row in blocked} == {("XAUUSD", "1m"), ("XAUUSD", "3m")}
-    assert all(row["status"] == "rights_unconfirmed" for row in rows if row["symbol"] in {"BTCUSDT", "ETHUSDT"})
-    assert all("commercial use permissions" in row["reason"] for row in rows if not (row["symbol"] == "XAUUSD" and row["interval"] in {"1m", "3m"}))
+    assert all(row["status"] == "ready" for row in rows if row["symbol"] in {"BTCUSDT", "ETHUSDT"})
+    assert all(row["status"] == "ready" for row in rows if row["symbol"] == "XAUUSD" and row["interval"] in {"15m", "1h"})
+    assert all(row["reason"] is None for row in rows if row["status"] == "ready")
 
 
 def test_a_completed_candle_exit_is_not_an_account_exit(tmp_path, monkeypatch):

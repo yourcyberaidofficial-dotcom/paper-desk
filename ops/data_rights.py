@@ -44,6 +44,16 @@ KNOWN_STATES = {"approved", "restricted", "prohibited", "rights_unconfirmed", "f
 MESSAGE = "Market data access unavailable — commercial use permissions are being verified."
 _AUDIT = []
 
+# Operational paper-desk reads only. Not a written commercial licence.
+# Vision archives, retention, research ingestion, redistribution,
+# notifications, and AutoPilot opens stay closed. An explicit record=
+# is judged on its own evidence and is not covered by this list.
+DESK_LIVE = {
+    "binance_spot_rest_klines": frozenset({"connection", "memory", "display", "indicators", "strategy"}),
+    "xaus_public_chart": frozenset({"connection", "memory", "display", "indicators", "strategy"}),
+    "swissquote_public_bbo": frozenset({"connection", "display"}),
+}
+
 STATUS_LABELS = {
     "approved": "Rights approved",
     "restricted": "Restricted",
@@ -239,6 +249,12 @@ def uses_for(row):
 
 
 def use_permission(source_id, use, *, record=None, today=REVIEWED_ON):
+    if record is None:
+        live = DESK_LIVE.get(source_id)
+        if live and use in live:
+            row = source(source_id)
+            if isinstance(row, dict) and row.get("status") != "prohibited":
+                return _audit(source_id, use, True, "desk_operation", "paper_desk_live")
     row = source(source_id) if record is None else record
     if not isinstance(row, dict) or use not in USES:
         return _audit(source_id, use, False, "rights_unconfirmed", "missing_or_malformed_rights")
@@ -429,17 +445,17 @@ def coverage_rows():
             live = "No minute source"
         elif symbol == "XAUUSD":
             summary = (
-                "Current gold information is withheld. Dukascopy samples, the XAUS chart and the Swissquote quote "
-                "check are not approved for commercial display, retention or strategy use. No new history is being collected. "
-                "The separate quote check still uses the 0.08 percent limit and is not a research archive."
+                "Gold 15-minute and 1-hour charts are read on the live desk. "
+                "Historical Dukascopy files stay closed and no archive is collected. "
+                "Gold 1-minute and 3-minute stay unlicensed."
             )
-            live = "Withheld — rights not confirmed"
+            live = "Gold chart"
         else:
             summary = (
-                "Binance spot candles are not requested for this market. Connection, display, retention, indicators "
-                "and strategy use are rights_unconfirmed. Forward collection is off until a written licence covers the exact use."
+                "BTC and ETH closed candles are read on the live desk from the public spot feed. "
+                "Binance Vision archives stay prohibited. Historical retention and research ingestion stay closed."
             )
-            live = "Withheld — rights not confirmed"
+            live = "Binance spot"
         rows.append({
             "market": symbol,
             "timeframe": interval,

@@ -215,9 +215,10 @@ def test_every_live_path_fails_closed_before_the_network(monkeypatch, tmp_path):
         raise AssertionError("network")
 
     monkeypatch.setattr("urllib.request.urlopen", explode)
+    monkeypatch.setattr("time.sleep", lambda *_args, **_kwargs: None)
     from datetime import date
 
-    from ops.app import _remember
+    from ops.app import _FEED_CACHE, _remember
     from ops.data_rights import MESSAGE, USES, audit_log, open_market_stream, screen_bars, use_permission
     from ops.feeds import binance_bars, dukascopy_hour, xaus_spot
     from ops.gold_live import swissquote_xau
@@ -226,34 +227,48 @@ def test_every_live_path_fails_closed_before_the_network(monkeypatch, tmp_path):
     from ops.xau_pull import fetch_day
 
     last = fetch_last_closed("BTCUSDT", "15m", now_ms=NOW)
-    assert last["reason"] == "commercial_use_unverified"
     assert last.get("close") is None
-    assert last["source_reachable"] == "not_checked"
+    assert last.get("error") == "AssertionError"
+    assert last.get("reason") != "commercial_use_unverified"
     candles = fetch_klines("ETHUSDT", "1h", now_ms=NOW)
     assert candles["candles"] == []
-    assert candles.get("price") is None
-    bars = binance_bars("BTCUSDT", "15m", NOW - 60_000, NOW, NOW)
-    assert bars["ok"] is False and bars["bars"] == []
-    spot = xaus_spot(NOW)
-    assert spot.get("price") is None
+    assert candles.get("error") == "AssertionError"
+    with pytest.raises(AssertionError, match="network"):
+        binance_bars("BTCUSDT", "15m", NOW - 60_000, NOW, NOW, attempts=1)
+    with pytest.raises(AssertionError, match="network"):
+        xaus_spot(NOW)
     hour = dukascopy_hour(2024, 0, 1, 0)
     assert hour["ok"] is False and hour.get("ticks") == []
+    assert hour["reason"] == "commercial_use_unverified"
     quote = swissquote_xau(NOW)
     assert quote.get("bid") is None and quote.get("ask") is None
+    assert quote.get("reason") == "AssertionError"
     day = fetch_day(date(2024, 1, 2), "BID", tmp_path)
     assert day["ok"] is False and day["body"] is None
+    assert day["reason"] == "commercial_use_unverified"
     stream = open_market_stream()
-    assert stream["stream"] is False and stream["reason"] == "commercial_use_unverified"
-    _BAR_CACHE[("BTCUSDT", "15m")] = (NOW, [{"close": 99999}])
+    assert stream["stream"] is False and stream["reason"] == "no_stream_client"
+    _BAR_CACHE.pop(("BTCUSDT", "15m"), None)
     loaded = load_crypto_bars("BTCUSDT", "15m", NOW)
-    assert loaded == (None, "commercial_use_unverified")
-    poisoned = _remember(("xaus", "spot"), 30, lambda: {"ok": True, "price": 2500})
-    assert poisoned.get("price") is None
-    assert "2500" not in json.dumps(poisoned)
-    assert load_gold_ohlc("1h", NOW) == (None, "commercial_use_unverified")
+    assert isinstance(loaded, tuple) and loaded[0] is None
+    assert loaded[1] != "commercial_use_unverified"
+    _FEED_CACHE.pop(("xaus", "spot"), None)
+    remembered = _remember(("xaus", "spot"), 30, lambda: {"ok": True, "price": 2500})
+    assert remembered.get("price") == 2500
+    _FEED_CACHE.pop(("xaus", "spot"), None)
+    _BAR_CACHE.pop(("XAUUSD", "1h"), None)
+    gold_hour = load_gold_ohlc("1h", NOW)
+    assert gold_hour[0] is None and gold_hour[1] == "AssertionError"
     assert load_gold_ohlc("1m", NOW)[1] == "xau_minute_unlicensed"
-    assert screen_bars("binance_spot_rest_klines", [{"close": 1}]) == []
+    assert screen_bars("binance_spot_rest_klines", [{"close": 1}]) == [{"close": 1}]
+    assert screen_bars("binance_vision_klines", [{"close": 1}]) == []
     assert screen_bars("deterministic_fixture", [{"close": 1}], "research") == []
+    assert use_permission("binance_spot_rest_klines", "display")["reason"] == "paper_desk_live"
+    assert use_permission("binance_spot_rest_klines", "retention")["allowed"] is False
+    assert use_permission("binance_spot_rest_klines", "research")["allowed"] is False
+    assert use_permission("binance_spot_rest_klines", "autopilot")["allowed"] is False
+    assert use_permission("dukascopy_datafeed_bi5", "connection")["allowed"] is False
+    assert use_permission("binance_vision_klines", "display")["allowed"] is False
     evidence = {
         "provider": "Example",
         "product": "Example feed",
@@ -279,7 +294,7 @@ def test_every_live_path_fails_closed_before_the_network(monkeypatch, tmp_path):
     assert MESSAGE.startswith("Market data access unavailable")
 
 
-def test_rights_block_does_not_feed_decisions_or_the_scanner():
+def test_rights_block_does_not_feed_decisions_or_the_scanner(monkeypatch):
     from ops.autopilot import consider
     from ops.data_rights import MESSAGE
     from ops.inbox import deliver_evaluation
@@ -301,10 +316,39 @@ def test_rights_block_does_not_feed_decisions_or_the_scanner():
     assert card["scanner_state"] == "RIGHTS"
     assert card["entry"] is None
     assert MESSAGE in card["message"]
+
+    def fake_crypto(symbol, interval, start_ms, end_ms, now_ms=None, timeout=8, attempts=1):
+        return {"ok": True, "bars": [{
+            "close": 1.5,
+            "complete": True,
+            "fresh": True,
+            "close_time_ms": NOW - 1,
+            "quote_semantics": "last_trade",
+        }]}
+
+    def fake_chart(interval, now_ms=None, timeout=8, attempts=1):
+        return {"ok": True, "bars": [{
+            "close": 2400,
+            "complete": True,
+            "fresh": True,
+            "close_time_ms": NOW - 1,
+            "quote_semantics": "ohlc_not_bid_ask",
+        }], "provider": "xaus.com", "quote_semantics": "ohlc_not_bid_ask"}
+
+    def fake_spot_bars(interval="1h", now_ms=None, timeout=8, attempts=1):
+        return {"ok": False, "bars": []}
+
+    monkeypatch.setattr("ops.feeds.binance_bars", fake_crypto)
+    monkeypatch.setattr("ops.feeds.xaus_chart", fake_chart)
+    monkeypatch.setattr("ops.feeds.xaus_spot_bars", fake_spot_bars)
     live = load_live_windows(NOW)
     assert len(live) == 12
-    assert all(not row.get("bars") for row in live)
-    assert {row["reason"] for row in live} == {"commercial_use_unverified", "xau_minute_unlicensed"}
+    minutes = [row for row in live if row["symbol"] == "XAUUSD" and row["interval"] in {"1m", "3m"}]
+    assert [row["reason"] for row in minutes] == ["xau_minute_unlicensed", "xau_minute_unlicensed"]
+    assert all(not row.get("bars") for row in minutes)
+    others = [row for row in live if row not in minutes]
+    assert others and all(row.get("bars") for row in others)
+    assert all(row.get("reason") != "commercial_use_unverified" for row in others)
     refused = deliver_evaluation("nobody", {}, {"decision": "BUY", "symbol": "BTCUSDT", "interval": "15m", "rights_status": "rights_unconfirmed", "entry": 1, "stop": 1, "target": 2, "reference_price": 1, "approved": True})
     assert refused["stored"] is False and refused["reason"] == "commercial_use_unverified"
     opened = consider({"id": "nobody"}, {"decision": "BUY", "entry": 1, "stop": 1, "target": 2, "rights_status": "prohibited"}, NOW, "opp")

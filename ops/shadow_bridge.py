@@ -57,14 +57,31 @@ def load_live_windows(now_ms):
                     windows.append(_empty(symbol, interval, "unknown", "unknown", "missing_bars"))
         return windows
     from concurrent.futures import ThreadPoolExecutor
-    from ops.feeds import binance_bars, xaus_chart
+    from ops.feeds import binance_bars, xaus_chart, xaus_spot_bars
 
-    crypto_start = now_ms - 50 * 60 * 60 * 1000
-    with ThreadPoolExecutor(max_workers=3) as pool:
-        btc = pool.submit(_crypto_window, "BTCUSDT", crypto_start, now_ms, binance_bars)
-        eth = pool.submit(_crypto_window, "ETHUSDT", crypto_start, now_ms, binance_bars)
-        gold = pool.submit(_gold_window, now_ms, xaus_chart)
-        return [btc.result(), eth.result(), gold.result()]
+    jobs = [
+        (symbol, interval)
+        for symbol in ("BTCUSDT", "ETHUSDT", "XAUUSD")
+        for interval in ("1m", "3m", "15m", "1h")
+        if not (symbol == "XAUUSD" and interval in {"1m", "3m"})
+    ]
+
+    def run(job):
+        symbol, interval = job
+        if symbol == "XAUUSD":
+            return _gold_interval(interval, now_ms, xaus_chart, xaus_spot_bars)
+        return _crypto_interval(symbol, interval, now_ms, binance_bars)
+
+    with ThreadPoolExecutor(max_workers=6) as pool:
+        fetched = { (row["symbol"], row["interval"]): row for row in pool.map(run, jobs) }
+    ordered = []
+    for symbol in ("BTCUSDT", "ETHUSDT", "XAUUSD"):
+        for interval in ("1m", "3m", "15m", "1h"):
+            if symbol == "XAUUSD" and interval in {"1m", "3m"}:
+                ordered.append(_empty(symbol, interval, "none", "unavailable", "xau_minute_unlicensed"))
+            else:
+                ordered.append(fetched[(symbol, interval)])
+    return ordered
 
 
 def _crypto_window(symbol, start_ms, now_ms, fetch):
@@ -118,6 +135,60 @@ def _gold_window(now_ms, fetch):
         "reason": None if ok else (chart.get("reason") or "GOLD_FEED_UNAVAILABLE"),
         "bars": bars,
         "higher": higher,
+        "provider": chart.get("provider") or "xaus.com",
+        "quote_semantics": quote,
+        "source_kind": "prospective",
+    }
+
+
+def _crypto_interval(symbol, interval, now_ms, fetch):
+    from ops.bars import interval_ms
+
+    start = now_ms - 140 * interval_ms(interval)
+    try:
+        entry = fetch(symbol, interval, start, now_ms, now_ms=now_ms, timeout=8, attempts=1)
+    except Exception as exc:
+        return _empty(symbol, interval, "binance-public", "last_trade", type(exc).__name__)
+    bars = entry.get("bars") or []
+    ok = bool(entry.get("ok") and bars)
+    return {
+        "symbol": symbol,
+        "interval": interval,
+        "ok": ok,
+        "reason": None if ok else (entry.get("reason") or "missing_bars"),
+        "bars": bars,
+        "higher": [],
+        "provider": "binance-public",
+        "quote_semantics": "last_trade",
+        "source_kind": "prospective",
+    }
+
+
+def _gold_interval(interval, now_ms, chart_fetch, spot_fetch):
+    if interval in {"1m", "3m"}:
+        return _empty("XAUUSD", interval, "none", "unavailable", "xau_minute_unlicensed")
+    chart = None
+    try:
+        spot = spot_fetch(interval, now_ms=now_ms, timeout=8, attempts=1)
+        if spot.get("bars"):
+            chart = spot
+    except Exception:
+        chart = None
+    if chart is None:
+        try:
+            chart = chart_fetch(interval, now_ms=now_ms, timeout=8, attempts=1)
+        except Exception as exc:
+            return _empty("XAUUSD", interval, "xaus.com", "ohlc_not_bid_ask", type(exc).__name__)
+    bars = chart.get("bars") or []
+    quote = chart.get("quote_semantics") or (bars[-1].get("quote_semantics") if bars else "ohlc_not_bid_ask")
+    ok = bool(chart.get("ok") and bars)
+    return {
+        "symbol": "XAUUSD",
+        "interval": interval,
+        "ok": ok,
+        "reason": None if ok else (chart.get("reason") or "GOLD_FEED_UNAVAILABLE"),
+        "bars": bars,
+        "higher": [],
         "provider": chart.get("provider") or "xaus.com",
         "quote_semantics": quote,
         "source_kind": "prospective",

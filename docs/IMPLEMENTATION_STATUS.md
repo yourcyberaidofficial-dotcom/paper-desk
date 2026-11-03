@@ -1,6 +1,8 @@
 # Implementation status
 
-2026-11-03. Restricted-data product recovery is on `completion/integrated-desk` and is not deployed. Production remains `81de54b`. Prices stay withheld because commercial use is unconfirmed, not because the worker is down. Overview no longer waits on a chart request or paints an empty canvas. Scanner and Terminal read one platform matrix. AutoPilot can stay enabled on the account and still report that new entries are not eligible. Approved strategies remain zero. No feed was turned back on.
+2026-11-03. The live paper desk reads public spot prices again on `completion/integrated-desk`. Overview, Terminal, Scanner, and Live Signals show those readings. Gold 15-minute and 1-hour are included. Gold 1-minute and 3-minute stay unlicensed. Binance Vision archives, historical retention, the sealed holdout, and strategy promotion stay closed. Approved strategies remain zero, so AutoPilot does not open a paper order. This is not a commercial-archive licence. Production stays on the previous build until that host is updated by hand.
+
+2026-11-03. Restricted-data product recovery is on `completion/integrated-desk`. That presentation pass is what production showed before this desk restore. Approved strategies remain zero.
 
 2026-11-03. Live prices stay withheld. That is the commercial-use gate, not a dead worker and not a provider outage. The desk copy now says “Not shown” / “Price withheld” instead of the internal token RIGHTS, the market-watch column no longer clips the status, and an empty chart is a stated pause rather than a black canvas. Production at `81de54b` still shows the older labels until this presentation change is deployed. No feed was turned back on. Approved strategies remain zero.
 

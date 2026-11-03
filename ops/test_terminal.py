@@ -326,9 +326,10 @@ def test_terminal_route_requires_a_user_and_uses_completed_bars(tmp_path, monkey
     body = response.get_json()
     assert response.status_code == 200
     assert body["decision"] == "WAIT"
-    assert body["decision_label"] == "RIGHTS"
+    assert body["decision_label"] == "WAIT"
+    assert body["blocked"] == "feed_error"
     assert body["approved"] is False
     assert body["entry"] is None
-    assert "commercial use permissions" in (body.get("reason") or "")
+    assert body["reason"] == "The market feed could not be read."
     history = client.get("/api/terminal/history").get_json()
     assert history["items"] == []

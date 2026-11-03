@@ -227,14 +227,11 @@ def _market_report(snapshot):
         out[symbol] = {"status": status, "last_close_time_ms": close_ms, "source": row.get("source") or "unknown"}
     scan = getattr(worker, "last_monitor", None) or {}
     gold = [row for row in (scan.get("evaluations") or []) if row.get("symbol") == "XAUUSD"]
+    rights_gold = any(is_rights_reason(row.get("reason")) or is_rights_reason(row.get("blocked")) for row in gold)
     out["XAUUSD"] = {
-        "status": "withheld",
-        "rights_status": "rights_unconfirmed",
+        "status": "withheld" if rights_gold else ("scanned" if gold else "not_checked"),
+        "source": "xaus.com",
         "source_reachable": "not_checked",
-        "feed_freshness": "not_applicable",
-        "reason": "commercial_use_unverified",
-        "message": MESSAGE,
-        "source": "withheld",
         "rows": [{k: row.get(k) for k in ("interval", "decision", "reason")} for row in gold],
     }
     return out
@@ -636,19 +633,22 @@ def _gold_bars(interval, now_ms):
             "quote_semantics": "unavailable",
         }
     interval = interval if interval in {"15m", "1h", "4h", "1d"} else "1h"
-    if interval == "4h":
-        base = _remember(("xaus", "1h"), 60, lambda: xaus_chart("1h", now_ms))
-        if not base.get("ok"):
-            return base
-        return {
-            "ok": True,
-            "bars": aggregate(base.get("bars") or [], "1h", "4h"),
-            "provider": "xaus.com",
-            "quote_semantics": "ohlc_not_bid_ask",
-            "partial_dropped": base.get("partial_dropped"),
-            "interval": "4h",
-        }
-    series = _remember(("xaus", interval), 60, lambda: xaus_chart(interval, now_ms))
+    try:
+        if interval == "4h":
+            base = _remember(("xaus", "1h"), 60, lambda: xaus_chart("1h", now_ms))
+            if not base.get("ok"):
+                return base
+            return {
+                "ok": True,
+                "bars": aggregate(base.get("bars") or [], "1h", "4h"),
+                "provider": "xaus.com",
+                "quote_semantics": "ohlc_not_bid_ask",
+                "partial_dropped": base.get("partial_dropped"),
+                "interval": "4h",
+            }
+        series = _remember(("xaus", interval), 60, lambda: xaus_chart(interval, now_ms))
+    except Exception as exc:
+        return {"ok": False, "bars": [], "reason": type(exc).__name__, "interval": interval, "quote_semantics": "ohlc_not_bid_ask"}
     series = dict(series)
     series["interval"] = interval
     return series
@@ -1510,11 +1510,10 @@ def scanner_api():
         windows = []
     body = scan(windows, now_ms=now_ms)
     if not body["markets"]:
-        from ops.data_rights import MESSAGE
         from ops.worker import pair_availability
         body["markets"] = []
         for row in pair_availability():
-            minute = row["status"] == "unavailable"
+            minute = row["symbol"] == "XAUUSD" and row["interval"] in {"1m", "3m"}
             body["markets"].append({
                 "symbol": row["symbol"],
                 "interval": row["interval"],
@@ -1524,11 +1523,13 @@ def scanner_api():
                 "target": None,
                 "approved": False,
                 "evaluated": False,
-                "scanner_state": "BLOCKED" if minute else "RIGHTS",
-                "status": "unavailable" if minute else "withheld",
-                "message": row["reason"] if minute else MESSAGE,
+                "scanner_state": "BLOCKED" if minute else "WAIT",
+                "decision_label": "UNAVAILABLE" if minute else "WAIT",
+                "status": "unavailable" if minute else "scanning",
+                "blocked": "xau_minute_unlicensed" if minute else None,
+                "message": row.get("reason") or "No reading was returned. No price was invented.",
             })
-        body["notice"] = MESSAGE
+        body["notice"] = "The scan did not return a reading. No price was invented."
     user_id = session.get("user_id")
     if user_id:
         from ops.inbox import record_scan
@@ -2135,8 +2136,8 @@ function researchSummary(qual, platform){
 }
 async function overview(){
   view.innerHTML = `<div class="kpis" id="ov-kpis"><article class="card"><p class="muted">Paper capital</p><div class="skeleton lg"></div></article><article class="card"><p class="muted">Open paper positions</p><div class="skeleton lg"></div></article><article class="card"><p class="muted">Closed paper trades</p><div class="skeleton lg"></div></article><article class="card"><p class="muted">AutoPilot</p><div class="skeleton lg"></div></article></div><div class="split"><article class="card" id="ov-account"><h2>Account</h2><p role="status">Loading your account. Market prices are not required for this section.</p></article><article class="card" id="ov-market"><h2>Market data</h2><p>Loading the platform state.</p></article></div><article class="card" id="ov-activity"><h2>Recent activity</h2><p class="muted">Loading account events. A price is not required.</p></article>`;
-  const [me, bot, book, platform, lab, plan, notes] = await Promise.all([
-    timed("/api/me"), timed("/api/autopilot"), timed("/api/paper/book"), timed("/api/platform"), timed("/api/lab"), timed("/api/plan"), timed("/api/notifications")
+  const [me, bot, book, platform, lab, plan, notes, markets] = await Promise.all([
+    timed("/api/me"), timed("/api/autopilot"), timed("/api/paper/book"), timed("/api/platform"), timed("/api/lab"), timed("/api/plan"), timed("/api/notifications"), timed("/api/markets")
   ]);
   const profile = (me && me.profile) || {};
   const balance = me ? money(profile.capital, profile.currency || "") : "—";
@@ -2166,8 +2167,15 @@ async function overview(){
   if (kpis) kpis.innerHTML = `<article class="card"><p class="muted">Paper capital</p><p class="price">${balance}</p></article><article class="card"><p class="muted">Open paper positions</p><p class="price num">${openCount}</p></article><article class="card"><p class="muted">Closed paper trades</p><p class="price num">${closedCount}</p><p class="muted">${figures.trades ? "Recorded result " + realised + ". Not a win rate." : "No closed paper trade. No win rate."}</p></article><article class="card"><p class="muted">AutoPilot</p><p class="price quiet">${bot ? (bot.facing || "Disabled") : "Not loaded"}</p></article>`;
   const market = document.getElementById("ov-market");
   if (market) {
+    const quotes = ((markets && markets.markets) || []).map(row => {
+      const data = (row && row.data) || {};
+      const value = data.price != null ? data.price : data.close;
+      const shown = value == null ? "—" : priceText(row.symbol, value);
+      const note = value == null ? "not returned" : (data.fresh === false ? "last known" : "live");
+      return `<div class="row"><span>${row.symbol}</span><span class="num">${shown}</span></div><p class="muted">${note}</p>`;
+    }).join("");
     const states = ((platform && platform.states) || []).map(row => `<div class="row"><span>${row.label}</span><span>${row.value}</span></div>`).join("");
-    market.innerHTML = `<h2>Market data</h2><p>${(platform && platform.message) || RIGHTS_MESSAGE}</p><p class="muted">No prices or candles are shown. No strategy evaluation can proceed from withheld data. ${(platform && platform.requirement) || ""} Feed health was not checked, because the rights gate stops the request. This is not a provider outage.</p>${states || "<p>The platform state could not be loaded.</p>"}${platform ? "" : `<p><button type="button" id="ov-retry2">Retry platform</button></p>`}<p><a href="/system">System status</a> · <a href="/research">Research</a> · <a href="/learn">Academy</a></p>`;
+    market.innerHTML = `<h2>Market data</h2>${quotes || "<p>Prices could not be loaded. No price was invented.</p>"}<p class="muted">Readings are on the desk. Research approval is not required to see them. Gold 1-minute and 3-minute stay unlicensed.</p>${states}${markets ? "" : `<p><button type="button" id="ov-retry2">Retry prices</button></p>`}<p><a href="/trading">Terminal</a> · <a href="/signals">Live Signals</a></p>`;
     const again = document.getElementById("ov-retry2");
     if (again) again.onclick = () => overview();
   }
@@ -2180,14 +2188,18 @@ async function overview(){
   }
 }
 async function signals(){
-  view.innerHTML = `<article class="card" id="live-now"><h2>Live signals</h2><p role="status">Loading the platform state. No price is invented while this loads.</p></article><article class="card" id="live-hist"><h2>Historical research</h2><p class="muted">Separated from the live desk. Loading the saved record.</p></article>`;
-  const platform = await timed("/api/platform");
+  view.innerHTML = `<article class="card" id="live-now"><h2>Live signals</h2><p role="status">Loading today's readings. No price is invented while this loads.</p></article><article class="card" id="live-hist"><h2>Historical research</h2><p class="muted">Separated from the live desk. Loading the saved record.</p></article>`;
+  const scan = await timed("/api/scanner", 12000);
   const now = document.getElementById("live-now");
   if (now) {
-    const blocked = !platform || platform.evaluation !== "available" || platform.approved_strategies === 0;
-    now.innerHTML = blocked
-      ? `<p class="badge block">No live signal</p><h2>No live approved signals are currently available.</h2><div class="row"><span>Strategy approval</span><span>${platform ? platform.approved_strategies + " approved" : "not loaded"}</span></div><div class="row"><span>Market data</span><span>${platform && platform.market_data === "rights_withheld" ? "Withheld" : (platform ? platform.market_data : "not loaded")}</span></div><div class="row"><span>Signal evaluation</span><span>Unavailable</span></div><p>${(platform && platform.message) || RIGHTS_MESSAGE}</p><p class="muted">A failed historical study is not a current market leader. Nothing here is an order.</p><p><a href="/research">Open research</a> · <a href="/system">System status</a></p>${platform ? "" : `<p><button type="button" id="sig-retry">Retry</button></p>`}`
-      : `<h2>Live desk</h2><p>An approved strategy and permitted data are both present. This page still does not invent a price.</p>`;
+    const cards = ((scan && scan.markets) || []).map(item => {
+      const headline = item.decision_label || item.scanner_state || "WAIT";
+      const minute = item.blocked === "xau_minute_unlicensed" || headline === "UNAVAILABLE";
+      const px = item.price == null ? "—" : priceText(item.symbol, item.price);
+      const decision = minute ? "Unavailable" : (headline === "WAIT" ? "No entry yet" : headline);
+      return `<div class="row"><span>${item.symbol} ${item.interval || ""}</span><span>${decision}</span></div><div class="row"><span>Last price</span><span class="num">${minute ? "—" : px}</span></div><p class="muted">${plainReason(item.message || "")}</p>`;
+    }).join("");
+    now.innerHTML = `<h2>Today's readings</h2><p class="muted">No live approved signals are currently available. These are today's desk readings. A failed historical study is not a current market leader. Nothing here is an order.</p>${cards || "<p>No reading was returned. No price was invented.</p>"}${scan ? "" : `<p><button type="button" id="sig-retry">Retry</button></p>`}<p><a href="/scanner">Open the scanner</a> · <a href="/trading">Terminal</a></p>`;
     const again = document.getElementById("sig-retry");
     if (again) again.onclick = () => signals();
   }
@@ -2212,35 +2224,33 @@ async function terminal(){
     });
   }
   markFrames();
-  const generate = document.getElementById("generate");
-  if (generate) { generate.disabled = true; generate.textContent = "Checking evaluation"; }
-  timed("/api/platform").then(platform => {
+  function goldMinuteSelected(){ return symbolEl.value === "XAUUSD" && (intervalEl.value === "1m" || intervalEl.value === "3m"); }
+  function syncEvaluate(){
     const button = document.getElementById("generate");
-    const out = document.getElementById("termout");
     if (!button) return;
-    if (platform && platform.evaluation === "available") {
-      button.disabled = false;
-      button.textContent = "Evaluate market";
-      return;
-    }
-    button.disabled = true;
-    button.textContent = "Evaluation unavailable";
-    if (out) out.innerHTML = `<p class="badge block">Rights withheld</p><p>${(platform && platform.message) || RIGHTS_MESSAGE}</p><p class="muted">${(platform && platform.requirement) || "No evaluation is sent until that use is approved."}</p><p>No candle is drawn and no evaluation is sent. <a href="/research">Research</a> · <a href="/system">System status</a></p>${platform ? "" : `<p><button type="button" id="term-retry">Retry</button></p>`}`;
-    const again = document.getElementById("term-retry");
-    if (again) again.onclick = () => terminal();
-  });
+    if (goldMinuteSelected()) { button.disabled = true; button.textContent = "Unavailable"; return; }
+    button.disabled = false;
+    button.textContent = "Evaluate market";
+  }
+  syncEvaluate();
   async function loadWatch(){
     const box = document.getElementById("watch");
     if (!box) return;
-    const platform = await timed("/api/platform");
-    if (!platform || !(platform.pairs || []).length) {
-      box.innerHTML = `<h2>Market watch</h2><p>Availability could not be read. No prices were invented.</p><p><button type="button" id="watch-retry">Retry</button></p>`;
+    const markets = await timed("/api/markets");
+    const rows = (markets && markets.markets) || [];
+    if (!rows.length) {
+      box.innerHTML = `<h2>Market watch</h2><p>Prices could not be loaded. No price was invented.</p><p><button type="button" id="watch-retry">Retry</button></p>`;
       const again = document.getElementById("watch-retry");
       if (again) again.onclick = () => loadWatch();
       return;
     }
-    const rows = platform.pairs.map(pair => `<tr><td>${pair.instrument}</td><td>${pair.timeframe}</td><td><span class="badge block">${pair.rights}</span></td><td>${pair.source}</td><td>${pair.history}</td><td>${pair.latest_read}</td><td>${pair.evaluation}</td><td>${pair.approval}</td></tr>`).join("");
-    box.innerHTML = `<h2>Market watch</h2><p>${platform.message || RIGHTS_MESSAGE}</p><p class="muted">The restriction is stated once. Each row is only the status of that pair. Gold minute rows are unlicensed, which is not the same as an unconfirmed chart right. A withheld row is not a missed setup and not a provider outage.</p><div class="tablewrap"><table class="matrix"><thead><tr><th>Instrument</th><th>Time</th><th>Rights</th><th>Source</th><th>History</th><th>Latest read</th><th>Evaluation</th><th>Approval</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+    const lines = rows.map(row => {
+      const data = row.data || {};
+      const value = data.price != null ? data.price : data.close;
+      const shown = value == null ? "—" : priceText(row.symbol, value);
+      return `<div class="row"><span>${row.symbol}</span><span class="num">${shown}</span></div>`;
+    }).join("");
+    box.innerHTML = `<h2>Market watch</h2>${lines}<p class="muted">Last completed prices. Gold 1-minute and 3-minute stay unlicensed. A price is not an order.</p>`;
   }
   async function loadDeskChart(){
     const note = document.getElementById("chartnote");
@@ -2256,10 +2266,10 @@ async function terminal(){
     const bars = await fetch(url).then(r => r.json()).catch(() => null);
     if (!bars || bars.blocked === "xau_minute_unlicensed" || !(bars.candles || []).length) {
       const minute = bars && bars.blocked === "xau_minute_unlicensed";
-      chartHold(minute ? "Licensed spot minute data unavailable. No candle was drawn." : ((bars && (bars.message || bars.error)) || RIGHTS_MESSAGE));
+      chartHold(minute ? "Licensed spot minute data unavailable. No candle was drawn." : ((bars && (bars.message || bars.error)) || "No closed candles were returned. No candle was invented."));
       if (note) note.innerHTML = minute
         ? `Gold ${requested.interval} is unlicensed. It is not built from a five-minute sample, and no evaluation is sent. <a href="/system">System status</a>`
-        : `No candle can be displayed. Evaluation is unavailable until that commercial use is approved. This is not a provider outage. <a href="/research">Research</a> · <a href="/system">System status</a>`;
+        : `The chart feed did not return candles for this selection. Nothing was invented. <a href="/system">System status</a>`;
       if (hover) hover.textContent = "";
       return;
     }
@@ -2300,8 +2310,8 @@ async function terminal(){
     status.textContent = "Selection changed. Evaluate market for " + next.symbol + " " + next.interval + ".";
     if (next.symbol === "XAUUSD" && (next.interval === "1m" || next.interval === "3m")) status.textContent = "XAUUSD " + next.interval + " is unavailable. The restriction is xau_minute_unlicensed. No plan, size or paper order will be calculated.";
   }
-  symbolEl.onchange = () => { markFrames(); labelPrevious(); loadDeskChart(); };
-  intervalEl.onchange = () => { labelPrevious(); loadDeskChart(); };
+  symbolEl.onchange = () => { markFrames(); labelPrevious(); loadDeskChart(); syncEvaluate(); };
+  intervalEl.onchange = () => { labelPrevious(); loadDeskChart(); syncEvaluate(); };
   strategyEl.onchange = labelPrevious;
   async function history(){
     const response = await fetch("/api/terminal/history", {credentials:"same-origin"});
@@ -2317,8 +2327,7 @@ async function terminal(){
     const out = document.getElementById("termout");
     const button = document.getElementById("generate");
     if (button && button.disabled) {
-      status.textContent = RIGHTS_MESSAGE + " Evaluation stays off until that use is approved.";
-      out.innerHTML = `<p>No request was sent. <a href="/research">Research</a> · <a href="/system">System status</a></p>`;
+      status.textContent = "XAUUSD 1-minute and 3-minute stay unavailable. No evaluation was sent.";
       return;
     }
     const mine = ++ticket;
@@ -2345,7 +2354,7 @@ async function terminal(){
       const rightsHold = headline === "RIGHTS" || body.reason === "commercial_use_unverified";
       const headlineShown = rightsHold ? "Not shown" : headline;
       const withheld = licensed || rightsHold || headline === "QUOTE DIVERGENCE" || headline === "BLOCKED" || headline === "UNAVAILABLE" || Boolean(body.blocked);
-      const kind = body.approved ? "Approved paper opportunity" : (rightsHold ? "Price withheld" : (headline === "WATCH" ? "Watch — no entry" : (withheld ? "Blocked" : (String(headline).includes("SELL") || String(headline).includes("BUY") ? "Experimental, not approved" : (headline === "WAIT" ? "No qualifying setup" : "Research observation")))));
+      const kind = body.approved ? "Approved paper opportunity" : (rightsHold ? "Price withheld" : (headline === "WATCH" ? "Watch — no entry" : (withheld ? "Blocked" : (String(headline).includes("SELL") || String(headline).includes("BUY") ? "Experimental, not approved" : (headline === "WAIT" ? "No entry yet" : "Research observation")))));
       const klass = body.approved ? "approved" : (withheld ? "blocked" : "research");
       const px = (value) => priceText(body.symbol, value);
       const entryLine = withheld ? "—. Not an actionable entry." : (headline === "WATCH" ? `Watch level ${px(body.watch_entry)}. Not an entry.` : px(body.entry));
@@ -2438,7 +2447,7 @@ async function researchLab(){
 }
 async function scannerPage(){
   let lastBody = null;
-  view.innerHTML = `<article class="card"><h2>Live Scanner</h2><p id="scanstatus" role="status">Checking which prices can be shown.</p><p class="muted" id="scanwhen">No candle is read until commercial use is approved.</p><p id="scanstale" class="stale-note" hidden></p><div id="scancards"><p class="muted">Loading coverage. No price is invented while this loads.</p></div></article><article class="card" id="scanboard"><h2>Market coverage</h2><div class="skeleton lg"></div></article>`;
+  view.innerHTML = `<article class="card"><h2>Live Scanner</h2><p id="scanstatus" role="status">Checking which prices can be shown.</p><p class="muted" id="scanwhen">A reading uses the latest completed candle. It is not a tick feed and not an order.</p><p id="scanstale" class="stale-note" hidden></p><div id="scancards"><p class="muted">Loading coverage. No price is invented while this loads.</p></div></article><article class="card" id="scanboard"><h2>Market coverage</h2><div class="skeleton lg"></div></article>`;
   const draw = (body, staleNote) => {
     const cards = (body.markets||[]).map(m => {
       const headline = m.decision_label || m.scanner_state || m.state || "WAIT";
@@ -2449,9 +2458,9 @@ async function scannerPage(){
         return `<article class="card blocked" data-symbol="${m.symbol}"><p class="badge block">Unavailable</p><h2>${m.symbol} · ${m.interval||""}</h2><div class="row"><span>Not available</span><span class="num">—</span></div><p>${plainReason(m.message||"This timeframe is not available.")}</p><p class="muted">No candle was substituted.</p></article>`;
       }
       const blocked = headline === "QUOTE DIVERGENCE" || headline === "BLOCKED" || m.scanner_state === "BLOCKED" || m.scanner_state === "QUOTE_DIVERGENCE" || m.state === "DATA_UNAVAILABLE" || m.blocked;
-      const kind = headline === "QUOTE DIVERGENCE" ? "Blocked" : (headline === "WATCH" ? "Watch — no entry" : (String(headline).includes("SELL") || String(headline).includes("BUY") ? "Experimental, not approved" : (headline === "WAIT" ? "No qualifying setup" : "Research observation")));
+      const kind = headline === "QUOTE DIVERGENCE" ? "Blocked" : (headline === "WATCH" ? "Watch — no entry" : (String(headline).includes("SELL") || String(headline).includes("BUY") ? "Experimental, not approved" : (headline === "WAIT" ? "No entry yet" : "Research observation")));
       const klass = m.approved ? "approved" : (blocked || kind === "Blocked" ? "blocked" : "research");
-      const hideLevels = blocked || kind === "Blocked" || kind === "Watch — no entry" || kind === "No qualifying setup" || m.entry == null;
+      const hideLevels = blocked || kind === "Blocked" || kind === "Watch — no entry" || kind === "No entry yet" || kind === "No qualifying setup" || m.entry == null;
       const levels = hideLevels
         ? `<p>Entry —. Stop —. Target —. ${headline === "QUOTE DIVERGENCE" ? "Withheld. The sources differ by more than 0.08 percent." : "No actionable plan is shown."}</p>`
         : `<p>Hypothetical research levels, not an order. Entry ${priceText(m.symbol, m.entry)}. Stop ${priceText(m.symbol, m.stop)}. Target ${priceText(m.symbol, m.target)}.</p>`;
@@ -2464,7 +2473,7 @@ async function scannerPage(){
       return `<article class="card ${klass}" data-symbol="${m.symbol}"><p class="badge ${klass==="blocked"?"block":"research"}">${kind}</p><h2>${m.symbol} · ${m.interval||""}</h2><div class="row"><span>${headline}</span><span class="num">${m.price==null?"—":priceText(m.symbol, m.price)}</span></div><p class="muted">${source}. ${m.evaluated===false?"This market did not complete a valid reading.":"Reading complete."}</p><p>${plainReason(m.message||"No qualifying setup yet.")}${gap}${times}</p>${levels}<p class="muted">${grade} Updated ${m.updated_at||"unknown"}.</p><details><summary>Technical evidence</summary><p class="muted">${plainReason(m.diagnostic||"")} State ${m.scanner_state||m.state||"unknown"}. Source code ${m.quote||"unnamed"}.</p></details></article>`;
     }).join("");
     const qualifying = (body.markets||[]).some(m => m.approved || m.scanner_state === "APPROVED_SIGNAL");
-    const heldOnly = (body.markets||[]).length > 0 && (body.markets||[]).every(m => isRightsHold(m.decision_label, m.scanner_state, m.status) || m.scanner_state === "BLOCKED" || m.decision_label === "UNAVAILABLE" || m.status === "unavailable");
+    const heldOnly = (body.markets||[]).length > 0 && (body.markets||[]).every(m => isRightsHold(m.decision_label, m.scanner_state, m.status));
     const box = document.getElementById("scancards");
     if (heldOnly) {
       if (box) box.innerHTML = `<article class="card blocked"><p class="badge block">Rights withheld</p><h2>No reading was performed</h2><p>${RIGHTS_MESSAGE}</p><p class="muted">The rights gate stopped the request before any candle was read. That is not a missed setup and not a provider outage. The twelve pairs are in the table below.</p></article>`;
@@ -2481,7 +2490,7 @@ async function scannerPage(){
     const status = document.getElementById("scanstatus");
     if (status) status.textContent = staleNote ? "Scan refresh failed." : (body.notice || "Scan complete.");
     const when = document.getElementById("scanwhen");
-    if (when) when.textContent = body.scanned_at ? ("Last successful read " + body.scanned_at + ". A reading uses the latest completed candle. It is not a tick feed and not an order.") : "No candle was read. Prices stay hidden until commercial use is approved. This is not a tick feed and not an order.";
+    if (when) when.textContent = body.scanned_at ? ("Last successful read " + body.scanned_at + ". A reading uses the latest completed candle. It is not a tick feed and not an order.") : "No completed candle was returned. No price was invented. This is not a tick feed and not an order.";
     const stale = document.getElementById("scanstale");
     if (stale) { stale.hidden = !staleNote; stale.textContent = staleNote || ""; }
   };
@@ -2495,8 +2504,8 @@ async function scannerPage(){
         if (again) again.onclick = () => loadCoverage();
         return;
       }
-      const lines = platform.pairs.map(pair => `<tr><td>${pair.instrument}</td><td>${pair.timeframe}</td><td><span class="badge block">${pair.rights}</span></td><td>${pair.source}</td><td>${pair.history}</td><td>${pair.latest_read}</td><td>${pair.evaluation}</td><td>${pair.approval}</td></tr>`).join("");
-      box.innerHTML = `<h2>Market coverage</h2><p>${platform.message || RIGHTS_MESSAGE}</p><p class="muted">One restriction covers the desk. Gold one-minute and three-minute are a separate unlicensed state. A row is not a missed setup and not a provider outage.</p><div class="tablewrap"><table class="matrix"><thead><tr><th>Instrument</th><th>Time</th><th>Rights</th><th>Source</th><th>History</th><th>Latest read</th><th>Evaluation</th><th>Approval</th></tr></thead><tbody>${lines}</tbody></table></div>`;
+      const lines = platform.pairs.map(pair => `<tr><td>${pair.instrument}</td><td>${pair.timeframe}</td><td><span class="badge${pair.evaluation === "Unavailable" ? " block" : ""}">${pair.rights}</span></td><td>${pair.source}</td><td>${pair.history}</td><td>${pair.latest_read}</td><td>${pair.evaluation}</td><td>${pair.approval}</td></tr>`).join("");
+      box.innerHTML = `<h2>Market coverage</h2><p class="muted">Gold one-minute and three-minute stay unlicensed. The other pairs are read on the desk. A row is not an order.</p><div class="tablewrap"><table class="matrix"><thead><tr><th>Instrument</th><th>Time</th><th>Status</th><th>Source</th><th>History</th><th>Latest read</th><th>Evaluation</th><th>Note</th></tr></thead><tbody>${lines}</tbody></table></div>`;
     });
   };
   const fail = (message) => {
@@ -2781,7 +2790,7 @@ async function settings(){
   const profile = me.profile || {};
   const styles = (catalog.profiles||[]).map(p => `<label><input type="radio" name="style" value="${p.key}" ${profile.signal_style===p.key?"checked":""}> ${p.name} — ${p.risk_mode}. ${p.confirmation}</label>`).join("");
   const currencies = (catalog.currencies||[]).map(c => `<option value="${c}" ${profile.currency===c?"selected":""}>${c}</option>`).join("");
-  view.innerHTML = `<article class="card"><h2>${path==="/onboarding"?"Choose a signal style":"Signal style"}</h2><p class="muted">${catalog.note||""}</p><div class="styles">${styles}</div></article><article class="card"><h2>Base currency and capital</h2><div class="field"><span>Currency</span><select id="currency"><option value="">Not set</option>${currencies}</select></div><div class="field"><span>Paper capital</span><input id="capital" type="number" min="0" step="any" value="${profile.capital??""}"></div><p class="muted">Saving a currency does not convert the stored amount. Market quotes stay in USDT or USD/oz.</p></article><article class="card"><h2>Markets</h2><div class="checks"><label><input type="checkbox" id="btc" ${has("BTCUSDT")}> BTCUSDT</label><label><input type="checkbox" id="eth" ${has("ETHUSDT")}> ETHUSDT</label><label><input type="checkbox" id="gold" ${has("XAUUSD")}> XAUUSD</label></div><p class="muted">BTC and ETH prices are withheld while commercial permissions are verified. Gold 15-minute and 1-hour readings are also withheld. Gold 1-minute and 3-minute stay unavailable until a licensed minute feed exists.</p></article><article class="card"><h2>Experience</h2><label>How you describe your experience <select id="labexp"><option value="">Not stated</option><option value="new">New</option><option value="developing">Developing</option><option value="independent">Independent</option></select></label><p class="muted">This is what you say about yourself. It is stored on this account and is not a skill score.</p></article><article class="card" id="autopilot-card"><h2>AutoPilot</h2><p>Loading paper automation.</p></article><article class="card"><h2>Notifications and risk</h2><div class="checks"><label><input type="checkbox" id="exp" ${profile.experimental_alerts?"checked":""}> Experimental alerts</label><label><input type="checkbox" id="digest" ${profile.daily_report!==false?"checked":""}> Daily digest</label></div><div class="field"><span>Max risk per trade %</span><input id="risk" type="number" step="0.1" min="0" value="${profile.max_risk_pct??""}"></div><p class="muted">Risk cannot be set above the active style cap. These caps do not guarantee protection from losses. Production is WAIT_DEFAULT, so no trade alert is sent until a strategy is promoted. Turning experimental alerts on does not bypass that. In-app experimental matches stay labelled unapproved and never become an approved alert. Telegram is ${me.telegram_verified?"verified":"not verified"}.</p><button id="tglink" type="button">Create a one-time Telegram link</button><p id="tglinkout" class="muted"></p></article><article class="card" id="inbox-settings"><h2>In-app inbox</h2><p class="muted" id="inboxnote">Loading delivery settings.</p></article><p><button id="saveall" type="button">Save</button> <button id="skip" type="button">Continue without optional alerts</button> <button id="out" type="button">Sign out</button></p><p id="savedp" class="muted"></p>`;
+  view.innerHTML = `<article class="card"><h2>${path==="/onboarding"?"Choose a signal style":"Signal style"}</h2><p class="muted">${catalog.note||""}</p><div class="styles">${styles}</div></article><article class="card"><h2>Base currency and capital</h2><div class="field"><span>Currency</span><select id="currency"><option value="">Not set</option>${currencies}</select></div><div class="field"><span>Paper capital</span><input id="capital" type="number" min="0" step="any" value="${profile.capital??""}"></div><p class="muted">Saving a currency does not convert the stored amount. Market quotes stay in USDT or USD/oz.</p></article><article class="card"><h2>Markets</h2><div class="checks"><label><input type="checkbox" id="btc" ${has("BTCUSDT")}> BTCUSDT</label><label><input type="checkbox" id="eth" ${has("ETHUSDT")}> ETHUSDT</label><label><input type="checkbox" id="gold" ${has("XAUUSD")}> XAUUSD</label></div><p class="muted">BTC, ETH, and gold 15-minute and 1-hour prices are read on the desk. Gold 1-minute and 3-minute stay unavailable until a licensed minute feed exists.</p></article><article class="card"><h2>Experience</h2><label>How you describe your experience <select id="labexp"><option value="">Not stated</option><option value="new">New</option><option value="developing">Developing</option><option value="independent">Independent</option></select></label><p class="muted">This is what you say about yourself. It is stored on this account and is not a skill score.</p></article><article class="card" id="autopilot-card"><h2>AutoPilot</h2><p>Loading paper automation.</p></article><article class="card"><h2>Notifications and risk</h2><div class="checks"><label><input type="checkbox" id="exp" ${profile.experimental_alerts?"checked":""}> Experimental alerts</label><label><input type="checkbox" id="digest" ${profile.daily_report!==false?"checked":""}> Daily digest</label></div><div class="field"><span>Max risk per trade %</span><input id="risk" type="number" step="0.1" min="0" value="${profile.max_risk_pct??""}"></div><p class="muted">Risk cannot be set above the active style cap. These caps do not guarantee protection from losses. Production is WAIT_DEFAULT, so no trade alert is sent until a strategy is promoted. Turning experimental alerts on does not bypass that. In-app experimental matches stay labelled unapproved and never become an approved alert. Telegram is ${me.telegram_verified?"verified":"not verified"}.</p><button id="tglink" type="button">Create a one-time Telegram link</button><p id="tglinkout" class="muted"></p></article><article class="card" id="inbox-settings"><h2>In-app inbox</h2><p class="muted" id="inboxnote">Loading delivery settings.</p></article><p><button id="saveall" type="button">Save</button> <button id="skip" type="button">Continue without optional alerts</button> <button id="out" type="button">Sign out</button></p><p id="savedp" class="muted"></p>`;
   const inbox = await fetch("/api/inbox/settings", {credentials:"same-origin"}).then(r => r.ok ? r.json() : null);
   const box = (inbox && inbox.settings) || {};
   const on = (name) => box[name] ? "checked" : "";
