@@ -242,7 +242,7 @@ def test_every_live_path_fails_closed_before_the_network(monkeypatch, tmp_path):
     assert hour["reason"] == "commercial_use_unverified"
     quote = swissquote_xau(NOW)
     assert quote.get("bid") is None and quote.get("ask") is None
-    assert quote.get("reason") == "AssertionError"
+    assert quote.get("reason") == "reference_quote_unavailable"
     day = fetch_day(date(2024, 1, 2), "BID", tmp_path)
     assert day["ok"] is False and day["body"] is None
     assert day["reason"] == "commercial_use_unverified"
@@ -263,7 +263,8 @@ def test_every_live_path_fails_closed_before_the_network(monkeypatch, tmp_path):
     assert screen_bars("binance_spot_rest_klines", [{"close": 1}]) == [{"close": 1}]
     assert screen_bars("binance_vision_klines", [{"close": 1}]) == []
     assert screen_bars("deterministic_fixture", [{"close": 1}], "research") == []
-    assert use_permission("binance_spot_rest_klines", "display")["reason"] == "paper_desk_live"
+    assert use_permission("binance_spot_rest_klines", "display")["reason"] == "unverified_observation"
+    assert use_permission("binance_spot_rest_klines", "display")["status"] == "unverified"
     assert use_permission("binance_spot_rest_klines", "retention")["allowed"] is False
     assert use_permission("binance_spot_rest_klines", "research")["allowed"] is False
     assert use_permission("binance_spot_rest_klines", "autopilot")["allowed"] is False

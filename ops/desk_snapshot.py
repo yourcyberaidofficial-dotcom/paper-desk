@@ -53,8 +53,8 @@ def permission_for(symbol, interval):
     out = {}
     for use in _USES:
         decision = use_permission(source_id, use)
-        if decision.get("reason") == "paper_desk_live":
-            evidence = "Public endpoint used for this paper desk only. Not a written commercial licence."
+        if decision.get("reason") == "unverified_observation":
+            evidence = "Unverified observation only. Not a written commercial licence and not approval to retain prices."
         else:
             evidence = str(row.get("note") or decision.get("reason") or "")[:280]
         out[use] = {
@@ -181,6 +181,25 @@ def assemble(symbol, interval, now_ms, bars=None, quote=None, provider=None, sou
         semantics = semantics or "last_trade"
     close_ms = (candle or {}).get("close_time_ms") or "none"
     display_close = None if candle is None else candle.get("close")
+    if quote_view is None and symbol == "XAUUSD" and interval not in {"1m", "3m"}:
+        display_quote = {
+            "price": None,
+            "status": "reference_quote_unavailable",
+            "not_a_candle": True,
+            "semantics": "independent_reference_unavailable",
+        }
+        reference_quote = "reference_quote_unavailable"
+    elif quote_view is None:
+        display_quote = None
+        reference_quote = None
+    else:
+        display_quote = {
+            "price": quote_view["price"],
+            "timestamp_ms": quote_view["timestamp_ms"],
+            "semantics": quote_view["semantics"],
+            "not_a_candle": True,
+        }
+        reference_quote = "separate_quote"
     snap = {
         "instrument": symbol,
         "timeframe": interval,
@@ -204,6 +223,7 @@ def assemble(symbol, interval, now_ms, bars=None, quote=None, provider=None, sou
         },
         "quote_alignment": alignment,
         "quote_gap": gap,
+        "reference_quote": reference_quote,
         "reading_at_ms": now_ms,
         "reading_version": READING_VERSION,
         "snapshot_id": f"{symbol}:{interval}:{close_ms}:{READING_VERSION}",
@@ -221,12 +241,7 @@ def assemble(symbol, interval, now_ms, bars=None, quote=None, provider=None, sou
             "candle_semantics": semantics,
             "snapshot_id": f"{symbol}:{interval}:{close_ms}:{READING_VERSION}",
             "reading_version": READING_VERSION,
-            "quote": None if quote_view is None else {
-                "price": quote_view["price"],
-                "timestamp_ms": quote_view["timestamp_ms"],
-                "semantics": quote_view["semantics"],
-                "not_a_candle": True,
-            },
+            "quote": display_quote,
         },
         "_bars": usable,
         "_loaded": list(bars),
@@ -241,12 +256,8 @@ def _load_bars(symbol, interval, now_ms):
     if symbol == "XAUUSD":
         from ops.terminal_route import load_gold_ohlc
         loaded = load_gold_ohlc(interval, now_ms)
-        quote = None
-        try:
-            from ops.gold_live import swissquote_xau
-            quote = swissquote_xau(now_ms)
-        except Exception as exc:
-            quote = {"ok": False, "reason": type(exc).__name__}
+        from ops.provider_adapter import independent_reference_quote
+        quote = independent_reference_quote(now_ms)
         if isinstance(loaded, tuple):
             return [], "xaus.com", "xaus_public_chart", "ohlc_not_bid_ask", quote
         bars = loaded or []

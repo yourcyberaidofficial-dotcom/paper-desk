@@ -128,11 +128,8 @@ def present_window(window, now_ms):
                 if "live_quote" in window:
                     live_quote = window.get("live_quote")
                 elif last.get("source_type") != "fixture":
-                    try:
-                        from ops.gold_live import swissquote_xau
-                        live_quote = swissquote_xau(now_ms)
-                    except Exception:
-                        live_quote = None
+                    from ops.provider_adapter import independent_reference_quote
+                    live_quote = independent_reference_quote(now_ms)
                 else:
                     live_quote = None
                 shared = _shared_reading(symbol, interval, bars, now_ms, price, live_quote)

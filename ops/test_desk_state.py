@@ -28,7 +28,7 @@ def test_platform_state_names_each_capability_without_a_price():
     assert body["broker"] is False
     labels = {row["label"]: row["value"] for row in body["states"]}
     assert labels["Application"] == "Operational"
-    assert labels["Market data"] == "Live"
+    assert labels["Market data"] == "Shown, not licensed"
     assert labels["Feed health"] == "Not checked"
     assert labels["Approved strategies"] == "0"
     assert labels["Paper trading"] == "Available for eligible account actions"
@@ -42,8 +42,8 @@ def test_platform_state_names_each_capability_without_a_price():
     assert all(row["rights"] == "Gold minute unlicensed" for row in minutes)
     assert all(row["evaluation"] == "Unavailable" for row in minutes)
     live = [row for row in pairs if not (row["instrument"] == "XAUUSD" and row["timeframe"] in {"1m", "3m"})]
-    assert live and all(row["rights"] == "Live" for row in live)
-    assert all(row["latest_read"] == "Live" and row["evaluation"] == "Ready" for row in live)
+    assert live and all(row["rights"] == "Unverified" for row in live)
+    assert all(row["latest_read"] == "Shown" and row["evaluation"] == "Ready" for row in live)
     assert {row["source"] for row in live if row["instrument"] == "XAUUSD"} == {"Gold chart"}
     assert {row["source"] for row in live if row["instrument"] == "BTCUSDT"} == {"Binance spot"}
     assert all(row["approval"] == "Reading, not a promoted strategy" for row in pairs)

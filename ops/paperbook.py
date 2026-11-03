@@ -182,6 +182,10 @@ def open_order(user, opportunity, now_ms, commit=True, opened_by="account", auto
     direction = row.get("direction") or row.get("decision")
     if direction not in {"BUY", "SELL"}:
         return {"ok": False, "reason": "not_a_plan"}
+    from ops.entitlements import persistence_refusal
+    refused = persistence_refusal(row)
+    if refused:
+        return refused
     entry, stop, target = row.get("entry"), row.get("stop"), row.get("target")
     if entry is None or stop is None or target is None:
         return {"ok": False, "reason": "incomplete"}

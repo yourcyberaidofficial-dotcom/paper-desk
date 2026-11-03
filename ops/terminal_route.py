@@ -124,8 +124,8 @@ def handle_signal(user_id, body, now_ms=None, bars_loader=None, quote_loader=Non
     live_quote = None
     if symbol == "XAUUSD":
         if quote_loader is None:
-            from ops.gold_live import swissquote_xau
-            quote_loader = swissquote_xau
+            from ops.provider_adapter import independent_reference_quote
+            quote_loader = independent_reference_quote
         live_quote = quote_loader(now_ms)
         if isinstance(live_quote, dict):
             live_quote = dict(live_quote)

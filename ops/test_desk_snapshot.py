@@ -163,8 +163,8 @@ def test_a_real_reading_can_be_confirmed_manually_and_autopilot_stays_shut(tmp_p
     again = __import__("ops.inbox", fromlist=["deliver_evaluation"]).deliver_evaluation(owner["id"], user, {**reading, "entry": 999})
     assert again["duplicate"] is True
     stored = opportunity_row(owner["id"], delivered["opportunity_id"])
-    assert stored["entry"] == reading["entry"]
-    assert stored["entry"] != 999
+    assert stored["entry"] is None
+    assert stored["levels_persisted"] is False
     enabled = act(owner["id"], "enable", now, confirm=True)
     assert enabled["ok"] is True
     fresh = users.get(owner["id"])
@@ -173,12 +173,17 @@ def test_a_real_reading_can_be_confirmed_manually_and_autopilot_stays_shut(tmp_p
     assert refused["ok"] is False
     assert refused["reason"] == "no_approved_strategy"
     assert summary(owner["id"])["open"] == []
-    opened = open_order(fresh, stored, now + 1000)
+    assert open_order(fresh, stored, now + 1000)["reason"] == "paper_ledger_persistence"
+    from ops.inbox import build_user_plan, record_desk_plan
+    built = build_user_plan(labeled, {"decision": "BUY", "entry": 100, "stop": 98, "target": 104})
+    authored = record_desk_plan(owner["id"], fresh, built["plan"])
+    assert authored["levels_persisted"] is True
+    opened = open_order(fresh, opportunity_row(owner["id"], authored["opportunity_id"]), now + 1500)
     assert opened["ok"] is True
     assert opened["order"]["opened_by"] == "account"
     assert opened["order"]["executable"] is False
-    assert opened["order"]["entry"] == reading["entry"]
-    assert open_order(fresh, stored, now + 2000)["reason"] == "already_open"
+    assert opened["order"]["entry"] == 100
+    assert open_order(fresh, opportunity_row(owner["id"], authored["opportunity_id"]), now + 2000)["reason"] == "already_open"
     assert opportunity_row(other["id"], delivered["opportunity_id"]) is None
     assert summary(other["id"])["empty"] is True
     blocked_again = consider(fresh, reading, now + 4000, delivered["opportunity_id"])

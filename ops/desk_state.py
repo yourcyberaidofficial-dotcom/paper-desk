@@ -6,7 +6,7 @@ The pages render these labels. They do not invent a second decision.
 
 from ops.data_rights import MESSAGE, use_permission
 
-OPERATING = "Desk prices are live. Research approval is separate and is not required to read a candle."
+OPERATING = "Desk prices are shown. They are not a commercial licence. Research approval is separate and is not required to read a candle."
 
 
 def product_gates():
@@ -16,7 +16,6 @@ def product_gates():
     display = (
         use_permission("binance_spot_rest_klines", "display"),
         use_permission("xaus_public_chart", "display"),
-        use_permission("swissquote_public_bbo", "display"),
     )
     market = "available" if any(row["allowed"] for row in display) else "rights_withheld"
     approved = qual["approved_for_paper"]
@@ -40,7 +39,7 @@ def pair_board():
             rights, source, latest, evaluation = "Gold minute unlicensed", "No licensed minute source", "Not read", "Unavailable"
         else:
             source = "Gold chart" if row["symbol"] == "XAUUSD" else "Binance spot"
-            rights, latest, evaluation = "Live", "Live", "Ready"
+            rights, latest, evaluation = "Unverified", "Shown", "Ready"
         rows.append({
             "instrument": row["symbol"],
             "timeframe": row["interval"],
@@ -83,7 +82,7 @@ def platform_state(worker=None):
         "states": [
             {"id": "application", "label": "Application", "value": "Operational"},
             {"id": "worker", "label": "Worker", "value": "Operational" if beating else "Not confirmed"},
-            {"id": "market_data", "label": "Market data", "value": "Live" if operating else "Rights withheld"},
+            {"id": "market_data", "label": "Market data", "value": "Shown, not licensed" if operating else "Rights withheld"},
             {"id": "market_technical", "label": "Feed health", "value": "Not checked"},
             {"id": "history", "label": "Historical research", "value": "Unavailable"},
             {"id": "strategies", "label": "Approved strategies", "value": str(approved)},

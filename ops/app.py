@@ -1320,7 +1320,8 @@ def gold_candles():
             "reading_version": snap.get("reading_version"),
             "not_a_quote": True,
             "execution_grade": False,
-            "note": "Sampled indicative reference bars from five-minute spot prints. Not exchange OHLC, not a bid or ask, and not an execution price." if sampled else "Chart OHLC from xaus.com. Not a bid or ask and not an execution price. A quote is not drawn as a bar.",
+            "reference_quote": "reference_quote_unavailable",
+            "note": "Sampled indicative reference bars from five-minute spot prints. Not exchange OHLC, not a bid or ask, and not an execution price. Reference quote unavailable." if sampled else "Chart OHLC from xaus.com. Not a bid or ask and not an execution price. Reference quote unavailable.",
         })
     series = _gold_bars(interval, int(time.time() * 1000))
     if series.get("reason") == "commercial_use_unverified" or series.get("rights_status"):
@@ -1671,7 +1672,7 @@ def desk_plan():
     symbol = str(body.get("symbol") or "")
     interval = str(body.get("interval") or "")
     from ops.desk_snapshot import public_reading, reading_for
-    from ops.inbox import record_desk_plan
+    from ops.inbox import build_user_plan, record_desk_plan
     from ops.paperbook import opportunity_row, plan_preview
     now_ms = int(time.time() * 1000)
     card = reading_for(symbol, interval, now_ms)
@@ -1680,6 +1681,46 @@ def desk_plan():
     user = dict(user)
     user["id"] = user_id
     shown = public_reading(card)
+    if body.get("authored") is True:
+        built = build_user_plan(card, body)
+        if not built.get("ok"):
+            return jsonify({
+                "ok": False,
+                "reason": built.get("reason"),
+                "reading": shown,
+                "order_opened": False,
+                "broker": False,
+                "levels_persisted": False,
+                "autopilot_eligible": False,
+                "approved": False,
+            })
+        saved = record_desk_plan(user_id, user, built["plan"])
+        stored = opportunity_row(user_id, saved.get("opportunity_id")) if saved.get("opportunity_id") else None
+        plan_row = stored or built["plan"]
+        preview = plan_preview(user, plan_row)
+        return jsonify({
+            "ok": bool(saved.get("opportunity_id")),
+            "stored": bool(saved.get("stored")),
+            "duplicate": bool(saved.get("duplicate")),
+            "reason": saved.get("reason"),
+            "opportunity_id": saved.get("opportunity_id"),
+            "snapshot_id": (stored or {}).get("snapshot_id") or card.get("snapshot_id"),
+            "reading_version": (stored or {}).get("reading_version") or card.get("reading_version"),
+            "reading_class": "manual_plan",
+            "provenance": "user_authored",
+            "source_id": "user_authored",
+            "entry": plan_row.get("entry"),
+            "stop": plan_row.get("stop"),
+            "target": plan_row.get("target"),
+            "explanation": (stored or {}).get("explanation") or built["plan"].get("explanation"),
+            "invalidation": plan_row.get("invalidation"),
+            "levels_persisted": saved.get("levels_persisted") is True,
+            "paper": preview,
+            "autopilot_eligible": False,
+            "approved": False,
+            "order_opened": False,
+            "broker": False,
+        })
     if card.get("manual_paper") is not True:
         return jsonify({
             "ok": False,
@@ -1694,8 +1735,7 @@ def desk_plan():
         })
     saved = record_desk_plan(user_id, user, card)
     stored = opportunity_row(user_id, saved.get("opportunity_id")) if saved.get("opportunity_id") else None
-    plan_row = stored or card
-    preview = plan_preview(user, plan_row)
+    preview = plan_preview(user, card)
     return jsonify({
         "ok": bool(saved.get("opportunity_id")),
         "stored": bool(saved.get("stored")),
@@ -1705,11 +1745,18 @@ def desk_plan():
         "snapshot_id": (stored or {}).get("snapshot_id") or card.get("snapshot_id"),
         "reading_version": (stored or {}).get("reading_version") or card.get("reading_version"),
         "reading_class": "manual_plan",
-        "entry": plan_row.get("entry"),
-        "stop": plan_row.get("stop"),
-        "target": plan_row.get("target"),
-        "explanation": (stored or {}).get("explanation") or card.get("explanation"),
-        "invalidation": plan_row.get("invalidation"),
+        "provenance": "market_observation",
+        "screen_only": True,
+        "levels_persisted": False,
+        "persistence_capability": "paper_ledger_persistence",
+        "persistence_state": "unverified",
+        "persistence_note": "Market levels stay on this screen. Paper history was not written because ledger persistence is unverified.",
+        "entry": card.get("entry"),
+        "stop": card.get("stop"),
+        "target": card.get("target"),
+        "stored_entry": None if stored is None else stored.get("entry"),
+        "explanation": card.get("explanation"),
+        "invalidation": card.get("invalidation"),
         "changes_when": card.get("changes_when"),
         "paper": preview,
         "autopilot_eligible": False,
@@ -2198,6 +2245,10 @@ function plainReason(text){
     .replaceAll("dukascopy_xauusd_bid_ask", "gold bid and ask")
     .replaceAll("ohlc_not_bid_ask", "chart OHLC, not a bid, ask, or execution price")
     .replaceAll("quote_divergence", "the spot sample and the separate quote disagree")
+    .replaceAll("reference_quote_unavailable", "reference quote unavailable")
+    .replaceAll("paper_ledger_persistence", "paper ledger persistence is unverified")
+    .replaceAll("feed_copy", "those levels match the feed reading")
+    .replaceAll("unverified_observation", "unverified observation")
     .replaceAll("snapshot_not_candle", "quote available, candle unavailable")
     .replaceAll("quote_not_bid_ask", "source is not a completed bid and ask candle")
     .replaceAll("stale_or_incomplete", "the latest candle is missing, still forming, or too old")
@@ -2362,7 +2413,9 @@ async function overview(){
       const frame = sampled ? ((data.timeframe || "Gold") + " sampled reference close") : ((data.timeframe ? data.timeframe + " " : "") + "completed close");
       const when = data.close_time_ms ? new Date(data.close_time_ms).toISOString().slice(0, 16).replace("T", " ") + " UTC" : "";
       const note = value == null ? "not returned" : (frame + (when ? " · " + when : "") + " · " + (data.quality || "unknown"));
-      const quote = data.quote && data.quote.price != null ? `<p class="muted">Separate quote ${priceText(row.symbol, data.quote.price)}${data.quote.timestamp_ms ? " at " + new Date(data.quote.timestamp_ms).toISOString().slice(0, 16).replace("T", " ") + " UTC" : ""}. Not the completed close.</p>` : "";
+      const quote = data.quote && data.quote.price != null
+        ? `<p class="muted">Separate quote ${priceText(row.symbol, data.quote.price)}${data.quote.timestamp_ms ? " at " + new Date(data.quote.timestamp_ms).toISOString().slice(0, 16).replace("T", " ") + " UTC" : ""}. Not the completed close.</p>`
+        : (data.quote && data.quote.status === "reference_quote_unavailable" ? `<p class="muted">Reference quote unavailable. Not the completed close.</p>` : "");
       const reading = row.reading || {};
       const context = reading.reading_class ? `<p class="muted">${reading.direction_label || "neutral"} · ${reading.reading_class} · ${reading.setup_state || "none"}. ${plainReason(reading.explanation || "")} ${plainReason(reading.changes_when || "")}</p>` : "";
       return `<div class="row"><span>${row.symbol}</span><span class="num">${shown}</span></div><p class="muted">${note}${row.snapshot_id ? " · " + row.snapshot_id : ""}</p>${quote}${context}`;
@@ -2424,7 +2477,28 @@ async function signals(){
       const sizeLine = sized && sized.risk_budget_usd != null
         ? `Risk budget ${Number(sized.risk_budget_usd).toFixed(2)} USD at ${payload.paper.risk_percent} percent. ${sized.ok && sized.quantity != null ? "Quantity " + Number(sized.quantity).toFixed(6) + " is an unrounded estimate, not an exchange lot." : plainReason(sized.note || sized.reason || "Size was not calculated.")}`
         : `Account check: ${plainReason((payload.paper && payload.paper.reason) || "not allowed")}.`;
-      if (box) box.innerHTML = `<p>Saved plan. Entry ${priceText(button.dataset.review, payload.entry)}. Stop ${priceText(button.dataset.review, payload.stop)}. Target ${priceText(button.dataset.review, payload.target)}. ${sizeLine} Snapshot ${payload.snapshot_id || ""}. Not approved. Not AutoPilot. No broker order.</p>${allow ? `<p><button type="button" data-confirm="${payload.opportunity_id}">Confirm manual paper order</button></p>` : `<p>The account rules did not allow an order. The plan stays a review.</p>`}`;
+      if (box) box.innerHTML = `<p>Saved plan. Entry ${priceText(button.dataset.review, payload.entry)}. Stop ${priceText(button.dataset.review, payload.stop)}. Target ${priceText(button.dataset.review, payload.target)}. ${sizeLine} Snapshot ${payload.snapshot_id || ""}. Not approved. Not AutoPilot. No broker order.</p>${payload.levels_persisted === false ? `<p class="muted">${plainReason(payload.persistence_note || "paper_ledger_persistence")}</p><form data-author="${button.dataset.review}:${button.dataset.frame}"><label>Your side <select name="decision"><option>BUY</option><option>SELL</option></select></label> <label>Your entry <input name="entry" inputmode="decimal" /></label> <label>Your stop <input name="stop" inputmode="decimal" /></label> <label>Your target <input name="target" inputmode="decimal" /></label> <button type="submit">Save my levels</button></form><div data-authored="${button.dataset.review}:${button.dataset.frame}"></div>` : (allow ? `<p><button type="button" data-confirm="${payload.opportunity_id}">Confirm manual paper order</button></p>` : `<p>The account rules did not allow an order. The plan stays a review.</p>`)}`;
+      const author = box && box.querySelector("[data-author]");
+      if (author) author.onsubmit = async (event) => {
+        event.preventDefault();
+        const data = new FormData(author);
+        const sent = await fetch("/api/desk/plan", {method:"POST", credentials:"same-origin", headers:{"Content-Type":"application/json"}, body: JSON.stringify({symbol: button.dataset.review, interval: button.dataset.frame, authored: true, decision: data.get("decision"), entry: data.get("entry"), stop: data.get("stop"), target: data.get("target")})});
+        const mine = await sent.json().catch(() => ({}));
+        const slot = box.querySelector("[data-authored]");
+        if (!sent.ok || !mine.opportunity_id || mine.levels_persisted !== true) {
+          if (slot) slot.innerHTML = `<p>Your levels were not saved. ${plainReason(mine.reason || "not available")}. No order was opened.</p>`;
+          return;
+        }
+        const mineAllow = mine.paper && mine.paper.allowed;
+        if (slot) slot.innerHTML = `<p>Your levels, not a feed plan. Entry ${priceText(button.dataset.review, mine.entry)}. Stop ${priceText(button.dataset.review, mine.stop)}. Target ${priceText(button.dataset.review, mine.target)}.</p>${mineAllow ? `<p><button type="button" data-confirm="${mine.opportunity_id}">Confirm manual paper order</button></p>` : `<p>The account rules did not allow an order.</p>`}`;
+        const mineConfirm = slot.querySelector("[data-confirm]");
+        if (mineConfirm) mineConfirm.onclick = async () => {
+          mineConfirm.disabled = true;
+          const opened = await fetch("/api/paper/orders", {method:"POST", credentials:"same-origin", headers:{"Content-Type":"application/json"}, body: JSON.stringify({opportunity_id: mineConfirm.dataset.confirm})});
+          const done = await opened.json().catch(() => ({}));
+          mineConfirm.textContent = opened.ok && done.ok ? "Paper trade recorded. It is an estimate, not a broker fill." : ("Not opened. " + plainReason(done.reason || "Try again."));
+        };
+      };
       const confirm = box && box.querySelector("[data-confirm]");
       if (confirm) confirm.onclick = async () => {
         confirm.disabled = true;
@@ -2509,7 +2583,7 @@ async function terminal(){
     if (note) {
       const sampled = bars.kind === "sampled_reference" || bars.quote_semantics === "spot_sample_not_bid_ask";
       const label = sampled ? "Sampled indicative reference bars, not exchange OHLC" : (bars.kind === "chart_ohlc" ? "Chart OHLC, not an execution price" : "Completed bars");
-      note.textContent = label + " · " + requested.interval + (bars.snapshot_id ? " · " + bars.snapshot_id : "");
+      note.textContent = label + " · " + requested.interval + (bars.reference_quote === "reference_quote_unavailable" ? " · Reference quote unavailable" : "") + (bars.snapshot_id ? " · " + bars.snapshot_id : "");
     }
     const canvas = document.getElementById("chart");
     if (canvas && !canvas.dataset.bound) {

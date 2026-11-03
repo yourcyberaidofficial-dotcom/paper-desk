@@ -17,7 +17,7 @@ Binance Vision Dataset Terms 1.0, dated 26 August 2026, licence the archives und
 
 The Spot API product-terms file only points to the general Binance Product Terms. That page did not return the terms during this review. No written grant to request, retain, derive, display or automate from the klines inside Aureon was found. There is no WebSocket client, and opening one is refused while connection rights are unconfirmed.
 
-Dukascopy's XML data licence is non-commercial, requires registration approval, and does not mention the bi5 history files Aureon already knows how to read. Swissquote's Market Data Access Terms v3.0 (January 2024) forbid a client from redistributing market data or using it to build an investment strategy. Aureon has no Swissquote agreement. The 0.08 percent quote-divergence check is unchanged and is not a research archive. No written licence for the XAUS chart or spot endpoints was on file.
+Dukascopy's XML data licence is non-commercial, requires registration approval, and does not mention the bi5 history files Aureon already knows how to read. Swissquote's Market Data Access Terms v3.0 (January 2024) forbid a client from redistributing market data or using it to build an investment strategy. Aureon has no Swissquote agreement. The public BBO URL is not requested. The 0.08 percent comparison remains for a future authorised independent quote and is not treated as passed while that quote is absent. No written licence for the XAUS chart or spot endpoints was on file. Unverified observation is not approval to retain provider-derived prices.
 
 Gold 1-minute and 3-minute data remain unlicensed. Five-minute samples are not split into those timeframes.
 

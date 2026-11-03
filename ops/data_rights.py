@@ -44,15 +44,7 @@ KNOWN_STATES = {"approved", "restricted", "prohibited", "rights_unconfirmed", "f
 MESSAGE = "Market data access unavailable — commercial use permissions are being verified."
 _AUDIT = []
 
-# Operational paper-desk reads only. Not a written commercial licence.
-# Vision archives, retention, research ingestion, redistribution,
-# notifications, and AutoPilot opens stay closed. An explicit record=
-# is judged on its own evidence and is not covered by this list.
-DESK_LIVE = {
-    "binance_spot_rest_klines": frozenset({"connection", "memory", "display", "indicators", "strategy"}),
-    "xaus_public_chart": frozenset({"connection", "memory", "display", "indicators", "strategy"}),
-    "swissquote_public_bbo": frozenset({"connection", "display"}),
-}
+# DESK_LIVE is intentionally absent. An environment flag cannot grant a use.
 
 STATUS_LABELS = {
     "approved": "Rights approved",
@@ -107,7 +99,7 @@ SOURCES = (
         "note": (
             "The endpoint is reachable without an API key. The Spot product terms file only points at "
             "https://www.binance.com/en/terms and states no market-data redistribution, retention, or commercial-display grant. "
-            "Unauthenticated access is not a licence. Live desk requests stay off until a written grant covers the exact use."
+            "Unauthenticated access is not a licence. Desk observation stays unverified. It is not verified, and it is not the Vision archive licence."
         ),
     },
     {
@@ -130,7 +122,7 @@ SOURCES = (
         "note": (
             "The published XML grant is non-exclusive, non-transferable, non-commercial and temporary, and it forbids retransmission of the XML. "
             "It does not cover datafeed bi5 history. No written Dukascopy approval for Aureon was found. "
-            "The existing 0.08 percent quote-divergence check stays a live comparison. It is not stored research evidence."
+            "The 0.08 percent comparison remains for a future authorised independent quote. It is not run against Swissquote."
         ),
     },
     {
@@ -153,7 +145,7 @@ SOURCES = (
         "note": (
             "Those terms bind the bank's client and API client service. They forbid giving market data to another person "
             "and using it to create an investment strategy or financial product. Aureon has no Swissquote market-data agreement. "
-            "The public quote URL is not a historical source and is not approved for retention or redistribution."
+            "The public BBO URL is not requested by the desk, terminal, scanner, health check, or worker."
         ),
     },
     {
@@ -250,12 +242,12 @@ def uses_for(row):
 
 def use_permission(source_id, use, *, record=None, today=REVIEWED_ON):
     if record is None:
-        live = DESK_LIVE.get(source_id)
-        if live and use in live:
-            row = source(source_id)
-            if isinstance(row, dict) and row.get("status") != "prohibited":
-                return _audit(source_id, use, True, "desk_operation", "paper_desk_live")
-    row = source(source_id) if record is None else record
+        from ops.entitlements import legacy_decision
+
+        # DESK_LIVE and AUREON_DESK_LIVE are intentionally unread.
+        decision = legacy_decision(source_id, use)
+        return _audit(source_id, use, decision["allowed"], decision["status"], decision["reason"])
+    row = record
     if not isinstance(row, dict) or use not in USES:
         return _audit(source_id, use, False, "rights_unconfirmed", "missing_or_malformed_rights")
     raw = uses_for(row).get(use)
@@ -495,7 +487,7 @@ CONSUMERS = {
         "ops.xau_pull.fetch_day",
         "ops.terminal_route.gold_session",
     ),
-    "swissquote_public_bbo": ("ops.gold_live.swissquote_xau", "ops.worker._monitor_windows"),
+    "swissquote_public_bbo": ("ops.gold_live.swissquote_xau",),
     "xaus_public_chart": (
         "ops.feeds.xaus_chart",
         "ops.feeds.xaus_spot",

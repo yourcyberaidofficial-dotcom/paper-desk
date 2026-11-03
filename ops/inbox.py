@@ -151,7 +151,7 @@ def offer(user_id, notice, registry=None):
             "target": notice.get("target"),
         }],
     }
-    for key in ("snapshot_id", "reading_version", "source_id", "provider", "explanation", "candle_open_ms"):
+    for key in ("snapshot_id", "reading_version", "source_id", "provider", "explanation", "candle_open_ms", "levels_persisted", "persistence_capability", "persistence_state", "source_name", "provenance"):
         if notice.get(key) not in (None, ""):
             row[key] = notice.get(key)
     if notice.get("snapshot_id"):
@@ -432,23 +432,30 @@ def deliver_evaluation(user_id, user, result):
     opportunity_id = opportunity_identity(symbol, interval, family, direction, anchor)
     if opportunity_id is None:
         return {"stored": False, "duplicate": False, "reason": "incomplete"}
-    plan_version = f"plan:{payload.get('entry')}:{payload.get('stop')}:{payload.get('target')}"
+    from ops.entitlements import ELIGIBILITY_NOTE, is_feed_derived
+    feed = is_feed_derived(result) or is_feed_derived(payload)
+    if feed:
+        plan_version = f"eligibility:{opportunity_id}"
+    else:
+        plan_version = f"plan:{payload.get('entry')}:{payload.get('stop')}:{payload.get('target')}"
     market_evaluation_id = f"mkt:{symbol}:{interval}:{anchor}:{result.get('version') or result.get('strategy')}"
     account_decision_id = f"acct:{user_id}:{opportunity_id}:{plan_version}"
     event_id = f"evt:{account_decision_id}:active"
     card_id = notice_id(kind, opportunity_id)
     existing = find_open_opportunity(user_id, opportunity_id) if kind == "experimental" else None
     if existing:
-        appended = append_event(user_id, existing.get("opportunity_id"), {
-            "id": f"evt:{existing.get('opportunity_id')}:reevaluated:{plan_version}",
+        event = {
+            "id": f"evt:{existing.get('opportunity_id')}:reevaluated:{result.get('snapshot_id') or 'again'}",
             "state": "reevaluated",
-            "note": "A later reading of this same originating setup was recorded. The original entry, stop and target were not rewritten.",
+            "note": "A later reading of this same originating setup was recorded. Market levels were not written." if feed else "A later reading of this same originating setup was recorded. The original entry, stop and target were not rewritten.",
             "created_ms": result.get("requested_ms"),
             "market_evaluation_id": market_evaluation_id,
-            "observed_entry": payload.get("entry"),
-            "observed_stop": payload.get("stop"),
-            "observed_target": payload.get("target"),
-        })
+        }
+        if not feed:
+            event["observed_entry"] = payload.get("entry")
+            event["observed_stop"] = payload.get("stop")
+            event["observed_target"] = payload.get("target")
+        appended = append_event(user_id, existing.get("opportunity_id"), event)
         return {
             "stored": False,
             "duplicate": True,
@@ -467,13 +474,13 @@ def deliver_evaluation(user_id, user, result):
         "version": result.get("strategy"),
         "state": "APPROVED_SIGNAL" if kind == "official" else side,
         "decision": side,
-        "message": payload.get("reason") or result.get("reason"),
-        "entry": payload.get("entry"),
-        "stop": payload.get("stop"),
-        "target": payload.get("target"),
-        "invalidation": result.get("invalidation"),
-        "size": payload.get("size"),
-        "reference_price": result.get("reference_price"),
+        "message": ELIGIBILITY_NOTE if feed else (payload.get("reason") or result.get("reason")),
+        "entry": None if feed else payload.get("entry"),
+        "stop": None if feed else payload.get("stop"),
+        "target": None if feed else payload.get("target"),
+        "invalidation": "Not stored. Paper ledger persistence is unverified." if feed else result.get("invalidation"),
+        "size": None if feed else payload.get("size"),
+        "reference_price": None if feed else result.get("reference_price"),
         "fresh": result.get("fresh"),
         "validation_status": result.get("validation_status"),
         "approved": False if kind != "official" else True,
@@ -486,6 +493,13 @@ def deliver_evaluation(user_id, user, result):
         "event_id": event_id,
         "family": family,
         "direction": direction,
+        "source_id": result.get("source_id"),
+        "provider": result.get("provider") or result.get("source_name"),
+        "source_name": result.get("source_name"),
+        "levels_persisted": False if feed else None,
+        "persistence_capability": "paper_ledger_persistence" if feed else None,
+        "persistence_state": "unverified" if feed else None,
+        "explanation": ELIGIBILITY_NOTE if feed else None,
     }, registry=load_promotions() if kind == "official" else None)
     return {
         "stored": bool(saved.get("stored")),
@@ -528,20 +542,25 @@ def record_desk_plan(user_id, user, result):
     opportunity_id = opportunity_identity(symbol, interval, family, decision, anchor)
     if opportunity_id is None:
         return {"stored": False, "duplicate": False, "reason": "incomplete", "order_opened": False}
-    plan_version = f"plan:{entry}:{stop}:{target}"
+    plan_version_prices = f"plan:{entry}:{stop}:{target}"
+    from ops.entitlements import ELIGIBILITY_NOTE, is_feed_derived
+    feed = is_feed_derived(result)
+    plan_version = f"eligibility:{result.get('snapshot_id') or opportunity_id}" if feed else plan_version_prices
     existing = find_open_opportunity(user_id, opportunity_id)
     if existing:
-        appended = append_event(user_id, existing.get("opportunity_id"), {
-            "id": f"evt:{existing.get('opportunity_id')}:reviewed:{result.get('snapshot_id') or plan_version}",
+        event = {
+            "id": f"evt:{existing.get('opportunity_id')}:reviewed:{result.get('snapshot_id') or 'again'}",
             "state": "reviewed",
-            "note": "The account reviewed this plan again. The original entry, stop and target were not rewritten.",
+            "note": "The account reviewed this plan again. Market levels were not written." if feed else "The account reviewed this plan again. The original entry, stop and target were not rewritten.",
             "created_ms": result.get("reading_at_ms") or int(time.time() * 1000),
             "snapshot_id": result.get("snapshot_id"),
             "reading_version": result.get("reading_version"),
-            "observed_entry": entry,
-            "observed_stop": stop,
-            "observed_target": target,
-        })
+        }
+        if not feed:
+            event["observed_entry"] = entry
+            event["observed_stop"] = stop
+            event["observed_target"] = target
+        appended = append_event(user_id, existing.get("opportunity_id"), event)
         return {
             "stored": False,
             "duplicate": True,
@@ -549,8 +568,11 @@ def record_desk_plan(user_id, user, result):
             "opportunity_id": existing.get("opportunity_id"),
             "appended": appended.get("stored"),
             "order_opened": False,
+            "levels_persisted": False if feed else existing.get("levels_persisted", True),
+            "persistence_capability": "paper_ledger_persistence" if feed else None,
+            "persistence_state": "unverified" if feed else None,
         }
-    explanation = result.get("explanation") or result.get("message") or result.get("reason")
+    explanation = ELIGIBILITY_NOTE if feed else (result.get("explanation") or result.get("message") or result.get("reason"))
     saved = offer(user_id, {
         "id": notice_id("experimental", opportunity_id),
         "kind": "experimental",
@@ -561,11 +583,12 @@ def record_desk_plan(user_id, user, result):
         "state": decision,
         "decision": decision,
         "message": explanation,
-        "entry": entry,
-        "stop": stop,
-        "target": target,
-        "invalidation": result.get("invalidation"),
-        "reference_price": result.get("reference_price") if result.get("reference_price") is not None else result.get("price"),
+        "entry": None if feed else entry,
+        "stop": None if feed else stop,
+        "target": None if feed else target,
+        "invalidation": "Not stored. Paper ledger persistence is unverified." if feed else result.get("invalidation"),
+        "reference_price": None if feed else (result.get("reference_price") if result.get("reference_price") is not None else result.get("price")),
+        "size": None if feed else result.get("size"),
         "fresh": True,
         "validation_status": result.get("validation_status") or "FAIL",
         "approved": False,
@@ -582,8 +605,13 @@ def record_desk_plan(user_id, user, result):
         "reading_version": result.get("reading_version"),
         "source_id": result.get("source_id"),
         "provider": result.get("provider"),
+        "source_name": result.get("source_name"),
+        "provenance": result.get("provenance"),
         "explanation": explanation,
         "candle_open_ms": result.get("candle_open_ms"),
+        "levels_persisted": False if feed else True,
+        "persistence_capability": "paper_ledger_persistence" if feed else None,
+        "persistence_state": "unverified" if feed else None,
     })
     return {
         "stored": bool(saved.get("stored")),
@@ -591,4 +619,60 @@ def record_desk_plan(user_id, user, result):
         "reason": saved.get("reason") or ("stored" if saved.get("stored") else "refused"),
         "opportunity_id": opportunity_id if saved.get("stored") or saved.get("duplicate") else None,
         "order_opened": False,
+        "levels_persisted": False if feed else True,
+        "persistence_capability": "paper_ledger_persistence" if feed else None,
+        "persistence_state": "unverified" if feed else None,
+    }
+
+
+def build_user_plan(card, body):
+    """Levels typed by the account. They are refused when they copy the feed plan."""
+    from ops.entitlements import matches_feed_levels
+
+    card = card or {}
+    body = body or {}
+    decision = body.get("decision") or body.get("side")
+    if decision not in {"BUY", "SELL"}:
+        return {"ok": False, "reason": "not_a_plan"}
+    try:
+        entry = float(body["entry"])
+        stop = float(body["stop"])
+        target = float(body["target"])
+    except (TypeError, ValueError, KeyError):
+        return {"ok": False, "reason": "incomplete"}
+    if matches_feed_levels(card, entry, stop, target):
+        return {"ok": False, "reason": "feed_copy", "order_opened": False, "levels_persisted": False}
+    symbol = card.get("symbol") or card.get("instrument")
+    interval = str(card.get("interval") or card.get("timeframe") or "")
+    return {
+        "ok": True,
+        "plan": {
+            "symbol": symbol,
+            "interval": interval,
+            "decision": decision,
+            "entry": entry,
+            "stop": stop,
+            "target": target,
+            "reading_class": "manual_plan",
+            "manual_paper": True,
+            "approved": False,
+            "autopilot_eligible": False,
+            "quality": "ok",
+            "source_id": "user_authored",
+            "provider": "account",
+            "source_name": "account",
+            "provenance": "user_authored",
+            "authored_by": "account",
+            "snapshot_id": card.get("snapshot_id"),
+            "reading_version": card.get("reading_version"),
+            "bar_close_ms": card.get("bar_close_ms") or card.get("candle_close_ms"),
+            "candle_open_ms": card.get("candle_open_ms"),
+            "strategy": "account-authored",
+            "rule": "account-authored",
+            "explanation": "The account supplied these levels. They were not taken from the market feed.",
+            "invalidation": "The account's own stop. This is not a market-system plan.",
+            "reference_price": None,
+            "validation_status": "FAIL",
+            "fresh": True,
+        },
     }

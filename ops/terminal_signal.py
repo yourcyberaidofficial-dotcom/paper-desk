@@ -124,9 +124,20 @@ def _levels(setup, price):
 
 
 def _finish_gold(reading, base, live_quote, preface):
-    """0.08 percent is wider than the Swissquote spread and the usual gap between two spot feeds, and tighter than the Yahoo chart gap."""
+    """0.08 percent stays the comparison limit for a future authorised quote.
+
+    A missing quote does not count as aligned, and it does not count as passed.
+    """
     note = preface
-    if live_quote and live_quote.get("ok") and live_quote.get("bid") is not None and live_quote.get("ask") is not None:
+    quote_ok = bool(
+        live_quote
+        and live_quote.get("ok")
+        and live_quote.get("bid") is not None
+        and live_quote.get("ask") is not None
+    )
+    reading["quote_threshold"] = 0.0008
+    reading["compared_bar_close_ms"] = base.get("bar_close_ms")
+    if quote_ok:
         mid = (float(live_quote["bid"]) + float(live_quote["ask"])) / 2
         close = float(base.get("reference_price") or 0)
         gap = abs(close - mid) / mid if mid else 0
@@ -137,19 +148,20 @@ def _finish_gold(reading, base, live_quote, preface):
             note += f" They differ by {gap * 100:.2f} percent, above the 0.08 percent limit, so they are not treated as one price."
         else:
             note += f" They differ by {gap * 100:.2f} percent, inside the 0.08 percent spot tolerance."
-        reading["quote_gap"] = gap
         reading["quote_time_ms"] = live_quote.get("timestamp_ms")
+        if reading.get("quote_alignment") == "diverged":
+            sample_at = base.get("bar_close_ms")
+            quote_at = live_quote.get("timestamp_ms")
+            note += f" Spot sample close time {sample_at}. Separate quote time {quote_at}. The comparison limit stays 0.08 percent."
     else:
-        note += " No fresh executable quote was attached, so any level is indicative."
-    reading["quote_threshold"] = 0.0008
-    reading["compared_bar_close_ms"] = base.get("bar_close_ms")
-    if live_quote and live_quote.get("ok") and reading.get("quote_alignment") == "diverged":
-        sample_at = base.get("bar_close_ms")
-        quote_at = live_quote.get("timestamp_ms")
-        note += f" Spot sample close time {sample_at}. Separate quote time {quote_at}. The comparison limit stays 0.08 percent."
+        reading["quote_alignment"] = None
+        reading["quote_gap"] = None
+        reading["runtime_status"] = "reference_quote_unavailable"
+        note += " Reference quote unavailable. The 0.08 percent comparison was not run and did not pass."
     reading["reason"] = note + " " + (reading.get("reason") or "")
     reading["live_quote"] = live_quote
-    if reading.get("quote_alignment") == "diverged":
+    withhold = reading.get("quote_alignment") == "diverged" or reading.get("runtime_status") == "reference_quote_unavailable"
+    if withhold and reading.get("decision") in {"BUY", "SELL"}:
         reading["research_levels"] = {
             "entry": reading.get("entry"),
             "stop": reading.get("stop"),
@@ -158,13 +170,13 @@ def _finish_gold(reading, base, live_quote, preface):
             "watch_entry": reading.get("watch_entry"),
             "watch_stop": reading.get("watch_stop"),
             "watch_target": reading.get("watch_target"),
-            "side": reading.get("decision") if reading.get("decision") in {"BUY", "SELL"} else reading.get("technical_side"),
+            "side": reading.get("decision"),
             "audit_only": True,
         }
-        if reading.get("decision") in {"BUY", "SELL"}:
-            reading["technical_side"] = reading["decision"]
+        reading["technical_side"] = reading["decision"]
         reading["decision"] = "WAIT"
-        reading["runtime_status"] = "quote_divergence"
+        if reading.get("runtime_status") != "reference_quote_unavailable":
+            reading["runtime_status"] = "quote_divergence"
         reading["entry"] = None
         reading["stop"] = None
         reading["target"] = None
@@ -173,8 +185,13 @@ def _finish_gold(reading, base, live_quote, preface):
         reading["watch_stop"] = None
         reading["watch_target"] = None
         reading["eligible_for_alert"] = False
-        reading["size"] = {"ok": False, "reason": "quote_divergence", "order": False, "quantity_orderable": False, "budget_ok": False}
-        reading["reason"] += " The prices disagree, so this technical idea is not an actionable entry and is not sent as a trade. Entry, stop and target are withheld."
+        reading["size"] = {"ok": False, "reason": reading.get("runtime_status"), "order": False, "quantity_orderable": False, "budget_ok": False}
+        if reading.get("runtime_status") == "reference_quote_unavailable":
+            reading["reason"] += " No independent quote was available, so this is not an actionable entry. Entry, stop and target are withheld."
+        else:
+            reading["reason"] += " The prices disagree, so this technical idea is not an actionable entry and is not sent as a trade. Entry, stop and target are withheld."
+    elif reading.get("quote_alignment") == "diverged":
+        reading["runtime_status"] = "quote_divergence"
     return reading
 
 
@@ -192,6 +209,8 @@ def decide(symbol, interval, strategy, bars, now_ms, user, prior=None, live_quot
         result["decision_label"] = "SELL · Short idea"
     elif result.get("runtime_status") == "quote_divergence" and not result.get("blocked"):
         result["decision_label"] = "QUOTE DIVERGENCE"
+    elif result.get("runtime_status") == "reference_quote_unavailable" and not result.get("blocked"):
+        result["decision_label"] = "WAIT"
     elif result.get("runtime_status") == "watch" and not result.get("blocked"):
         result["decision_label"] = "WATCH"
     return result
@@ -261,6 +280,16 @@ def _evaluate(symbol, interval, strategy, bars, now_ms, user, prior=None, live_q
         "quote": last.get("quote_semantics"),
         "fresh": fresh,
     })
+    provider_source = {
+        "binance-public": "binance_spot_rest_klines",
+        "binance": "binance_spot_rest_klines",
+        "xaus.com": "xaus_public_chart",
+        "swissquote-public-bbo": "swissquote_public_bbo",
+    }
+    if last.get("quote_semantics") == "spot_sample_not_bid_ask":
+        base["source_id"] = "xaus_spot_samples"
+    elif last.get("provider") in provider_source:
+        base["source_id"] = provider_source[last.get("provider")]
     if not fresh:
         return {**base, "decision": "WAIT", "reason": "The latest candle is missing, still forming, or too old to treat as live.", "blocked": "stale_or_incomplete"}
     if symbol == "XAUUSD" and not completed_bid_ask_bar(last):
@@ -517,8 +546,15 @@ def stamp(user_id, result):
     result["user_id"] = user_id
     result["id"] = ":".join(str(result.get(key)) for key in ("symbol", "interval", "strategy", "bar_close_ms", "decision"))
     result["requested_ms"] = int(time.time() * 1000)
-    saved = save_result(user_id, result)
+    from ops.entitlements import is_feed_derived, scrub_levels
+
+    stored = scrub_levels(result) if is_feed_derived(result) else dict(result)
+    stored["id"] = result["id"]
+    stored["user_id"] = result["user_id"]
+    stored["requested_ms"] = result["requested_ms"]
+    saved = save_result(user_id, stored)
     result["duplicate"] = saved.get("duplicate", False)
+    result["levels_persisted"] = False if is_feed_derived(result) else True
     return result
 
 

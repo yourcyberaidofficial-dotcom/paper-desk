@@ -1,9 +1,12 @@
-"""Live XAUUSD quotes. A bid/ask snapshot is not turned into a candle."""
+"""Gold reference quotes.
 
-import json
-import urllib.request
+parse_swissquote remains a pure parser for fixtures. swissquote_xau does not
+open a socket. XAUS spot, chart, and samples are not a bid/ask.
+"""
+
 from datetime import datetime, timezone
 
+# Documented only. No production path passes this URL to urllib.
 URL = "https://forex-data-feed.swissquote.com/public-quotes/bboquotes/instrument/XAU/USD"
 
 
@@ -37,32 +40,29 @@ def parse_swissquote(payload, now_ms):
     }
 
 
-def swissquote_xau(now_ms=None):
-    now_ms = int(now_ms if now_ms is not None else datetime.now(timezone.utc).timestamp() * 1000)
-    from ops.data_rights import network_block
+def reference_quote_unavailable(now_ms=None):
+    """No independent authorised quote is configured. Bid and ask stay empty."""
+    return {
+        "ok": False,
+        "reason": "reference_quote_unavailable",
+        "bid": None,
+        "ask": None,
+        "spread": None,
+        "timestamp_ms": None,
+        "not_a_candle": True,
+        "rights_status": "restricted",
+        "source_reachable": "not_checked",
+        "quote_semantics": "independent_reference_unavailable",
+        "provider": None,
+        "credential": None,
+        "requested_ms": now_ms,
+        "quote_threshold": 0.0008,
+    }
 
-    blocked = network_block("swissquote_public_bbo", "connection")
-    if blocked:
-        return {
-            "ok": False,
-            "bid": None,
-            "ask": None,
-            "reason": "commercial_use_unverified",
-            "rights_status": blocked.get("rights_status"),
-            "message": blocked.get("message"),
-            "quote_semantics": "bid_ask_snapshot",
-            "source_reachable": "not_checked",
-            "feed_freshness": "not_applicable",
-            "credential": None,
-            "not_a_candle": True,
-        }
-    request = urllib.request.Request(URL, headers={"User-Agent": "aureon-paper-desk"})
-    try:
-        with urllib.request.urlopen(request, timeout=15) as response:
-            payload = json.loads(response.read().decode())
-    except Exception as exc:
-        return {"ok": False, "reason": type(exc).__name__, "quote_semantics": "bid_ask_snapshot", "credential": None}
-    return parse_swissquote(payload, now_ms)
+
+def swissquote_xau(now_ms=None):
+    """Closed. Kept so an old caller cannot reach the public BBO URL."""
+    return reference_quote_unavailable(now_ms)
 
 
 def snapshot_reason(quote):
