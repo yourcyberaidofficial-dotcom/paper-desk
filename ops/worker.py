@@ -281,6 +281,15 @@ class Worker:
         interval = window.get("interval")
         bars = window.get("bars") or []
         delivered = 0
+        if symbol == "XAUUSD" and interval in {"1m", "3m"}:
+            evaluations.append({
+                "symbol": symbol,
+                "interval": interval,
+                "decision": "UNAVAILABLE",
+                "blocked": "xau_minute_unlicensed",
+                "reason": "xau_minute_unlicensed",
+            })
+            return 0
         if not bars:
             evaluations.append({"symbol": symbol, "interval": interval, "decision": "DATA BLOCK", "reason": window.get("reason") or "missing_bars"})
             return 0
@@ -335,11 +344,13 @@ class Worker:
         windows = []
         for symbol, interval in COVERAGE:
             if symbol == "XAUUSD" and interval in {"1m", "3m"}:
-                gold = load_gold_ohlc(interval, now_ms)
-                if isinstance(gold, tuple):
-                    windows.append({"symbol": symbol, "interval": interval, "bars": [], "reason": gold[1]})
-                else:
-                    windows.append({"symbol": symbol, "interval": interval, "bars": gold or [], "reason": None if gold else "dukascopy_unavailable"})
+                windows.append({
+                    "symbol": symbol,
+                    "interval": interval,
+                    "bars": [],
+                    "reason": "xau_minute_unlicensed",
+                    "blocked": "xau_minute_unlicensed",
+                })
                 continue
             if symbol == "XAUUSD":
                 gold = load_gold_ohlc(interval, now_ms)

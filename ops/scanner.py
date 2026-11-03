@@ -21,6 +21,17 @@ PLAIN = {
     "no_executable_levels": "The rule matched, but a stop and target could not be placed.",
 }
 
+QUOTE_LABELS = {
+    "last_trade": "Last completed candle close",
+    "spot_sample_not_bid_ask": "Indicative gold price",
+    "ohlc_not_bid_ask": "Chart price, not a bid and ask",
+    "dukascopy_xauusd_bid_ask": "Gold bid and ask",
+    "missing_quote": "Quote unavailable",
+    "missing_bid_ask": "Quote available, candle unavailable",
+    "snapshot_not_candle": "Quote available, candle unavailable",
+    "sample_is_5m": "Source is not a completed candle",
+}
+
 
 def _when(ms):
     if not isinstance(ms, (int, float)) or ms <= 0:
@@ -65,6 +76,7 @@ def present_window(window, now_ms):
         "approved": False,
         "production": "WAIT_DEFAULT",
         "alert": "unavailable",
+        "quote_label": QUOTE_LABELS.get(window.get("quote_semantics") or "", None),
     }
     if symbol == "XAUUSD":
         quote = window.get("quote_semantics") or (last.get("quote_semantics") if last else None) or "missing_quote"
@@ -178,6 +190,7 @@ def _shared_reading(symbol, interval, bars, now_ms, price, live_quote=None):
         "version": evaluation.get("version"),
         "runtime_status": evaluation.get("runtime_status"),
         "message": evaluation.get("reason") or "No qualifying setup yet.",
+        "diagnostic": evaluation.get("reason") or "",
         "approved": False,
         "eligible_for_alert": False,
         "evaluated": True,
@@ -185,16 +198,54 @@ def _shared_reading(symbol, interval, bars, now_ms, price, live_quote=None):
         "evidence_label": "not a probability of profit",
         "price": evaluation.get("reference_price") if evaluation.get("reference_price") is not None else price,
         "direction": evaluation.get("decision") or "WAIT",
+        "quote_gap": evaluation.get("quote_gap"),
+        "quote_threshold": evaluation.get("quote_threshold"),
+        "quote_time_ms": evaluation.get("quote_time_ms"),
+        "compared_bar_close_ms": evaluation.get("compared_bar_close_ms") or evaluation.get("bar_close_ms"),
+        "bar_close_ms": evaluation.get("bar_close_ms"),
+        "source_name": evaluation.get("source_name"),
+        "blocked": evaluation.get("blocked"),
+        "quote_label": QUOTE_LABELS.get(evaluation.get("quote") or "", None),
     }
+    if evaluation.get("blocked") == "xau_minute_unlicensed":
+        card.update(
+            status="unavailable",
+            state="DATA_UNAVAILABLE",
+            scanner_state="BLOCKED",
+            decision="WAIT",
+            decision_label="UNAVAILABLE",
+            entry=None,
+            stop=None,
+            target=None,
+            message="Licensed spot minute data is unavailable. No 1-minute or 3-minute plan is calculated.",
+        )
+        return card
+    if evaluation.get("runtime_status") == "quote_divergence":
+        gap = evaluation.get("quote_gap")
+        shown = f"{float(gap) * 100:.2f}" if isinstance(gap, (int, float)) else "more than 0.08"
+        card.update(
+            status="unavailable",
+            state="DATA_UNAVAILABLE",
+            scanner_state="QUOTE_DIVERGENCE",
+            decision="WAIT",
+            decision_label="QUOTE DIVERGENCE",
+            entry=None,
+            stop=None,
+            target=None,
+            reward_risk=None,
+            eligible_for_alert=False,
+            message=f"The spot sample and the separate quote differ by {shown} percent. The limit is 0.08 percent, so entry, stop and target are withheld.",
+        )
+        return card
     if evaluation.get("blocked"):
-        card.update(status="unavailable", state="DATA_UNAVAILABLE", scanner_state="BLOCKED")
+        card.update(status="unavailable", state="DATA_UNAVAILABLE", scanner_state="BLOCKED", entry=None, stop=None, target=None)
         return card
     if evaluation.get("decision") in {"BUY", "SELL"} and evaluation.get("entry") is not None and evaluation.get("runtime_status") == "experimental":
         card.update(
             status="scanning",
             state="PAPER_CANDIDATE",
             scanner_state="EXPERIMENTAL",
-            direction="BUY",
+            direction=evaluation.get("decision") or "WAIT",
             evidence_label="experimental plan, not a probability of profit",
         )
         return card

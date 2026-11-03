@@ -25,6 +25,49 @@ def default_state():
     }
 
 
+def presentation(state, worker_healthy, open_positions=None):
+    """One account-facing label. Stored status is unchanged and is not shown as Running."""
+    status = (state or {}).get("status") or "off"
+    enabled = bool((state or {}).get("enabled")) and status != "off"
+    updated = (state or {}).get("updated_ms")
+
+    def pack(facing, entries, note, kind):
+        return {
+            "facing": facing,
+            "entries_available": entries,
+            "facing_note": note,
+            "state_kind": kind,
+            "updated_ms": updated,
+        }
+
+    if not enabled:
+        return pack("Disabled", False, "Permission is not active. New automated entries are blocked.", "disabled")
+    if status == "paused":
+        return pack("Paused", False, "New entries are blocked. Open paper positions stay open and are not closed.", "paused")
+    if status == "stopped":
+        return pack("Emergency stop", False, "New entries are blocked. Open paper positions are not closed.", "stopped")
+    if worker_healthy is not True:
+        return pack(
+            "Health not confirmed",
+            False,
+            "Automation is enabled, but worker health is not confirmed. New entries are not treated as available.",
+            "unhealthy",
+        )
+    if open_positions == 0:
+        return pack(
+            "Waiting",
+            True,
+            "Automation is enabled and the worker heartbeat is current. No qualifying paper opportunity is open. Nothing is entered until a plan passes every check.",
+            "waiting",
+        )
+    return pack(
+        "Enabled",
+        True,
+        "Automation is enabled and the worker heartbeat is current. Open paper positions stay monitored. A new plan is opened only when it qualifies.",
+        "enabled",
+    )
+
+
 def view(user):
     raw = (user or {}).get("autopilot") if isinstance((user or {}).get("autopilot"), dict) else {}
     state = default_state()
@@ -35,7 +78,7 @@ def view(user):
     state["accepts_new_entries"] = state["enabled"] and state["status"] == "running"
     state["paper_only"] = True
     state["broker"] = False
-    state["note"] = "AutoPilot can open a paper trade only while it is running. Pause and emergency stop block new entries. They do not close an open paper position."
+    state["note"] = "AutoPilot can open a paper trade only while this account has enabled it and the worker heartbeat is current. Pause and emergency stop block new entries. They do not close an open paper position."
     return state
 
 
@@ -140,6 +183,9 @@ def consider(user, result, now_ms, opportunity_id=None):
     if not state["accepts_new_entries"]:
         return {"attempted": False, "reason": state["status"]}
     decision = result.get("decision")
+    if result.get("runtime_status") == "quote_divergence":
+        note(user_id, now_ms, opportunity_id, rejection="quote_divergence")
+        return {"attempted": True, "ok": False, "reason": "quote_divergence"}
     if result.get("blocked") or decision not in {"BUY", "SELL"} or result.get("entry") is None:
         reason = result.get("blocked") or "not_a_plan"
         note(user_id, now_ms, opportunity_id, rejection=reason)

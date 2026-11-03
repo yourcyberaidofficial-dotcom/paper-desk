@@ -47,17 +47,13 @@ def load_crypto_bars(symbol, interval, now_ms):
 
 
 def load_gold_ohlc(interval, now_ms):
+    if interval in {"1m", "3m"}:
+        return (None, "xau_minute_unlicensed")
     key = ("XAUUSD", interval)
     cached = _BAR_CACHE.get(key)
     if cached and now_ms - cached[0] < 30_000:
         return cached[1]
     from ops.feeds import xaus_chart, xaus_spot_bars
-    if interval in {"1m", "3m"}:
-        from ops.xau_pull import recent_gold_bars
-        loaded = recent_gold_bars(interval, now_ms, timeout=8)
-        bars = loaded.get("bars") or []
-        _BAR_CACHE[key] = (now_ms, bars if bars else (None, loaded.get("reason") or "dukascopy_unavailable"))
-        return _BAR_CACHE[key][1]
     loaded = xaus_spot_bars(interval, now_ms=now_ms, timeout=8, attempts=1) if interval in {"15m", "1h"} else {"bars": []}
     bars = loaded.get("bars") or [] if isinstance(loaded, dict) else []
     if interval == "15m" or len(bars) >= 24:
@@ -89,11 +85,18 @@ def handle_signal(user_id, body, now_ms=None, bars_loader=None, quote_loader=Non
             "approved": False,
             "fresh": False,
             "reference_price": None,
+            "entry": None,
+            "stop": None,
+            "target": None,
             "blocked": "xau_minute_unlicensed",
+            "blockers": ["xau_minute_unlicensed"],
+            "decision_label": "UNAVAILABLE",
+            "runtime_status": "xau_minute_unlicensed",
             "validation_status": "BLOCKED",
             "delivered": False,
             "filled": False,
             "order": False,
+            "size": {"ok": False, "reason": "xau_minute_unlicensed", "order": False, "quantity_orderable": False, "budget_ok": False},
         })
     live_quote = None
     if symbol == "XAUUSD":
@@ -114,20 +117,28 @@ def handle_signal(user_id, body, now_ms=None, bars_loader=None, quote_loader=Non
             detail = bars[1]
             bars = []
         if interval in {"1m", "3m"} and not bars:
-            why = f" Dukascopy said {detail}." if detail else ""
             return 200, attach_request(body, {
                 "decision": "WAIT",
+                "decision_label": "UNAVAILABLE",
                 "symbol": symbol,
                 "interval": interval,
-                "strategy": strategy,
-                "reason": "No complete Dukascopy one-minute bid and ask was available." + why + " A 1-minute or 3-minute candle was not invented from the five-minute spot sample.",
+                "strategy": "xau-minute-unlicensed",
+                "version": "xau-minute-unlicensed",
+                "reason": "XAUUSD 1-minute and 3-minute plans stay off until a licensed spot feed is confirmed. A candle was not invented from a five-minute sample, and the 1-hour London rule was not used.",
                 "approved": False,
                 "fresh": False,
                 "reference_price": None,
-                "blocked": "dukascopy_unavailable",
+                "entry": None,
+                "stop": None,
+                "target": None,
+                "blocked": "xau_minute_unlicensed",
+                "blockers": ["xau_minute_unlicensed"],
+                "runtime_status": "xau_minute_unlicensed",
+                "validation_status": "BLOCKED",
                 "delivered": False,
                 "filled": False,
                 "order": False,
+                "size": {"ok": False, "reason": "xau_minute_unlicensed", "order": False, "quantity_orderable": False, "budget_ok": False},
             })
     else:
         bars = (bars_loader or load_crypto_bars)(symbol, interval, now_ms)

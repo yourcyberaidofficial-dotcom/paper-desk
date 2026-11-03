@@ -172,7 +172,10 @@ def test_gold_spot_ohlc_is_read_and_london_is_not(now=None):
     if diverged.get("technical_side") in {"BUY", "SELL"}:
         assert diverged["decision"] == "WAIT"
         assert diverged["decision_label"] == "QUOTE DIVERGENCE"
-        assert diverged["entry"] is not None
+        assert diverged["entry"] is None
+        assert diverged["stop"] is None
+        assert diverged["target"] is None
+        assert diverged["research_levels"]["audit_only"] is True
         assert diverged["size"]["order"] is False
 
 
@@ -240,6 +243,8 @@ def test_an_aligned_spot_sample_short_keeps_its_plan():
     held = decide("XAUUSD", "1h", "auto", bars, now, _user(), live_quote=far)
     assert held["decision_label"] == "QUOTE DIVERGENCE"
     assert held["decision"] == "WAIT"
+    assert held["entry"] is None
+    assert held["research_levels"]["stop"] > held["research_levels"]["entry"] > held["research_levels"]["target"]
 
 
 def test_gold_chart_and_quote_are_not_forced_into_one_price():
@@ -271,7 +276,10 @@ def test_a_divergent_gold_quote_is_not_an_inbox_trade():
     assert result["decision_label"] == "QUOTE DIVERGENCE"
     assert result["decision"] == "WAIT"
     assert result["technical_side"] == "SELL"
-    assert result["stop"] > result["entry"] > result["target"]
+    assert result["entry"] is None
+    assert result["stop"] is None
+    assert result["target"] is None
+    assert result["research_levels"]["stop"] > result["research_levels"]["entry"] > result["research_levels"]["target"]
     assert result["approved"] is False
     from ops.inbox import deliver_evaluation
     delivery = deliver_evaluation("nobody", {"inbox_delivery": {"experimental": True, "sell": True, "wait_notices": False}}, result)

@@ -134,19 +134,47 @@ def _finish_gold(reading, base, live_quote, preface):
         reading["quote_gap"] = gap
         note += f" A separate quote is bid {live_quote.get('bid')} ask {live_quote.get('ask')}."
         if reading["quote_alignment"] == "diverged":
-            note += f" They differ by {gap * 100:.2f} percent, so they are not treated as one price."
+            note += f" They differ by {gap * 100:.2f} percent, above the 0.08 percent limit, so they are not treated as one price."
         else:
-            note += f" They differ by {gap * 100:.2f} percent, inside the spot tolerance."
+            note += f" They differ by {gap * 100:.2f} percent, inside the 0.08 percent spot tolerance."
+        reading["quote_gap"] = gap
+        reading["quote_time_ms"] = live_quote.get("timestamp_ms")
     else:
         note += " No fresh executable quote was attached, so any level is indicative."
+    reading["quote_threshold"] = 0.0008
+    reading["compared_bar_close_ms"] = base.get("bar_close_ms")
+    if live_quote and live_quote.get("ok") and reading.get("quote_alignment") == "diverged":
+        sample_at = base.get("bar_close_ms")
+        quote_at = live_quote.get("timestamp_ms")
+        note += f" Spot sample close time {sample_at}. Separate quote time {quote_at}. The comparison limit stays 0.08 percent."
     reading["reason"] = note + " " + (reading.get("reason") or "")
     reading["live_quote"] = live_quote
-    if reading.get("quote_alignment") == "diverged" and reading.get("decision") in {"BUY", "SELL"}:
-        reading["technical_side"] = reading["decision"]
+    if reading.get("quote_alignment") == "diverged":
+        reading["research_levels"] = {
+            "entry": reading.get("entry"),
+            "stop": reading.get("stop"),
+            "target": reading.get("target"),
+            "reward_risk": reading.get("reward_risk"),
+            "watch_entry": reading.get("watch_entry"),
+            "watch_stop": reading.get("watch_stop"),
+            "watch_target": reading.get("watch_target"),
+            "side": reading.get("decision") if reading.get("decision") in {"BUY", "SELL"} else reading.get("technical_side"),
+            "audit_only": True,
+        }
+        if reading.get("decision") in {"BUY", "SELL"}:
+            reading["technical_side"] = reading["decision"]
         reading["decision"] = "WAIT"
         reading["runtime_status"] = "quote_divergence"
-        reading["size"] = {"ok": False, "reason": "quote_divergence", "order": False}
-        reading["reason"] += " The prices disagree, so this technical idea is not an actionable entry and is not sent as a trade."
+        reading["entry"] = None
+        reading["stop"] = None
+        reading["target"] = None
+        reading["reward_risk"] = None
+        reading["watch_entry"] = None
+        reading["watch_stop"] = None
+        reading["watch_target"] = None
+        reading["eligible_for_alert"] = False
+        reading["size"] = {"ok": False, "reason": "quote_divergence", "order": False, "quantity_orderable": False, "budget_ok": False}
+        reading["reason"] += " The prices disagree, so this technical idea is not an actionable entry and is not sent as a trade. Entry, stop and target are withheld."
     return reading
 
 
@@ -194,6 +222,7 @@ def _evaluate(symbol, interval, strategy, bars, now_ms, user, prior=None, live_q
             "decision": "WAIT",
             "reason": "XAUUSD 1-minute and 3-minute plans stay off until a licensed spot feed is confirmed. These bars were not turned into an entry, stop or target.",
             "blocked": "xau_minute_unlicensed",
+            "blockers": ["xau_minute_unlicensed"],
             "entry": None,
             "stop": None,
             "target": None,

@@ -250,6 +250,40 @@ def items(user_id):
     return list(reversed(rows))
 
 
+def notice_view(item, now_ms):
+    """Display fields only. The stored notice is not rewritten."""
+    row = dict(item or {})
+    created = row.get("created_ms")
+    if isinstance(created, (int, float)):
+        age = max(0, int(now_ms) - int(created))
+        row["age_ms"] = age
+        if age >= 3 * 86400000:
+            row["freshness"] = "historical"
+            row["age_label"] = f"{age // 86400000} days ago"
+        elif age >= 86400000:
+            row["freshness"] = "stale"
+            row["age_label"] = "1 day ago" if age < 2 * 86400000 else f"{age // 86400000} days ago"
+        else:
+            hours = age // 3600000
+            row["freshness"] = "current"
+            row["age_label"] = "just now" if hours < 1 else f"{hours} hours ago"
+    else:
+        row["freshness"] = "unknown"
+        row["age_label"] = "time unknown"
+    row["read_state"] = "read" if row.get("read") else "unread"
+    decision = row.get("decision")
+    if row.get("blocked") == "xau_minute_unlicensed" or row.get("validation_status") == "BLOCKED":
+        row["notice_class"] = "blocked research observation"
+    elif decision == "WAIT":
+        row["notice_class"] = "WAIT notification"
+    elif decision in {"BUY", "SELL"} and not row.get("approved"):
+        row["notice_class"] = "research observation"
+    else:
+        row["notice_class"] = "inbox notice"
+    row["paper_order"] = False
+    return row
+
+
 def unread_count(user_id):
     return sum(1 for row in items(user_id) if not row.get("read"))
 
