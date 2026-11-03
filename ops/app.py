@@ -1540,75 +1540,87 @@ DASHBOARD = """<!doctype html>
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Aureon Trading Lab</title>
 <style>
-:root{--bg:#070b12;--panel:#101826;--panel2:#0d1420;--line:#1d2a3d;--text:#eef3fb;--muted:#8ea0b8;--blue:#3dbebf;--ok:#2fce8b;--bad:#ff5d6c;--warn:#e0b15a}
+:root{--bg:#07090d;--panel:#12161d;--line:#242b36;--text:#f4f7fb;--muted:#93a0b4;--teal:#2dd4bf;--ok:#3dd68c;--bad:#ff6b7a;--warn:#e7b85a}
 *{box-sizing:border-box}
 body{margin:0;font-family:Inter,system-ui,-apple-system,Segoe UI,sans-serif;background:var(--bg);color:var(--text)}
-.shell{display:grid;grid-template-columns:230px 1fr;min-height:100vh}
-aside{background:#0b1220;border-right:1px solid var(--line);padding:16px 12px}
-.brand{font-weight:700;letter-spacing:.02em;margin-bottom:14px}
-aside a{display:flex;align-items:center;gap:8px;color:var(--muted);text-decoration:none;padding:9px 10px;border-radius:10px;margin:2px 0}
-aside a.active{background:#12363a;color:#fff}
-main{padding:16px}
-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:14px}
-.pills{display:flex;gap:8px;flex-wrap:wrap}
-.pill{background:var(--panel);border:1px solid var(--line);border-radius:999px;padding:6px 10px;color:var(--muted);font-size:.82rem}
-.markets{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin-bottom:12px}
-.card{background:linear-gradient(180deg,#121c2c,#0e1624);border:1px solid var(--line);border-radius:14px;padding:14px}
+.shell{display:grid;grid-template-columns:248px 1fr;min-height:100vh}
+aside{background:#0c1016;border-right:1px solid var(--line);padding:18px 12px 24px}
+.brand{font-weight:750;letter-spacing:-.02em;font-size:1.05rem}
+.navlabel{margin:16px 10px 6px;color:#66758a;font-size:.68rem;letter-spacing:.14em;text-transform:uppercase}
+aside a{display:flex;align-items:center;gap:8px;color:#c5d0de;text-decoration:none;padding:9px 10px;border-radius:10px;margin:2px 0;font-size:.92rem}
+aside a.active{background:#14343a;color:#fff;box-shadow:inset 3px 0 0 var(--teal)}
+main{padding:18px 20px 32px}
+header{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;margin-bottom:16px}
+.pills{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.pill{background:#10151c;border:1px solid var(--line);border-radius:999px;padding:6px 10px;color:var(--muted);font-size:.78rem}
+.markets,.courses{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin-bottom:12px}
+.card{background:linear-gradient(180deg,#161c26,#10151c);border:1px solid var(--line);border-radius:16px;padding:16px}
+.course .bar{height:6px;background:#222a36;border-radius:99px;margin:10px 0}
+.course .bar span{display:block;height:100%;border-radius:99px;background:linear-gradient(90deg,#14b8a6,#3dd68c)}
 .price{font-size:1.7rem;font-weight:700;margin:6px 0}
 .muted{color:var(--muted);font-size:.82rem}
-.row{display:flex;justify-content:space-between;gap:8px;padding:6px 0;border-bottom:1px solid rgba(255,255,255,.04)}
+.row{display:flex;justify-content:space-between;gap:8px;padding:6px 0;border-bottom:1px solid rgba(255,255,255,.05)}
 .long{color:var(--ok)} .short{color:var(--bad)} .wait{color:var(--warn)}
 .workspace{display:grid;grid-template-columns:minmax(0,2fr) minmax(280px,1fr);gap:12px}
-canvas{width:100%;height:320px;background:#0a101a;border-radius:10px;display:block}
+canvas{width:100%;height:320px;background:#0a0e14;border-radius:12px;display:block}
 canvas.spark{height:46px;background:transparent;border-radius:0}
-a{color:#9ae6d5}
+a{color:#99f6e4}
 #view a{text-underline-offset:2px}
-select,button{background:#152033;color:var(--text);border:1px solid var(--line);border-radius:8px;padding:8px 10px}
+select,button{background:#1a222e;color:var(--text);border:1px solid var(--line);border-radius:10px;padding:8px 12px}
+button[data-lesson],#saverule,#auto-on{background:#0f766e;border-color:#0f766e;color:#fff;font-weight:650}
 .fieldrow{display:flex;gap:12px;flex-wrap:wrap;margin-bottom:10px}
 .fieldrow label,.field{display:grid;gap:6px;font-size:.85rem;color:var(--muted)}
 .field{margin:12px 0;max-width:320px}
 .styles label,.checks label{display:flex;gap:10px;align-items:flex-start;margin:8px 0;line-height:1.45}
-.styles label{background:#0b1220;border:1px solid var(--line);border-radius:10px;padding:10px 12px}
-#view input,#view select{background:#0b1220;color:var(--text);border:1px solid var(--line);border-radius:8px;padding:8px 10px}
+.styles label{background:#0b1017;border:1px solid var(--line);border-radius:12px;padding:10px 12px}
+#view input,#view select{background:#0b1017;color:var(--text);border:1px solid var(--line);border-radius:10px;padding:8px 10px}
 #view .field input,#view .field select{width:100%;max-width:320px}
 #view article+article{margin-top:12px}
-main h1{margin:0;font-size:1.55rem}
-#menu{display:none;background:#152033;color:#fff;border:1px solid var(--line);border-radius:8px;padding:8px 12px;margin:10px}
-button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid #9ae6d5;outline-offset:2px}
+main h1{margin:0;font-size:1.6rem;letter-spacing:-.03em}
+#menu{display:none;background:#1a222e;color:#fff;border:1px solid var(--line);border-radius:10px;padding:8px 12px;margin:10px}
+button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid #99f6e4;outline-offset:2px}
 .row{flex-wrap:wrap}
-@media(max-width:900px){.shell{grid-template-columns:1fr}#menu{display:inline-block}aside{display:none;position:fixed;inset:0 auto 0 0;width:min(240px,88vw);z-index:20}aside.open{display:block}.markets,.workspace{grid-template-columns:1fr}button,select{min-height:40px}}
+.tablewrap{overflow:auto;border:1px solid var(--line);border-radius:12px}
+table{width:100%;border-collapse:collapse;font-size:.88rem}
+th,td{text-align:left;padding:10px 12px;border-bottom:1px solid #222a36;white-space:nowrap}
+th{color:#93a0b4;font-weight:600;font-size:.75rem;letter-spacing:.04em;text-transform:uppercase}
+tr:last-child td{border-bottom:0}
+@media(max-width:900px){.shell{grid-template-columns:1fr}#menu{display:inline-block}aside{display:none;position:fixed;inset:0 auto 0 0;width:min(260px,88vw);z-index:20;overflow:auto}aside.open{display:block}.markets,.courses,.workspace{grid-template-columns:1fr}button,select{min-height:40px}}
 </style>
 </head>
 <body>
 <div class="shell">
   <button id="menu" aria-label="Open navigation" aria-expanded="false">☰ Menu</button>
   <aside id="nav">
-    <div class="brand">Aureon Trading Lab</div>
-    <div class="muted" style="margin:-8px 10px 12px">by Cyber Aid</div>
+    <div class="brand">Aureon</div>
+    <div class="muted" style="margin:2px 10px 4px">Trading Lab · Cyber Aid</div>
+    <p class="navlabel">Desk</p>
     <a href="/overview" data-path="/overview">Overview</a>
-    <a href="/scanner" data-path="/scanner">Live Scanner</a>
-    <a href="/trading" data-path="/trading">Trading Terminal</a>
-    <a href="/signals" data-path="/signals">Live Signals</a>
+    <a href="/scanner" data-path="/scanner">Scanner</a>
+    <a href="/trading" data-path="/trading">Terminal</a>
+    <a href="/signals" data-path="/signals">Signals</a>
+    <a href="/portfolio" data-path="/portfolio">Portfolio</a>
+    <a href="/activity" data-path="/activity">Journal</a>
+    <a href="/live" data-path="/live">Activity</a>
+    <p class="navlabel">Learn</p>
     <a href="/learn" data-path="/learn">Academy</a>
     <a href="/lab" data-path="/lab">Trading Lab</a>
-    <a href="/plan" data-path="/plan">My Plan</a>
-    <a href="/notifications" data-path="/notifications">Inbox</a>
     <a href="/strategies" data-path="/strategies">Strategies</a>
-    <a href="/portfolio" data-path="/portfolio">Portfolio</a>
-    <a href="/activity" data-path="/activity">Orders & Trade History</a>
-    <a href="/live" data-path="/live">Live Activities</a>
-    <a href="/research" data-path="/research">Backtesting & Research</a>
-    <a href="/risk" data-path="/risk">Risk Management</a>
-    <a href="/system" data-path="/system">System Status</a>
-    <a href="/settings" data-path="/settings">Account & Settings</a>
+    <a href="/research" data-path="/research">Research</a>
+    <p class="navlabel">Account</p>
+    <a href="/plan" data-path="/plan">My Plan</a>
+    <a href="/risk" data-path="/risk">Risk</a>
+    <a href="/notifications" data-path="/notifications">Inbox</a>
+    <a href="/system" data-path="/system">System</a>
+    <a href="/settings" data-path="/settings">Settings</a>
   </aside>
   <main>
     <header>
       <div>
         <h1 id="title">Overview</h1>
-        <div class="muted">Personalized paper desk. Experimental plans stay unapproved.</div>
+        <div class="muted">Paper desk. A plan is not an order, and a paper result is not a broker fill.</div>
       </div>
-      <div class="pills"><span class="pill">WAIT_DEFAULT</span><span class="pill">Paper only</span><span class="pill">Broker off</span><a href="/notifications" id="inboxlink">Inbox</a><button id="signout" type="button">Sign out</button></div>
+      <div class="pills"><span class="pill" id="autobadge">AutoPilot</span><span class="pill">Paper only</span><span class="pill">Broker off</span><a href="/notifications" id="inboxlink">Inbox</a><button id="signout" type="button">Sign out</button></div>
     </header>
     <section id="view"></section>
   </main>
@@ -1627,6 +1639,11 @@ document.querySelectorAll("aside a").forEach(a => { if (a.dataset.path === path)
 const titles = {"/":"Overview","/signals":"Live Signals","/trading":"Trading Terminal","/strategies":"Strategies","/portfolio":"Portfolio","/risk":"Risk Management","/activity":"Orders & Trade History","/live":"Live Activities","/system":"System Status","/settings":"Account & Settings","/research":"Backtesting & Research","/onboarding":"Account setup","/scanner":"Live Scanner","/learn":"Academy","/indicators":"Academy","/plan":"My Trading Plan","/notifications":"Inbox","/lab":"Trading Lab"};
 document.getElementById("title").textContent = titles[path] || "Aureon";
 document.title = (titles[path] || "Aureon") + " · Aureon Trading Lab";
+fetch("/api/autopilot", {credentials:"same-origin"}).then(r => r.ok ? r.json() : null).then(bot => {
+  const badge = document.getElementById("autobadge");
+  if (!badge || !bot) return;
+  badge.textContent = "AutoPilot " + (bot.health || bot.status || "unknown");
+}).catch(()=>{});
 const view = document.getElementById("view");
 function cls(d){ return d.includes("LONG")?"long":d.includes("SHORT")?"short":"wait"; }
 function label(d){ if (d==="SHORT_BIAS") return "Bearish observation"; if (d==="LONG_BIAS") return "Bullish observation"; if (d==="WAIT") return "No entry yet"; return d; }
@@ -1942,9 +1959,10 @@ async function learnPage(){
   const lab = await fetch("/api/lab", {credentials:"same-origin"}).then(r => r.ok ? r.json() : null).catch(()=>null);
   if (!lab) { view.innerHTML = `<article class="card"><h2>Academy</h2><p>Lessons are saved on your account. <a href="/login">Sign in</a> to read them and mark progress. A lesson is not a signal, and no firm rule is stored as verified.</p></article>`; return; }
   const done = new Set(lab.completed_lessons || []);
-  const cards = (lab.lessons || []).map(lesson => `<article class="card"><h2>${lesson.track === "prop" ? "Prop education · " : ""}${lesson.title}</h2><p>${lesson.body}</p><p class="muted">${done.has(lesson.id) ? "Completed." : "Not completed."} ${lesson.verified_firm_rule ? "" : "Not a verified firm rule."}</p><button type="button" data-lesson="${lesson.id}">Mark complete</button></article>`).join("");
+  const total = (lab.lessons || []).length;
+  const cards = (lab.lessons || []).map(lesson => `<article class="card course"><p class="muted">${lesson.track === "prop" ? "Prop education" : "Desk lesson"}</p><h2>${lesson.title}</h2><p>${lesson.body}</p><div class="bar" aria-hidden="true"><span style="width:${done.has(lesson.id) ? "100%" : "0%"}"></span></div><p class="muted">${done.has(lesson.id) ? "Completed on this account." : "Not completed."} Not a verified firm rule.</p><button type="button" data-lesson="${lesson.id}">${done.has(lesson.id) ? "Completed" : "Mark complete"}</button></article>`).join("");
   const custom = ((lab.rules || {}).custom_rules || []).map(rule => `<p>${rule.text}</p><p class="muted">${rule.note}</p>`).join("");
-  view.innerHTML = `<article class="card"><h2>Academy</h2><p>${(lab.rules || {}).verified_note || ""}</p><p class="muted">These lessons explain the desk. They do not open a paper trade.</p></article>${cards}<article class="card"><h2>Your own challenge note</h2>${custom || "<p>No personal note yet.</p>"}<label>Note <input id="rule" maxlength="400"></label><button id="saverule" type="button">Save as my note</button><p class="muted">A note you type is not confirmed as a firm's current rule.</p></article>`;
+  view.innerHTML = `<article class="card"><h2>Academy</h2><p>${done.size} of ${total} lessons completed on this account.</p><p>${(lab.rules || {}).verified_note || ""}</p><p class="muted">These lessons explain the desk. They do not open a paper trade. Completion is not a skill score.</p></article><div class="courses">${cards}</div><article class="card"><h2>Your own challenge note</h2>${custom || "<p>No personal note yet.</p>"}<label>Note <input id="rule" maxlength="400"></label><button id="saverule" type="button">Save as my note</button><p class="muted">A note you type is not confirmed as a firm's current rule.</p></article>`;
   document.querySelectorAll("[data-lesson]").forEach(button => { button.onclick = async () => {
     const next = [...done, button.dataset.lesson];
     await fetch("/api/lab", {method:"POST", credentials:"same-origin", headers:{"Content-Type":"application/json"}, body: JSON.stringify({completed_lessons: next})});
@@ -2058,7 +2076,7 @@ async function paperPages(){
   if (path === "/portfolio") {
     const open = (book.open||[]).map(row => `<div class="row"><span>${row.symbol} ${row.direction}</span><span>Entry ${row.entry}</span></div><p class="muted">${row.family||""} ${row.interval}. Risk budget ${money(row.risk_budget_usd)} USD. Quantity ${row.quantity} is an unrounded paper estimate, not an exchange lot. Stop ${row.stop}. Target ${row.target}.</p><label>Exit price <input data-exit="${row.id}" type="number" step="any" min="0"></label> <button type="button" data-close="${row.id}">Close paper trade</button>`).join("");
     const amb = (book.ambiguous||[]).map(row => `<p>${row.symbol} ${row.direction} is unresolved. The candle reached both prices, so it is not a fill and it is not in the result above.</p>`).join("");
-    view.innerHTML = `<article class="card"><h2>Portfolio</h2><p>${headline}</p><p class="muted">${figures.note||book.note||""}</p>${open||"<p>No open paper position.</p>"}${amb}<p class="muted">${book.note||""} A research observation is not a holding.</p></article>`;
+    view.innerHTML = `<article class="card"><h2>Portfolio</h2><div class="markets"><article class="card"><p class="muted">Open paper positions</p><p class="price">${(book.open||[]).length}</p></article><article class="card"><p class="muted">Closed paper trades</p><p class="price">${figures.trades || 0}</p></article><article class="card"><p class="muted">Recorded paper result</p><p class="price">${figures.trades ? money(figures.pnl_usd) : "—"}</p><p class="muted">${figures.trades ? "USD, after the stated paper costs." : "No win rate until a trade is closed."}</p></article></div><p>${headline}</p><p class="muted">${figures.note||book.note||""}</p>${open||"<p>No open paper position.</p>"}${amb}<p class="muted">${book.note||""} A research observation is not a holding.</p></article>`;
     document.querySelectorAll("[data-close]").forEach(button => { button.onclick = async () => {
       const input = document.querySelector(`[data-exit="${button.dataset.close}"]`);
       const opened = await fetch("/api/paper/close", {method:"POST", credentials:"same-origin", headers:{"Content-Type":"application/json"}, body: JSON.stringify({order_id: button.dataset.close, exit_price: input ? input.value : ""})});
@@ -2068,8 +2086,8 @@ async function paperPages(){
     }; });
     return;
   }
-  const rows = (book.orders||[]).map(row => `<div class="row"><span>${row.status}</span><span>${row.symbol} ${row.direction}</span></div><p class="muted">${row.opened_by === "autopilot" ? "Opened by AutoPilot." : "Opened by the account."} ${row.exit_kind||"no exit"} · Entry ${row.entry}. Stop ${row.stop}. Target ${row.target}. ${row.exit_price==null?"No exit.":"Exit "+row.exit_price+". Paper result "+money(row.pnl_usd)+" USD."} ${row.slippage_note||""} ${row.note||""}</p>`).join("");
-  view.innerHTML = `<article class="card"><h2>Orders and trade history</h2>${rows||"<p>No paper orders. Opening one is a separate action from receiving a plan.</p>"}<p class="muted">${book.note||""}</p></article>`;
+  const rows = (book.orders||[]).map(row => `<tr><td>${row.status||""}</td><td>${row.symbol||""} ${row.direction||""}</td><td>${row.opened_by === "autopilot" ? "AutoPilot" : "Account"}</td><td>${row.entry==null?"—":row.entry}</td><td>${row.exit_kind||"no exit"}</td><td>${row.exit_price==null?"—":money(row.pnl_usd)+" USD"}</td></tr>`).join("");
+  view.innerHTML = `<article class="card"><h2>Journal</h2><p class="muted">Only paper orders recorded for this account. An empty book stays empty. These are not broker fills.</p>${rows ? `<div class="tablewrap"><table><thead><tr><th>Status</th><th>Market</th><th>Opened by</th><th>Entry</th><th>Exit</th><th>Paper result</th></tr></thead><tbody>${rows}</tbody></table></div>` : "<p>No paper orders. Opening one is a separate action from receiving a plan.</p>"}<p class="muted">${book.note||""}</p></article>`;
 }
 async function riskPage(){
   const me = await fetch("/api/me").then(r=>r.ok?r.json():null);
