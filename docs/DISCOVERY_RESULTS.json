@@ -1,0 +1,342 @@
+{
+  "approved_for_paper": [],
+  "costs_are_assumptions": true,
+  "decision": "none_passed_validation_and_holdout",
+  "evaluation_command": "python -c 'from ops.discovery import evaluate_saved, write_report; write_report(evaluate_saved())'",
+  "holdout_opened_for": [],
+  "markets": [
+    {
+      "approved_for_paper": false,
+      "bars": 8378,
+      "bars_simulated_lengths": [
+        5026,
+        5026,
+        6702,
+        6702
+      ],
+      "benchmark_development": {
+        "buy_and_hold_gross": 4.110197397255554,
+        "buy_and_hold_net_one_round_turn": 4.107997397255554,
+        "no_trade": 0.0,
+        "round_turn_bps": 22
+      },
+      "benchmark_prefix": {
+        "buy_and_hold_gross": 4.407808837869224,
+        "buy_and_hold_net_one_round_turn": 4.405608837869224,
+        "no_trade": 0.0,
+        "round_turn_bps": 22
+      },
+      "benchmark_validation": {
+        "buy_and_hold_gross": 0.05823861149400478,
+        "buy_and_hold_net_one_round_turn": 0.05603861149400478,
+        "no_trade": 0.0,
+        "round_turn_bps": 22
+      },
+      "development": {
+        "average_loss": -0.03161173467241756,
+        "average_win": 0.04935295366595337,
+        "base_mean": 0.00742481149072556,
+        "blocked": [],
+        "cost_drag": 0.12320000000000003,
+        "end": "2025-04-17T16:00:00+00:00",
+        "equity": 1.4294314019441376,
+        "failed": [
+          "uncertainty"
+        ],
+        "gross_sum": 0.5389894434806314,
+        "judgment": "FAIL",
+        "long_trades": 56,
+        "max_drawdown": 0.12309101442138197,
+        "net_sum": 0.41578944348063135,
+        "normal_95_lower": -0.0046721038242628,
+        "normal_interval_assumption": "The 95 percent bound treats trade results as independent draws. Overlapping regimes violate that, so the bound is a screen, not a proof.",
+        "profit_factor": 1.4535520484765923,
+        "short_trades": 0,
+        "split": "development",
+        "start": "2023-01-01T00:00:00+00:00",
+        "strategy": "trend-hold-4h-20261103",
+        "stress_mean": 0.006624811490725558,
+        "symbol": "BTCUSDT",
+        "trades": 56,
+        "win_rate": 0.48214285714285715,
+        "worst_loss_streak": 4
+      },
+      "development_bars": 5026,
+      "development_start": "2023-01-01T00:00:00+00:00",
+      "directions": "LONG only. Spot short was not simulated.",
+      "embargo_ms": 604800000,
+      "embargoed_validation_signals": 2,
+      "folds_on_prefix_signals": [
+        {
+          "base_mean": 0.0037708996084100496,
+          "fold": 1,
+          "net_sum": 0.08673069099343111,
+          "trades": 23
+        },
+        {
+          "base_mean": 0.009324484087583015,
+          "fold": 2,
+          "net_sum": 0.28905900671507345,
+          "trades": 31
+        },
+        {
+          "base_mean": 0.003981779836348388,
+          "fold": 3,
+          "net_sum": 0.08759915639966452,
+          "trades": 22
+        }
+      ],
+      "holdout": "NOT_OPENED",
+      "holdout_bars": 1676,
+      "holdout_reason": "validation_not_pass",
+      "holdout_start": "2026-01-22T00:00:00+00:00",
+      "promoted": false,
+      "series_end": "2026-10-28T07:59:59.999000+00:00",
+      "sha256": "14590f5545fbc835e8bec5ccd2b7af0f55fa1f23c2eb4c84839b73ec79c64ec6",
+      "symbol": "BTCUSDT",
+      "validation": {
+        "average_loss": -0.022632597476728907,
+        "average_win": 0.031969353318971785,
+        "base_mean": -0.0013985055006230788,
+        "blocked": [
+          "sample",
+          "half_second"
+        ],
+        "cost_drag": 0.03960000000000001,
+        "end": "2026-01-22T00:00:00+00:00",
+        "equity": 0.9680962445773783,
+        "failed": [],
+        "gross_sum": 0.014426900988784595,
+        "judgment": "BLOCKED",
+        "long_trades": 18,
+        "max_drawdown": 0.10468521026574361,
+        "net_sum": -0.02517309901121542,
+        "normal_95_lower": -0.014929004461883121,
+        "normal_interval_assumption": "The 95 percent bound treats trade results as independent draws. Overlapping regimes violate that, so the bound is a screen, not a proof.",
+        "profit_factor": 0.8988863938915029,
+        "short_trades": 0,
+        "split": "validation",
+        "start": "2025-04-24T16:00:00+00:00",
+        "strategy": "trend-hold-4h-20261103",
+        "stress_mean": -0.0021985055006230785,
+        "symbol": "BTCUSDT",
+        "trades": 18,
+        "win_rate": 0.3888888888888889,
+        "worst_loss_streak": 4
+      },
+      "validation_bars": 1676,
+      "validation_start": "2025-04-17T16:00:00+00:00",
+      "version": "trend-hold-4h-20261103"
+    },
+    {
+      "approved_for_paper": false,
+      "bars": 8378,
+      "bars_simulated_lengths": [
+        5026,
+        5026,
+        6702,
+        6702
+      ],
+      "benchmark_development": {
+        "buy_and_hold_gross": 0.3235768687350036,
+        "buy_and_hold_net_one_round_turn": 0.3213768687350036,
+        "no_trade": 0.0,
+        "round_turn_bps": 22
+      },
+      "benchmark_prefix": {
+        "buy_and_hold_gross": 1.4932657821474251,
+        "buy_and_hold_net_one_round_turn": 1.4910657821474251,
+        "no_trade": 0.0,
+        "round_turn_bps": 22
+      },
+      "benchmark_validation": {
+        "buy_and_hold_gross": 0.8837332693267304,
+        "buy_and_hold_net_one_round_turn": 0.8815332693267304,
+        "no_trade": 0.0,
+        "round_turn_bps": 22
+      },
+      "development": {
+        "average_loss": -0.041981459617996465,
+        "average_win": 0.05987281061095217,
+        "base_mean": 0.006731452230631142,
+        "blocked": [],
+        "cost_drag": 0.10120000000000001,
+        "end": "2025-04-17T16:00:00+00:00",
+        "equity": 1.2737137486810906,
+        "failed": [
+          "uncertainty"
+        ],
+        "gross_sum": 0.41084680260903256,
+        "judgment": "FAIL",
+        "long_trades": 46,
+        "max_drawdown": 0.18068833216978275,
+        "net_sum": 0.30964680260903255,
+        "normal_95_lower": -0.009154408188424997,
+        "normal_interval_assumption": "The 95 percent bound treats trade results as independent draws. Overlapping regimes violate that, so the bound is a screen, not a proof.",
+        "profit_factor": 1.307324953112848,
+        "short_trades": 0,
+        "split": "development",
+        "start": "2023-01-01T00:00:00+00:00",
+        "strategy": "trend-hold-4h-20261103",
+        "stress_mean": 0.00593145223063114,
+        "symbol": "ETHUSDT",
+        "trades": 46,
+        "win_rate": 0.4782608695652174,
+        "worst_loss_streak": 5
+      },
+      "development_bars": 5026,
+      "development_start": "2023-01-01T00:00:00+00:00",
+      "directions": "LONG only. Spot short was not simulated.",
+      "embargo_ms": 604800000,
+      "embargoed_validation_signals": 1,
+      "folds_on_prefix_signals": [
+        {
+          "base_mean": -0.0049913586920031635,
+          "fold": 1,
+          "net_sum": -0.10980989122406959,
+          "trades": 22
+        },
+        {
+          "base_mean": 0.019988733628148125,
+          "fold": 2,
+          "net_sum": 0.4597408734474069,
+          "trades": 23
+        },
+        {
+          "base_mean": 0.00724094672319076,
+          "fold": 3,
+          "net_sum": 0.1882646148029598,
+          "trades": 26
+        }
+      ],
+      "holdout": "NOT_OPENED",
+      "holdout_bars": 1676,
+      "holdout_reason": "validation_not_pass",
+      "holdout_start": "2026-01-22T00:00:00+00:00",
+      "promoted": false,
+      "series_end": "2026-10-28T07:59:59.999000+00:00",
+      "sha256": "a62762b7f7d3b0e006a9dcb30ff9f7acb7141b5881d0fad19d4777e09fba0897",
+      "symbol": "ETHUSDT",
+      "validation": {
+        "average_loss": -0.05304025398208232,
+        "average_win": 0.09075519273830933,
+        "base_mean": 0.006874515484747539,
+        "blocked": [
+          "sample",
+          "half_second"
+        ],
+        "cost_drag": 0.05279999999999985,
+        "end": "2026-01-22T00:00:00+00:00",
+        "equity": 1.101078554814695,
+        "failed": [],
+        "gross_sum": 0.21778837163394088,
+        "judgment": "BLOCKED",
+        "long_trades": 24,
+        "max_drawdown": 0.3116125852020064,
+        "net_sum": 0.16498837163394103,
+        "normal_95_lower": -0.024432079576839932,
+        "normal_interval_assumption": "The 95 percent bound treats trade results as independent draws. Overlapping regimes violate that, so the bound is a screen, not a proof.",
+        "profit_factor": 1.2221875425430602,
+        "short_trades": 0,
+        "split": "validation",
+        "start": "2025-04-24T16:00:00+00:00",
+        "strategy": "trend-hold-4h-20261103",
+        "stress_mean": 0.0060745154847475355,
+        "symbol": "ETHUSDT",
+        "trades": 24,
+        "win_rate": 0.4166666666666667,
+        "worst_loss_streak": 4
+      },
+      "validation_bars": 1676,
+      "validation_start": "2025-04-17T16:00:00+00:00",
+      "version": "trend-hold-4h-20261103"
+    }
+  ],
+  "note": "No symbol is approved for paper from this file. A research PASS would still require a new version review, and this writer does not set promoted.",
+  "passed_existing_gates_on_validation_and_holdout": [],
+  "promoted": [],
+  "protocol": {
+    "approval_rule": "A PASS is not paper approval. This version is a follow-up after the recorded families below, 4h is not a desk coverage timeframe, and no forward paper sample exists. promoted stays false.",
+    "benchmarks": [
+      "no_trade",
+      "buy_and_hold_one_round_turn_on_the_same_window"
+    ],
+    "costs": {
+      "base_bps_per_fill": 11,
+      "fills": 2,
+      "meaning": "Research uses the existing simulator cost once. The paper book's separate 2 bps candle-exit slippage is not added on top. Neither figure is a measured exchange fee.",
+      "paper_book_adverse_slippage_bps": 2,
+      "paper_slippage_in_this_simulator": false,
+      "research_round_turn_base_bps": 22,
+      "stress_bps_per_fill": 15
+    },
+    "do_not_trade_when": "The bar is not 4h BTC or ETH, the close has not cleared the prior 60 highs, the close is not above the 120-bar average, or levels cannot be placed.",
+    "eligible": [
+      "BTCUSDT 4h",
+      "ETHUSDT 4h"
+    ],
+    "entry": "On a completed 4h bar, close is above the prior 60 highs and above the 120-bar simple average. The fill is the next bar open. The signal bar is not the fill.",
+    "exit": "6 ATR target, the stop, or 42 bars, whichever the existing simulator reaches first.",
+    "expected_turnover": "Much lower than the 300-trade 4h reclaim and the 400-trade 1h momentum rules. Not estimated from this sample before the run.",
+    "gates": {
+      "gold_requires_measured_spread": true,
+      "max_drawdown": 0.25,
+      "max_loss_streak": 12,
+      "min_half_trades": 10,
+      "min_trades": 30
+    },
+    "hold_bars": 42,
+    "holdout_rule": "Open a symbol's final 20 percent only if judge() returns PASS on that symbol's purged validation window. Otherwise record NOT_OPENED. Do not use the holdout to pick a parameter.",
+    "hypothesis": "A slow long-only 4h trend hold may survive 22 bps of round-turn cost where faster positive-gross rules did not. BTC sweep-reclaim and compression-breakout had positive gross sums that costs erased or nearly erased. This rule enters less often and plans a larger move. It is a follow-up, not a fresh claim.",
+    "ineligible": [
+      "XAUUSD",
+      "1m",
+      "3m",
+      "15m",
+      "1h",
+      "1d",
+      "shorts",
+      "futures"
+    ],
+    "invalidation": "3 times the prior 14-bar ATR below the entry. No trade if ATR is missing or the reward would not exceed the risk.",
+    "market_behaviour": "Multi-week spot uptrends on BTCUSDT and ETHUSDT.",
+    "multiple_testing": "This candidate was motivated by those earlier results. A pass would still be one follow-up, not an independent discovery.",
+    "parameters": {
+      "atr_len": 14,
+      "hold_bars": 42,
+      "lookback": 60,
+      "stop_atr": 3.0,
+      "target_atr": 6.0,
+      "trend": 120
+    },
+    "prior_recorded_families": [
+      "E1-donchian-20",
+      "tf-pullback-20261027",
+      "vol-break-20261027",
+      "mr-range-20261027",
+      "xau-session-20261027",
+      "spot-tsmom-1h-20261028",
+      "tight-range-long-1h-20261028",
+      "sweep-reclaim-4h-20261028",
+      "compress-break-4h-20261028",
+      "london-reclaim-1h-20261028",
+      "dip-in-trend-1d-20261028",
+      "quiet-week-reversal-1d-20261028",
+      "fail-break-20261028",
+      "quiet-expand-20261028",
+      "hour-close-drive-20261028",
+      "xau-london-range-20261028",
+      "xau-session-day-20261028",
+      "xau-climax-fade-20261028"
+    ],
+    "purging": "Development is simulated on development bars only. Validation trades are those whose signal bar opens in validation. Signals inside the first 42 4h bars of validation are embargoed.",
+    "required_data": "Retained Binance spot 4h CSV only.",
+    "split": "Chronological 60/20/20 by bar count, same helper as Gate 3. No shuffle.",
+    "version": "trend-hold-4h-20261103"
+  },
+  "protocol_sha256": "7e9ac35c1381b9f4801d75ec032c7183bf6a74d51f040c5651c7289094c3595e",
+  "software_sha": "f0419e5512c15b1096032046838966b27e34d40c",
+  "software_sha_meaning": "HEAD at the time of the run. This study is not inside that commit; the commit that adds this file records the result.",
+  "study": "discovery-20261103",
+  "version": "trend-hold-4h-20261103"
+}

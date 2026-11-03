@@ -1,0 +1,374 @@
+{
+  "coverage": [
+    {
+      "can_support_a_new_holdout_study_from_files_in_this_checkout": false,
+      "classification": "missing_retained_history",
+      "interval": "1m",
+      "live_feed": "binance",
+      "live_feed_class": "binance_spot",
+      "note": "A live scan is not a historical sample. Fixture and synthetic bars are not a source for approval.",
+      "reason": "Binance spot klines.",
+      "retained_research_file": false,
+      "symbol": "BTCUSDT"
+    },
+    {
+      "can_support_a_new_holdout_study_from_files_in_this_checkout": false,
+      "classification": "missing_retained_history",
+      "interval": "3m",
+      "live_feed": "binance",
+      "live_feed_class": "binance_spot",
+      "note": "A live scan is not a historical sample. Fixture and synthetic bars are not a source for approval.",
+      "reason": "Binance spot klines.",
+      "retained_research_file": false,
+      "symbol": "BTCUSDT"
+    },
+    {
+      "can_support_a_new_holdout_study_from_files_in_this_checkout": false,
+      "classification": "missing_retained_history",
+      "interval": "15m",
+      "live_feed": "binance",
+      "live_feed_class": "binance_spot",
+      "note": "A live scan is not a historical sample. Fixture and synthetic bars are not a source for approval.",
+      "reason": "Binance spot klines.",
+      "retained_research_file": false,
+      "symbol": "BTCUSDT"
+    },
+    {
+      "can_support_a_new_holdout_study_from_files_in_this_checkout": false,
+      "classification": "missing_retained_history",
+      "interval": "1h",
+      "live_feed": "binance",
+      "live_feed_class": "binance_spot",
+      "note": "A live scan is not a historical sample. Fixture and synthetic bars are not a source for approval.",
+      "reason": "Binance spot klines.",
+      "retained_research_file": false,
+      "symbol": "BTCUSDT"
+    },
+    {
+      "can_support_a_new_holdout_study_from_files_in_this_checkout": false,
+      "classification": "missing_retained_history",
+      "interval": "1m",
+      "live_feed": "binance",
+      "live_feed_class": "binance_spot",
+      "note": "A live scan is not a historical sample. Fixture and synthetic bars are not a source for approval.",
+      "reason": "Binance spot klines.",
+      "retained_research_file": false,
+      "symbol": "ETHUSDT"
+    },
+    {
+      "can_support_a_new_holdout_study_from_files_in_this_checkout": false,
+      "classification": "missing_retained_history",
+      "interval": "3m",
+      "live_feed": "binance",
+      "live_feed_class": "binance_spot",
+      "note": "A live scan is not a historical sample. Fixture and synthetic bars are not a source for approval.",
+      "reason": "Binance spot klines.",
+      "retained_research_file": false,
+      "symbol": "ETHUSDT"
+    },
+    {
+      "can_support_a_new_holdout_study_from_files_in_this_checkout": false,
+      "classification": "missing_retained_history",
+      "interval": "15m",
+      "live_feed": "binance",
+      "live_feed_class": "binance_spot",
+      "note": "A live scan is not a historical sample. Fixture and synthetic bars are not a source for approval.",
+      "reason": "Binance spot klines.",
+      "retained_research_file": false,
+      "symbol": "ETHUSDT"
+    },
+    {
+      "can_support_a_new_holdout_study_from_files_in_this_checkout": false,
+      "classification": "missing_retained_history",
+      "interval": "1h",
+      "live_feed": "binance",
+      "live_feed_class": "binance_spot",
+      "note": "A live scan is not a historical sample. Fixture and synthetic bars are not a source for approval.",
+      "reason": "Binance spot klines.",
+      "retained_research_file": false,
+      "symbol": "ETHUSDT"
+    },
+    {
+      "can_support_a_new_holdout_study_from_files_in_this_checkout": false,
+      "classification": "missing_retained_history",
+      "interval": "1m",
+      "live_feed": "none",
+      "live_feed_class": "unavailable",
+      "note": "A live scan is not a historical sample. Fixture and synthetic bars are not a source for approval.",
+      "reason": "No licensed one-minute XAUUSD spot feed. A five-minute sample is not split into a 1-minute or 3-minute candle.",
+      "retained_research_file": false,
+      "symbol": "XAUUSD"
+    },
+    {
+      "can_support_a_new_holdout_study_from_files_in_this_checkout": false,
+      "classification": "missing_retained_history",
+      "interval": "3m",
+      "live_feed": "none",
+      "live_feed_class": "unavailable",
+      "note": "A live scan is not a historical sample. Fixture and synthetic bars are not a source for approval.",
+      "reason": "No licensed one-minute XAUUSD spot feed. A five-minute sample is not split into a 1-minute or 3-minute candle.",
+      "retained_research_file": false,
+      "symbol": "XAUUSD"
+    },
+    {
+      "can_support_a_new_holdout_study_from_files_in_this_checkout": false,
+      "classification": "missing_retained_history",
+      "interval": "15m",
+      "live_feed": "xaus.com",
+      "live_feed_class": "spot_sample",
+      "note": "A live scan is not a historical sample. Fixture and synthetic bars are not a source for approval.",
+      "reason": "Spot samples aggregated from five-minute observations. Not a verified bid/ask candle.",
+      "retained_research_file": false,
+      "symbol": "XAUUSD"
+    },
+    {
+      "can_support_a_new_holdout_study_from_files_in_this_checkout": false,
+      "classification": "missing_retained_history",
+      "interval": "1h",
+      "live_feed": "xaus.com",
+      "live_feed_class": "spot_sample",
+      "note": "A live scan is not a historical sample. Fixture and synthetic bars are not a source for approval.",
+      "reason": "Spot samples aggregated from five-minute observations. Not a verified bid/ask candle.",
+      "retained_research_file": false,
+      "symbol": "XAUUSD"
+    },
+    {
+      "can_support_a_new_holdout_study_from_files_in_this_checkout": true,
+      "classification": "retained_not_a_desk_timeframe",
+      "interval": "4h",
+      "live_feed_class": "not_in_desk_coverage",
+      "note": "Usable for one pre-registered 4h study. Not a substitute for 1m, 3m, 15m or 1h history.",
+      "retained_research_file": true,
+      "symbol": "BTCUSDT"
+    },
+    {
+      "can_support_a_new_holdout_study_from_files_in_this_checkout": true,
+      "classification": "retained_not_a_desk_timeframe",
+      "interval": "4h",
+      "live_feed_class": "not_in_desk_coverage",
+      "note": "Same file family as BTCUSDT 4h.",
+      "retained_research_file": true,
+      "symbol": "ETHUSDT"
+    }
+  ],
+  "desk_pairs": [
+    [
+      "BTCUSDT",
+      "1m"
+    ],
+    [
+      "BTCUSDT",
+      "3m"
+    ],
+    [
+      "BTCUSDT",
+      "15m"
+    ],
+    [
+      "BTCUSDT",
+      "1h"
+    ],
+    [
+      "ETHUSDT",
+      "1m"
+    ],
+    [
+      "ETHUSDT",
+      "3m"
+    ],
+    [
+      "ETHUSDT",
+      "15m"
+    ],
+    [
+      "ETHUSDT",
+      "1h"
+    ],
+    [
+      "XAUUSD",
+      "1m"
+    ],
+    [
+      "XAUUSD",
+      "3m"
+    ],
+    [
+      "XAUUSD",
+      "15m"
+    ],
+    [
+      "XAUUSD",
+      "1h"
+    ]
+  ],
+  "generated_by": "ops/data_audit.py",
+  "live_probe": [
+    {
+      "interval": "15m",
+      "last_open_time": "2026-11-03T11:30:00+00:00",
+      "note": "Freshness probe only. These candles were not written into research/history and were not scored.",
+      "ok": true,
+      "reason": null,
+      "returned_rows": 2,
+      "stored": false,
+      "symbol": "BTCUSDT"
+    },
+    {
+      "interval": "1h",
+      "last_open_time": "2026-11-03T11:00:00+00:00",
+      "note": "Freshness probe only. These candles were not written into research/history and were not scored.",
+      "ok": true,
+      "reason": null,
+      "returned_rows": 2,
+      "stored": false,
+      "symbol": "BTCUSDT"
+    },
+    {
+      "interval": "15m",
+      "last_open_time": "2026-11-03T11:30:00+00:00",
+      "note": "Freshness probe only. These candles were not written into research/history and were not scored.",
+      "ok": true,
+      "reason": null,
+      "returned_rows": 2,
+      "stored": false,
+      "symbol": "ETHUSDT"
+    },
+    {
+      "interval": "1h",
+      "last_open_time": "2026-11-03T11:00:00+00:00",
+      "note": "Freshness probe only. These candles were not written into research/history and were not scored.",
+      "ok": true,
+      "reason": null,
+      "returned_rows": 2,
+      "stored": false,
+      "symbol": "ETHUSDT"
+    }
+  ],
+  "not_retained": [
+    "BTCUSDT and ETHUSDT 1m, 3m, 15m and 1h candles used in earlier gates were downloaded for those studies and are not in this checkout.",
+    "Gate 4 Dukascopy XAUUSD hours (about 6,264 bars, 2025-10-28 to 2026-10-27) are not in this checkout. The recorded Gate 4 result stands. This file is not re-fetched.",
+    "XAUUSD 1m and 3m remain xau_minute_unlicensed. No 5m candle is split and no quote is stored as a candle."
+  ],
+  "paper_ledger_is_not_market_history": "data/paper/ledger.jsonl",
+  "retained": [
+    {
+      "bytes": 633098,
+      "desk_timeframe": false,
+      "duplicates": 0,
+      "exists": true,
+      "file_sha256": "088fb8a035f04a00938370465ac940a8fdea0dfca125a8b4773b4176dcabbafe",
+      "forming_bars_stored": 0,
+      "gaps": 0,
+      "interval": "4h",
+      "invalid_ohlc_or_alignment": 0,
+      "kind": "retained_research_csv",
+      "limitation": "Retained research file. 4h is not one of the twelve desk coverage pairs. The last 20 percent is the sealed holdout used by earlier 4h studies and must not be opened to choose a rule.",
+      "ohlc_sha256": "14590f5545fbc835e8bec5ccd2b7af0f55fa1f23c2eb4c84839b73ec79c64ec6",
+      "path": "research/history/BTCUSDT-4h.csv",
+      "provider": "binance-public",
+      "quality": {
+        "bars": 8378,
+        "duplicates": 0,
+        "errors": [],
+        "forming": 0,
+        "gaps": 0,
+        "invalid": 0,
+        "ok": true
+      },
+      "quote_semantics": "last_trade",
+      "span": {
+        "bars": 8378,
+        "end": "2026-10-28T07:59:59.999000+00:00",
+        "first_open_time_ms": 1672531200000,
+        "last_close_time_ms": 1793174399999,
+        "start": "2023-01-01T00:00:00+00:00"
+      },
+      "symbol": "BTCUSDT",
+      "synthetic": false,
+      "timestamp_step_ok": true,
+      "unsorted": 0,
+      "used_for_approval": false
+    },
+    {
+      "bytes": 597248,
+      "desk_timeframe": false,
+      "duplicates": 0,
+      "exists": true,
+      "file_sha256": "25cefdfa7a097a75ff4053ac87c4999641e905bccb9590f08c2cdce2e061d011",
+      "forming_bars_stored": 0,
+      "gaps": 0,
+      "interval": "4h",
+      "invalid_ohlc_or_alignment": 0,
+      "kind": "retained_research_csv",
+      "limitation": "Retained research file. 4h is not one of the twelve desk coverage pairs. The last 20 percent is the sealed holdout used by earlier 4h studies and must not be opened to choose a rule.",
+      "ohlc_sha256": "a62762b7f7d3b0e006a9dcb30ff9f7acb7141b5881d0fad19d4777e09fba0897",
+      "path": "research/history/ETHUSDT-4h.csv",
+      "provider": "binance-public",
+      "quality": {
+        "bars": 8378,
+        "duplicates": 0,
+        "errors": [],
+        "forming": 0,
+        "gaps": 0,
+        "invalid": 0,
+        "ok": true
+      },
+      "quote_semantics": "last_trade",
+      "span": {
+        "bars": 8378,
+        "end": "2026-10-28T07:59:59.999000+00:00",
+        "first_open_time_ms": 1672531200000,
+        "last_close_time_ms": 1793174399999,
+        "start": "2023-01-01T00:00:00+00:00"
+      },
+      "symbol": "ETHUSDT",
+      "synthetic": false,
+      "timestamp_step_ok": true,
+      "unsorted": 0,
+      "used_for_approval": false
+    },
+    {
+      "bytes": 435832,
+      "desk_timeframe": false,
+      "duplicates": 0,
+      "exists": true,
+      "file_matches_manifest_sha256": true,
+      "file_sha256": "2d15b43463069264037a5b52f15b5f1c363754fc2a859daaf8f5b1a9e9a082b2",
+      "forming_bars_stored": 0,
+      "gaps": 5,
+      "interval": "1h",
+      "invalid_ohlc_or_alignment": 0,
+      "kind": "retained_research_jsonl",
+      "limitation": "Short Dukascopy bid/ask hour file already used by the 4h-leader gold check. Weekend or closed-market steps can appear as gaps. It is not a fresh sample, not a 15m spot sample, and not a licence for 1m or 3m gold. A longer Gate 4 Dukascopy pull was not retained in this checkout.",
+      "manifest_bars": 717,
+      "manifest_bars_sha256": "2d15b43463069264037a5b52f15b5f1c363754fc2a859daaf8f5b1a9e9a082b2",
+      "measured_bid_ask_fields": true,
+      "ohlc_sha256": "fcc047203d255820ce3c50fceb5f6e43d4ff4ae4343273ab6411bfed1cbbe5e0",
+      "path": "research/history/XAUUSD-1h.jsonl",
+      "provider": "dukascopy",
+      "quality": {
+        "bars": 717,
+        "duplicates": 0,
+        "errors": [],
+        "forming": 0,
+        "gaps": 5,
+        "invalid": 0,
+        "ok": false
+      },
+      "quote_semantics": "dukascopy_xauusd_bid_ask",
+      "span": {
+        "bars": 717,
+        "end": "2024-07-12T20:59:59.999000+00:00",
+        "first_open_time_ms": 1717372800000,
+        "last_close_time_ms": 1720817999999,
+        "start": "2024-06-03T00:00:00+00:00"
+      },
+      "symbol": "XAUUSD",
+      "synthetic": false,
+      "timestamp_step_ok": true,
+      "unsorted": 0,
+      "used_for_approval": false
+    }
+  ],
+  "synthetic_data_can_approve": false
+}

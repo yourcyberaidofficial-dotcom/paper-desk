@@ -157,6 +157,19 @@ STRATEGIES = (
         "promoted": False,
         "live": False,
     },
+    {
+        "id": "trend-hold-4h-20261103",
+        "version": "trend-hold-4h-20261103",
+        "name": "Slow trend hold",
+        "instruments": ["BTCUSDT", "ETHUSDT"],
+        "timeframe": "4h",
+        "entry": "Long only after a completed 4h close above the prior 60 highs and above the 120-bar average. The fill is the next open. One frozen configuration, not a retune of the 4h compression rule.",
+        "invalidation": "3 ATR below the entry, a 6 ATR target, or 42 bars. This version is research only and is not a 1m, 3m, 15m or 1h desk signal.",
+        "research_status": "FAIL",
+        "evidence": "Development failed the existing uncertainty gate on both markets despite a positive point estimate (BTC n=56 mean +0.00742, lower bound -0.00467; ETH n=46 mean +0.00673, lower bound -0.00915). Validation was blocked for sample size (BTC n=18 mean -0.00140; ETH n=24 mean +0.00687). Holdout from 2026-01-22 was not opened. Not approved. docs/DISCOVERY_RESULTS.json",
+        "promoted": False,
+        "live": False,
+    },
 )
 
 BY_ID = {row["id"]: row for row in STRATEGIES}

@@ -1185,6 +1185,79 @@ def research_lab():
             payload["qualified_for_review"] = sorted(qualified)
             payload["approved"] = []
             payload["note"] = "Gate 3 judgments are research results. Qualified for review is not production approval. Production remains WAIT_DEFAULT."
+    discovery_path = ROOT / "docs" / "DISCOVERY_RESULTS.json"
+    audit_path = ROOT / "docs" / "DATA_AUDIT.json"
+    if discovery_path.exists():
+        try:
+            discovery = json.loads(discovery_path.read_text())
+        except Exception:
+            discovery = None
+        if discovery:
+            payload["discovery"] = {
+                "version": discovery.get("version"),
+                "decision": discovery.get("decision"),
+                "approved_for_paper": discovery.get("approved_for_paper") or [],
+                "holdout_opened_for": discovery.get("holdout_opened_for") or [],
+                "protocol_sha256": discovery.get("protocol_sha256"),
+                "software_sha": discovery.get("software_sha"),
+                "multiple_testing": (discovery.get("protocol") or {}).get("multiple_testing"),
+                "costs": (discovery.get("protocol") or {}).get("costs"),
+                "markets": [
+                    {
+                        "symbol": market.get("symbol"),
+                        "holdout": market.get("holdout"),
+                        "development": market.get("development"),
+                        "validation": market.get("validation"),
+                        "benchmark_prefix": market.get("benchmark_prefix"),
+                        "folds_on_prefix_signals": market.get("folds_on_prefix_signals"),
+                        "approved_for_paper": False,
+                    }
+                    for market in discovery.get("markets") or []
+                ],
+            }
+            states = []
+            reasons = []
+            for market in discovery.get("markets") or []:
+                dev = market.get("development") or {}
+                val = market.get("validation") or {}
+                states.extend((dev.get("judgment"), val.get("judgment")))
+                reasons.append(f"{market.get('symbol')} development {dev.get('judgment')} n={dev.get('trades')}; validation {val.get('judgment')} n={val.get('trades')}; holdout {market.get('holdout')}")
+            label = "FAIL" if "FAIL" in states else ("BLOCKED" if "BLOCKED" in states else "RECORDED")
+            payload["experiments"].append({
+                "id": discovery.get("version"),
+                "name": "Slow 4h trend hold",
+                "decision": label,
+                "reason": ". ".join(reasons) + ". Not an approved strategy.",
+            })
+    if audit_path.exists():
+        try:
+            audit = json.loads(audit_path.read_text())
+        except Exception:
+            audit = None
+        if audit:
+            payload["data_audit"] = {
+                "retained": [
+                    {
+                        "symbol": row.get("symbol"),
+                        "interval": row.get("interval"),
+                        "bars": (row.get("span") or {}).get("bars"),
+                        "start": (row.get("span") or {}).get("start"),
+                        "end": (row.get("span") or {}).get("end"),
+                        "file_sha256": row.get("file_sha256"),
+                        "gaps": row.get("gaps"),
+                        "duplicates": row.get("duplicates"),
+                        "invalid": row.get("invalid_ohlc_or_alignment"),
+                        "limitation": row.get("limitation"),
+                    }
+                    for row in audit.get("retained") or []
+                ],
+                "desk_pairs_missing_history": [
+                    f"{row['symbol']} {row['interval']}"
+                    for row in audit.get("coverage") or []
+                    if row.get("classification") == "missing_retained_history"
+                ],
+                "not_retained": audit.get("not_retained") or [],
+            }
     return jsonify(payload)
 
 
@@ -2146,7 +2219,17 @@ async function researchLab(){
   const d = await fetch("/api/research-lab").then(r=>r.json());
   const gates = (d.gates||[]).map(g => `<div class="row"><span>${g.name}</span><span class="${cls(g.status)}">${g.status}</span></div><div class="muted">${g.evidence}</div>`).join("");
   const rows = (d.experiments||[]).map(e => `<div class="row"><span>${e.id}</span><span class="${cls(e.decision)}">${e.decision}</span></div><div class="muted">${e.name}. ${e.reason}</div>`).join("");
-  view.innerHTML = `<article class="card"><h2>Promotion gates</h2><p>Promoted strategies: ${d.promoted_count}. Production: ${d.production}.</p>${gates}</article><article class="card"><h2>Experiment archive</h2>${rows}<p class="muted">${d.note}</p></article>`;
+  const audit = d.data_audit || {};
+  const retained = (audit.retained||[]).map(row => `<div class="row"><span>${row.symbol} ${row.interval}</span><span>${row.bars||0} bars</span></div><div class="muted">${row.start||""} to ${row.end||""}. Gaps ${row.gaps}. Duplicates ${row.duplicates}. Invalid ${row.invalid}. Fingerprint ${row.file_sha256||"none"}. ${row.limitation||""}</div>`).join("");
+  const missing = (audit.desk_pairs_missing_history||[]).join(", ");
+  const discovery = d.discovery || {};
+  const markets = (discovery.markets||[]).map(market => {
+    const dev = market.development || {};
+    const val = market.validation || {};
+    const bench = market.benchmark_prefix || {};
+    return `<h3>${market.symbol}</h3><p>Development ${dev.judgment||"n/a"}, n=${dev.trades==null?"n/a":dev.trades}, net mean ${dev.base_mean==null?"n/a":Number(dev.base_mean).toFixed(5)}, drawdown ${dev.max_drawdown==null?"n/a":Number(dev.max_drawdown).toFixed(3)}. Validation ${val.judgment||"n/a"}, n=${val.trades==null?"n/a":val.trades}, net mean ${val.base_mean==null?"n/a":Number(val.base_mean).toFixed(5)}. Holdout ${market.holdout||"NOT_OPENED"}. Prefix buy-and-hold gross ${bench.buy_and_hold_gross==null?"n/a":Number(bench.buy_and_hold_gross).toFixed(3)}.</p><p class="muted">Failed ${JSON.stringify(dev.failed||[])} / ${JSON.stringify(val.failed||[])}. Blocked ${JSON.stringify(val.blocked||[])}. Long only. Approved for paper: no.</p>`;
+  }).join("");
+  view.innerHTML = `<article class="card"><h2>Promotion gates</h2><p>Promoted strategies: ${d.promoted_count}. Production: ${d.production}. Approved for paper: none.</p>${gates}</article><article class="card"><h2>Dataset provenance</h2>${retained||"<p>No retained history file was found.</p>"}<p class="muted">Desk pairs with no retained candle file: ${missing||"none listed"}. A missing file is not a sample. Synthetic bars are not used to approve a strategy.</p></article><article class="card"><h2>Latest pre-registered study</h2><p>${discovery.version||"No discovery file."} Decision: ${discovery.decision||"not scored"}. Holdout opened for: ${(discovery.holdout_opened_for||[]).join(", ")||"nobody"}.</p>${markets||"<p>No scored market.</p>"}<p class="muted">${discovery.multiple_testing||""} Protocol ${discovery.protocol_sha256||""}. This card is research evidence. It is not an approved signal and it is not a performance promise.</p></article><article class="card"><h2>Experiment archive</h2>${rows}<p class="muted">${d.note}</p></article>`;
 }
 async function scannerPage(){
   let lastBody = null;
@@ -2365,6 +2448,16 @@ async function load(){
     if (box && qualification) {
       const life = (qualification.strategies || []).map(s => `<div class="row"><span>${s.name}</span><span>${s.lifecycle}</span></div><div class="muted">${s.version}. Approved for paper: ${s.approved_for_paper ? "yes" : "no"}. ${s.failure_reason || ""}</div>`).join("");
       box.innerHTML += `<h3>Qualification lifecycle</h3><p class="muted">${qualification.note || ""} Approved count: ${qualification.approved_for_paper}.</p>${life}`;
+    }
+    const research = await fetch("/api/research-lab").then(r => r.ok ? r.json() : null).catch(()=>null);
+    if (box && research && research.discovery) {
+      const study = research.discovery;
+      const cards = (study.markets||[]).map(market => {
+        const dev = market.development || {};
+        const val = market.validation || {};
+        return `<div class="row"><span>${market.symbol} development</span><span>${dev.judgment||""}</span></div><div class="muted">n=${dev.trades==null?"n/a":dev.trades}. Net mean ${dev.base_mean==null?"n/a":Number(dev.base_mean).toFixed(5)}. Drawdown ${dev.max_drawdown==null?"n/a":Number(dev.max_drawdown).toFixed(3)}. Cost drag ${dev.cost_drag==null?"n/a":Number(dev.cost_drag).toFixed(3)}.</div><div class="row"><span>${market.symbol} validation</span><span>${val.judgment||""}</span></div><div class="muted">n=${val.trades==null?"n/a":val.trades}. Net mean ${val.base_mean==null?"n/a":Number(val.base_mean).toFixed(5)}. Holdout ${market.holdout}. Not approved.</div>`;
+      }).join("");
+      box.innerHTML += `<h3>Latest study, not an approval</h3><p class="muted">${study.version}. ${study.decision}. Holdout opened: ${(study.holdout_opened_for||[]).length?study.holdout_opened_for.join(", "):"no"}. A research candidate is not an approved strategy.</p>${cards}`;
     }
     return;
   }
