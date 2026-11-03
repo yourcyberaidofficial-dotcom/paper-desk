@@ -1594,23 +1594,26 @@ tr:last-child td{border-bottom:0}
   <aside id="nav">
     <div class="brand">Aureon</div>
     <div class="muted" style="margin:2px 10px 4px">Trading Lab · Cyber Aid</div>
-    <p class="navlabel">Desk</p>
+    <p class="navlabel">Trading desk</p>
     <a href="/overview" data-path="/overview">Overview</a>
-    <a href="/scanner" data-path="/scanner">Scanner</a>
     <a href="/trading" data-path="/trading">Terminal</a>
-    <a href="/signals" data-path="/signals">Signals</a>
-    <a href="/portfolio" data-path="/portfolio">Portfolio</a>
-    <a href="/activity" data-path="/activity">Journal</a>
-    <a href="/live" data-path="/live">Activity</a>
-    <p class="navlabel">Learn</p>
-    <a href="/learn" data-path="/learn">Academy</a>
-    <a href="/lab" data-path="/lab">Trading Lab</a>
+    <a href="/scanner" data-path="/scanner">Scanner</a>
+    <a href="/signals" data-path="/signals">Live Signals</a>
+    <p class="navlabel">Market intelligence</p>
     <a href="/strategies" data-path="/strategies">Strategies</a>
     <a href="/research" data-path="/research">Research</a>
-    <p class="navlabel">Account</p>
-    <a href="/plan" data-path="/plan">My Plan</a>
+    <p class="navlabel">Paper trading</p>
+    <a href="/settings" data-path="/settings">AutoPilot</a>
+    <a href="/portfolio" data-path="/portfolio">Portfolio</a>
+    <a href="/activity" data-path="/activity">Journal</a>
     <a href="/risk" data-path="/risk">Risk</a>
+    <a href="/plan" data-path="/plan">My Plan</a>
+    <p class="navlabel">Learning</p>
+    <a href="/learn" data-path="/learn">Academy</a>
+    <a href="/lab" data-path="/lab">Trading Lab</a>
     <a href="/notifications" data-path="/notifications">Inbox</a>
+    <a href="/live" data-path="/live">Activity</a>
+    <p class="navlabel">Account</p>
     <a href="/system" data-path="/system">System</a>
     <a href="/settings" data-path="/settings">Settings</a>
   </aside>
@@ -1620,7 +1623,7 @@ tr:last-child td{border-bottom:0}
         <h1 id="title">Overview</h1>
         <div class="muted">Paper desk. A plan is not an order, and a paper result is not a broker fill.</div>
       </div>
-      <div class="pills"><span class="pill" id="autobadge">AutoPilot</span><span class="pill">Paper only</span><span class="pill">Broker off</span><a href="/notifications" id="inboxlink">Inbox</a><button id="signout" type="button">Sign out</button></div>
+      <div class="pills"><span class="pill" id="whobadge">Account</span><span class="pill" id="autobadge">AutoPilot</span><span class="pill" id="feedbadge">Feed not confirmed</span><a href="/notifications" id="inboxlink">Inbox</a><button id="signout" type="button">Sign out</button></div>
     </header>
     <section id="view"></section>
   </main>
@@ -1644,8 +1647,32 @@ fetch("/api/autopilot", {credentials:"same-origin"}).then(r => r.ok ? r.json() :
   if (!badge || !bot) return;
   badge.textContent = "AutoPilot " + (bot.health || bot.status || "unknown");
 }).catch(()=>{});
+fetch("/api/me", {credentials:"same-origin"}).then(r => r.ok ? r.json() : null).then(me => {
+  const badge = document.getElementById("whobadge");
+  if (badge && me && me.profile) badge.textContent = (me.name || "Account") + " · " + (me.profile.signal_style_name || "No persona");
+}).catch(()=>{});
+fetch("/health").then(r => r.ok ? r.json() : null).then(health => {
+  const badge = document.getElementById("feedbadge");
+  if (!badge || !health) return;
+  const worker = health.worker || {};
+  const btc = health.market_data && health.market_data.BTCUSDT ? health.market_data.BTCUSDT.status : "unknown";
+  badge.textContent = "Worker " + (worker.status || "unknown") + " · BTC " + btc;
+}).catch(() => {
+  const badge = document.getElementById("feedbadge");
+  if (badge) badge.textContent = "Health not confirmed";
+});
 const view = document.getElementById("view");
-function cls(d){ return d.includes("LONG")?"long":d.includes("SHORT")?"short":"wait"; }
+function plainReason(text){
+  return String(text || "")
+    .replaceAll("sample_is_5m", "the gold feed is five-minute samples, so this shorter candle is not available")
+    .replaceAll("xau_minute_unlicensed", "gold one-minute and three-minute data are not licensed")
+    .replaceAll("last_trade", "last completed trade price")
+    .replaceAll("ohlc_not_bid_ask", "chart prices, not a bid and ask")
+    .replaceAll("DATA_UNAVAILABLE", "not available")
+    .replaceAll("LONG_BIAS", "bullish research")
+    .replaceAll("SHORT_BIAS", "bearish research");
+}
+function cls(d){ return String(d||"").includes("LONG")?"long":String(d||"").includes("SHORT")?"short":"wait"; }
 function label(d){ if (d==="SHORT_BIAS") return "Bearish observation"; if (d==="LONG_BIAS") return "Bullish observation"; if (d==="WAIT") return "No entry yet"; return d; }
 function spark(id, candles){
   const c = document.getElementById(id);
@@ -1713,8 +1740,12 @@ async function overview(){
   if (!(me && me.telegram_verified)) steps.push("Telegram is not verified. Alerts stay off until you link a chat.");
   const stepHtml = steps.length ? `<article class="card"><h2>Next steps</h2><ul>${steps.map(s => `<li>${s}</li>`).join("")}</ul><p><a href="/settings">Open settings</a></p></article>` : "";
   const bot = await fetch("/api/autopilot", {credentials:"same-origin"}).then(r => r.ok ? r.json() : null).catch(()=>null);
+  const book = await fetch("/api/paper/book", {credentials:"same-origin"}).then(r => r.ok ? r.json() : {open:[], performance:{}}).catch(()=>({open:[], performance:{}}));
+  const figures = book.performance || {};
+  const realised = figures.trades ? Number(figures.pnl_usd).toFixed(2) + " USD" : "—";
   const botLine = bot ? `AutoPilot is ${bot.status}. New automated paper entries are ${bot.accepts_new_entries ? "allowed" : "blocked"}. This is not a broker.` : "";
-  const accountCard = `<article class="card"><h2>${who}</h2><div class="row"><span>Signal style</span><span>${styleName}</span></div><div class="row"><span>Configured paper capital</span><span>${balance}</span></div><div class="row"><span>AutoPilot</span><span>${bot ? bot.status : "off"}</span></div><p class="muted">${botLine} Research eligibility is not a trade. Broker execution is disabled. No strategy is promoted. ${profile.currency ? "Amounts use " + profile.currency + ". Quotes stay in their market currency." : "Choose a base currency before treating the balance as money."}</p><p><a href="/settings">Account settings</a> · <a href="/lab">Trading Lab</a> · <a href="/learn">Academy</a> · <a href="/trading">Desk</a></p></article>${stepHtml}`;
+  const kpis = `<div class="markets"><article class="card"><p class="muted">Paper capital you set</p><p class="price">${balance}</p></article><article class="card"><p class="muted">Open paper positions</p><p class="price">${(book.open||[]).length}</p></article><article class="card"><p class="muted">Realised paper result</p><p class="price">${realised}</p><p class="muted">${figures.trades ? figures.trades + " closed paper trades. Not a win rate by itself." : "No closed paper trade. No win rate."}</p></article><article class="card"><p class="muted">AutoPilot health</p><p class="price">${bot ? (bot.health || bot.status) : "off"}</p></article></div>`;
+  const accountCard = `<article class="card"><h2>${who}</h2><div class="row"><span>Signal style</span><span>${styleName}</span></div><div class="row"><span>Configured paper capital</span><span>${balance}</span></div><div class="row"><span>AutoPilot</span><span>${bot ? bot.status : "off"}</span></div><p class="muted">${botLine} Research eligibility is not a trade. Broker execution is disabled. No strategy is promoted. ${profile.currency ? "Amounts use " + profile.currency + ". Quotes stay in their market currency." : "Choose a base currency before treating the balance as money."} Unrealised P&L is not marked, because this desk does not invent a live position value.</p><p><a href="/settings">Account settings</a> · <a href="/lab">Trading Lab</a> · <a href="/learn">Academy</a> · <a href="/trading">Desk</a></p></article>${kpis}${stepHtml}`;
   view.innerHTML = accountCard + `<p class="muted" id="mload">Loading markets…</p>`;
   const selected = me && me.prefs && me.prefs.markets ? me.prefs.markets : null;
   const m = await Promise.race([
@@ -1730,13 +1761,13 @@ async function overview(){
     if (item.id === "GOLD") {
       const g = item.data || {};
       const price = g.price != null ? Number(g.price).toLocaleString(undefined,{maximumFractionDigits:2}) : "unavailable";
-      return `<article class="card" id="card-XAUUSD"><div class="muted">XAUUSD · indicative mid · USD/oz</div><div class="price">${price}</div><canvas id="spark-gold" class="spark"></canvas><div id="detail-XAUUSD" class="muted">${g.fresh===false?"Not a live quote. ":""}${g.note||"Indicative mid. Not bid/ask."} Research state loading.</div></article>`;
+      return `<article class="card" id="card-XAUUSD"><div class="muted">XAUUSD · indicative mid · USD/oz</div><div class="price">${price}</div><canvas id="spark-gold" class="spark"></canvas><div id="detail-XAUUSD" class="muted">${g.fresh===false?"Not a live quote. ":""}${plainReason(g.note||"Indicative mid. Not bid/ask.")} Research state loading.</div></article>`;
     }
     const price = item.data && item.data.close != null ? Number(item.data.close).toLocaleString() : "unavailable";
     const fresh = item.data && item.data.fresh === false ? "Feed is not fresh. " : "";
     return `<article class="card" id="card-${item.symbol}"><div class="muted">${item.symbol}</div><div class="price">${price}</div><canvas id="spark-${item.symbol}" class="spark"></canvas><div id="detail-${item.symbol}" class="muted">${fresh}Research state loading.</div></article>`;
   });
-  view.innerHTML = `${accountCard}${selected ? `<p class="muted">Showing your selected markets. <a href="/settings">Change settings</a></p>` : ""}<div class="markets">${cards.join("") || "<p>No markets selected.</p>"}</div><div class="workspace"><article class="card"><h2>Chart</h2><select id="sym"><option>BTCUSDT</option><option>ETHUSDT</option><option>XAUUSD</option></select> <select id="tf"><option>1m</option><option>3m</option><option>15m</option><option>1h</option><option>4h</option><option>1d</option></select><canvas id="chart"></canvas><p class="muted" id="chartnote">Loading closed candles.</p></article><article class="card"><h2>Profile eligibility</h2><div id="elig">loading</div><p class="muted">Eligibility uses the saved signal style. It is not an order.</p></article></div><article class="card" id="councilcard"><h2>Strategy council</h2><p class="muted">Loading the combined research summary. This is not the account signal style.</p></article>`;
+  view.innerHTML = `${accountCard}${selected ? `<p class="muted">Showing your selected markets. <a href="/settings">Change settings</a></p>` : ""}<div class="markets">${cards.join("") || "<p>No markets selected.</p>"}</div><div class="workspace"><article class="card"><h2>Chart</h2><select id="sym"><option>BTCUSDT</option><option>ETHUSDT</option><option>XAUUSD</option></select> <select id="tf"><option>1m</option><option>3m</option><option selected>15m</option><option>1h</option></select><canvas id="chart"></canvas><p class="muted" id="chartnote">Loading closed candles.</p></article><article class="card"><h2>Profile eligibility</h2><div id="elig">loading</div><p class="muted">Eligibility uses the saved signal style. It is not an order.</p></article></div><article class="card" id="councilcard"><h2>Strategy council</h2><p class="muted">Loading the combined research summary. This is not the account signal style.</p></article>`;
   async function loadChart(){
     const sym = document.getElementById("sym").value, tf = document.getElementById("tf").value;
     const note = document.getElementById("chartnote");
@@ -1785,7 +1816,7 @@ async function overview(){
   fetch("/api/council").then(r=>r.json()).then(council => {
     const box = document.getElementById("councilcard");
     if (!box) return;
-    const html = (council.markets||[]).map(row => row.council ? `<div class="row"><span>${row.symbol} ${row.timeframe||""}</span><span>${label(row.council.state)}</span></div><div class="muted">${row.council.reason||""} ${row.limitation||""}</div>` : `<div class="row"><span>${row.symbol}</span><span>unavailable</span></div>`).join("");
+    const html = (council.markets||[]).map(row => row.council ? `<div class="row"><span>${row.symbol} ${row.timeframe||""}</span><span>${label(row.council.state)}</span></div><div class="muted">${plainReason(row.council.reason||"")} ${plainReason(row.limitation||"")}</div>` : `<div class="row"><span>${row.symbol}</span><span>unavailable</span></div>`).join("");
     box.innerHTML = `<h2>Strategy council</h2>${html}<p class="muted">Combined research summary. Not the account signal style, and not a validated signal.</p>`;
   }).catch(()=>{});
 }
@@ -1827,7 +1858,7 @@ async function signals(){
   };
 }
 async function terminal(){
-  view.innerHTML = `<article class="card"><h2>Generate a signal</h2><div class="fieldrow"><label>Market <select id="term-symbol"><option>BTCUSDT</option><option>ETHUSDT</option><option>XAUUSD</option></select></label><label>Timeframe <select id="term-interval"><option>1m</option><option>3m</option><option>15m</option><option>1h</option><option selected>4h</option><option>1d</option></select></label><label>Strategy <select id="term-strategy"><option value="auto">Auto</option><option value="compress-break-4h-20261028">BTC compression breakout</option><option value="sweep-reclaim-4h-20261028">ETH failed-breakdown</option><option value="london-reclaim-1h-20261028">Gold London reclaim</option><option value="dip-in-trend-1d-20261028">Daily dip in trend</option><option value="quiet-week-reversal-1d-20261028">Quiet week reversal</option></select></label></div><button id="generate" type="button">Generate Signal</button><p id="termstatus" role="status"></p></article><div id="termout"></div><article class="card"><h2>Your requested evaluations</h2><div id="termhist"><p>No requested evaluation yet.</p></div></article>`;
+  view.innerHTML = `<article class="card"><h2>Generate a signal</h2><div class="fieldrow"><label>Market <select id="term-symbol"><option>BTCUSDT</option><option>ETHUSDT</option><option>XAUUSD</option></select></label><label>Timeframe <select id="term-interval"><option>1m</option><option>3m</option><option selected>15m</option><option>1h</option></select></label><label>Strategy <select id="term-strategy"><option value="auto">Auto</option><option value="compress-break-4h-20261028">BTC compression breakout</option><option value="sweep-reclaim-4h-20261028">ETH failed-breakdown</option><option value="london-reclaim-1h-20261028">Gold London reclaim</option><option value="dip-in-trend-1d-20261028">Daily dip in trend</option><option value="quiet-week-reversal-1d-20261028">Quiet week reversal</option></select></label></div><button id="generate" type="button">Generate Signal</button><p id="termstatus" role="status"></p></article><div id="termout"></div><article class="card"><h2>Your requested evaluations</h2><div id="termhist"><p>No requested evaluation yet.</p></div></article>`;
   const symbolEl = document.getElementById("term-symbol");
   const intervalEl = document.getElementById("term-interval");
   const strategyEl = document.getElementById("term-strategy");
@@ -1935,13 +1966,13 @@ async function scannerPage(){
         : m.evidence_grade == null
           ? "No evidence grade. The rule is not approved, and a checklist is not a probability."
           : `Evidence grade ${m.evidence_grade}/100. ${m.evidence_label||"Checklist score, not a probability of profit."}`;
-      return `<article class="card" data-symbol="${m.symbol}"><h2>${m.symbol}</h2><div class="row"><span>${m.interval||""} ${m.quote||""}</span><span>${m.price==null?"—":m.price}</span></div><div class="row"><span>${m.decision_label||stateText}</span><span>${m.status||"unknown"}</span></div><p>${m.message||"No qualifying setup yet."}</p><p>Entry ${m.entry==null?"—":m.entry}. Stop ${m.stop==null?"—":m.stop}. Target ${m.target==null?"—":m.target}.</p><p class="muted">${stateText}. ${grade} Updated ${m.updated_at||"unknown"}.</p></article>`;
+      return `<article class="card" data-symbol="${m.symbol}"><h2>${m.symbol}</h2><div class="row"><span>${m.interval||""} ${m.quote||""}</span><span>${m.price==null?"—":m.price}</span></div><div class="row"><span>${m.decision_label||stateText}</span><span>${m.status||"unknown"}</span></div><p>${plainReason(m.message||"No qualifying setup yet.")}</p><p>Entry ${m.entry==null?"—":m.entry}. Stop ${m.stop==null?"—":m.stop}. Target ${m.target==null?"—":m.target}.</p><p class="muted">${stateText}. ${grade} Updated ${m.updated_at||"unknown"}.</p></article>`;
     }).join("");
     view.innerHTML = `<p role="status">${body.notice||"No approved strategy is currently active; trade alerts are unavailable."}</p><div class="markets">${cards}</div><article class="card" id="scanboard"><h2>Twelve combinations</h2><p class="muted">Loading.</p></article><p class="muted">Scanned ${body.scanned_at||""}. A reading uses the latest completed candle from the named source. It is not a tick feed and not an order. <a href="/learn">Why the scanner says this</a></p>`;
     fetch("/api/coverage", {credentials:"same-origin"}).then(r=>r.json()).then(cov => {
       const box = document.getElementById("scanboard");
       if (!box) return;
-      const lines = (cov.availability||[]).map(pair => `<div class="row"><span>${pair.symbol} ${pair.interval}</span><span>${pair.status}</span></div><p class="muted">${pair.reason}</p>`).join("");
+      const lines = (cov.availability||[]).map(pair => `<div class="row"><span>${pair.symbol} ${pair.interval}</span><span>${pair.status}</span></div><p class="muted">${plainReason(pair.reason)}</p>`).join("");
       box.innerHTML = `<h2>Twelve combinations</h2><p class="muted">Gold 1-minute and 3-minute stay unavailable. The other ten use the feed named here. A status is not a trade.</p>${lines}`;
     }).catch(()=>{});
   };

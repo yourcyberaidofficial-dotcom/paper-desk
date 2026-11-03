@@ -112,6 +112,8 @@ def test_an_old_worker_heartbeat_is_not_reported_as_healthy():
         assert "Worker status" in text
         assert "not confirmed" in text
         assert "The health report could not be read" in text
+        assert '<option selected>4h</option>' not in text
+        assert 'id="term-interval"' in text
     finally:
         worker.last_beat_ms = previous_beat
         worker.last_monitor_error = previous_error

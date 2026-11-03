@@ -36,7 +36,7 @@ def council(e1: str, sma: str, rsi: str, fresh: bool, candle: str | None = None)
     else:
         state, score = "WAIT", round(wait / total, 3)
         sides = sorted({v["direction"] for v in votes})
-        reason = f"Disagreement: {', '.join(sides)}. WAIT protects capital."
+        reason = "The research states do not agree (" + ", ".join({"LONG_BIAS": "bullish research", "SHORT_BIAS": "bearish research", "WAIT": "no direction"}.get(side, side) for side in sides) + "). This is not a paper order."
         next_condition = "WAIT clears only if E1 and SMA agree and RSI does not contradict."
     return {
         "version": VERSION,

@@ -15,6 +15,9 @@ def test_three_styles_differ_without_inventing_a_direction():
     aegis = evaluate("aegis_shield", "LONG_BIAS", "WAIT", "WAIT", True)
     assert only_e1["decision"] == "LONG_BIAS" and only_e1["eligible"]
     assert orion["decision"] == "WAIT" and not orion["eligible"]
+    assert orion["reason"].startswith("Research check only")
+    assert "paper-trade rule" in orion["reason"]
+    assert "E1 plus confirming agreement" not in orion["reason"]
     assert aegis["decision"] == "WAIT" and not aegis["eligible"]
     assert only_e1["production"] == "WAIT_DEFAULT"
     assert only_e1["validated"] is False

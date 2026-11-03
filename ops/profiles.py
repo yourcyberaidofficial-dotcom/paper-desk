@@ -116,15 +116,15 @@ def evaluate(style, e1, sma, rsi, fresh, symbol="BTCUSDT"):
     result["conflict"] = conflict
     if style == "aegis_shield":
         if conflict or len(directional) < 3 or len(set(directional)) != 1:
-            result["reason"] = "Aegis Shield converts incomplete or conflicting evidence into WAIT."
+            result["reason"] = "Research check only. Not the paper-trade rule. The research states do not agree, so this check stays WAIT."
             return result
-        result.update(decision=directional[0], eligible=True, reason="All three research states agree. Still unvalidated. Production remains WAIT_DEFAULT.")
+        result.update(decision=directional[0], eligible=True, reason="Research check only. Not the paper-trade rule. The three research states agree. This does not approve a trade.")
         return result
     if style == "orion_precision":
         if e1 not in {"LONG_BIAS", "SHORT_BIAS"} or conflict or not any(d == e1 for d in (sma, rsi)):
-            result["reason"] = "Orion Precision waits for E1 plus confirming agreement. A single desk is not enough."
+            result["reason"] = "Research check only. Not the paper-trade rule. E1 does not have a matching research state, so this check stays WAIT."
             return result
-        result.update(decision=e1, eligible=True, reason="E1 has confirming agreement. Research only. Not a promoted signal.")
+        result.update(decision=e1, eligible=True, reason="Research check only. Not the paper-trade rule. E1 matches another research state. This does not approve a trade.")
         return result
     if symbol == "XAUUSD" and (conflict or e1 not in {"LONG_BIAS", "SHORT_BIAS"} or len(set(directional)) != 1 or len(directional) < 3):
         result["reason"] = "Apex Momentum does not take gold without full agreement. Aureon has no ATR-expansion check."
@@ -134,7 +134,7 @@ def evaluate(style, e1, sma, rsi, fresh, symbol="BTCUSDT"):
         result.update(
             decision=e1,
             eligible=True,
-            reason="Apex Momentum follows the E1 observation with a lower confirmation bar. Experimental and unvalidated. Production remains WAIT_DEFAULT." + note,
+            reason="Research check only. Not the paper-trade rule. Apex can follow an E1 research state. This does not approve a trade." + note,
         )
         return result
     result["reason"] = "E1 is WAIT, so Apex Momentum does not invent a direction."
