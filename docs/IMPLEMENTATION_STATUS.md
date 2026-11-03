@@ -1,5 +1,7 @@
 # Implementation status
 
+2026-11-03. A daily reading can be reviewed and then confirmed as a manual paper plan. The review stores the snapshot identity and does not open an order. Experimental alerts stay off unless the account turns them on. AutoPilot still needs an approved strategy. Gold 1-minute and 3-minute, Vision archives, retention, the holdout and strategy promotion stay closed. Not deployed.
+
 2026-11-03. The daily desk shares one snapshot across Overview, Scanner and Live Signals. A candle close is not a quote. Gold 1-minute and 3-minute stay unlicensed. Vision archives, historical retention, the holdout and strategy promotion stay closed. A manual paper plan still needs an explicit confirm. AutoPilot still needs an approved strategy. Not deployed.
 
 2026-11-03. The live paper desk reads public spot prices again on `completion/integrated-desk`. Overview, Terminal, Scanner, and Live Signals show those readings. Gold 15-minute and 1-hour are included. Gold 1-minute and 3-minute stay unlicensed. Binance Vision archives, historical retention, the sealed holdout, and strategy promotion stay closed. Approved strategies remain zero, so AutoPilot does not open a paper order. This is not a commercial-archive licence. Production stays on the previous build until that host is updated by hand.

@@ -134,6 +134,43 @@ def paper_permission(user, result):
     return {"allowed": verdict.get("ok") is True, "reason": verdict.get("reason")}
 
 
+def plan_preview(user, row):
+    """Risk and size for a review. Nothing is written."""
+    row = row or {}
+    probe = {
+        "symbol": row.get("symbol"),
+        "interval": row.get("interval"),
+        "decision": row.get("decision") or row.get("direction"),
+        "entry": row.get("entry"),
+        "stop": row.get("stop"),
+        "target": row.get("target"),
+        "rule": row.get("rule") or row.get("family") or row.get("strategy"),
+        "requested_ms": row.get("created_ms") or row.get("requested_ms") or 1,
+    }
+    verdict = paper_permission(user, probe)
+    from ops.plan import qualify_size
+    from ops.profiles import canonical_style, get_profile
+    profile = (user or {}).get("profile") or {}
+    spec = get_profile(canonical_style(profile.get("signal_style"))) or {}
+    plan = (user or {}).get("plan") or {}
+    risk = plan.get("risk_per_trade_percent")
+    cap = spec.get("risk_per_trade_percent")
+    if risk is None:
+        risk = cap
+    if cap is not None and risk is not None:
+        risk = min(float(risk), float(cap))
+    sized = qualify_size(row.get("symbol"), profile.get("capital"), risk, profile.get("currency"), row.get("entry"), row.get("stop"))
+    return {
+        "allowed": verdict.get("allowed") is True,
+        "reason": verdict.get("reason"),
+        "risk_percent": risk,
+        "persona": spec.get("name"),
+        "min_rr": spec.get("min_rr"),
+        "size": sized,
+        "order_opened": False,
+    }
+
+
 def open_order(user, opportunity, now_ms, commit=True, opened_by="account", automation_cap=None):
     user = user or {}
     user_id = user.get("id")

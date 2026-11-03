@@ -13,7 +13,7 @@ from concurrent.futures import ThreadPoolExecutor
 from ops.bars import interval_ms, validate_series
 from ops.data_rights import DESK, source, use_permission
 
-READING_VERSION = "desk-read-20261103"
+READING_VERSION = "desk-read-20261103b"
 QUOTE_LIMIT = 0.0008
 _CACHE = {}
 _LOCK = threading.Lock()
@@ -334,7 +334,13 @@ def classify(card, snap):
         reading_class, setup_state, direction = "insufficient", "unavailable", "neutral"
     elif label == "WATCH" or card.get("runtime_status") == "watch":
         reading_class, setup_state = "developing", "forming"
-        direction = "bearish" if "short" in message.lower() else "bullish"
+        raw = str(card.get("direction") or card.get("decision") or "")
+        if raw in {"SELL", "SHORT", "SHORT_IDEA"}:
+            direction = "bearish"
+        elif raw in {"BUY", "LONG"}:
+            direction = "bullish"
+        else:
+            direction = "neutral"
     elif decision in {"BUY", "SELL"} and card.get("entry") is not None and card.get("stop") is not None and card.get("target") is not None:
         reading_class = "validated" if card.get("approved") is True else "manual_plan"
         setup_state = "confirmed"
@@ -370,10 +376,66 @@ def classify(card, snap):
         "approved": False if card.get("approved") is not True else True,
         "probability": None,
         "explanation": message,
-        "invalidation": card.get("invalidation") or "The reading changes when a later completed candle no longer meets the same conditions.",
+        "invalidation": card.get("invalidation") or _changes(reading_class)[0],
+        "changes_when": _changes(reading_class)[1],
         "quote_separated": True,
     })
     return card
+
+
+def _changes(reading_class):
+    text = {
+        "manual_plan": (
+            "The stop on this reading. A later completed candle can retire the plan. Confirming it does not approve a strategy.",
+            "The plan changes only when a new completed candle is read. AutoPilot cannot open it.",
+        ),
+        "developing": (
+            "The setup is still forming. It is not a paper plan until entry, stop and target are confirmed on a completed candle.",
+            "A later completed candle can confirm it or let it expire. A quote is not that candle.",
+        ),
+        "insufficient": (
+            "No plan is calculated from a stale, incomplete or degraded candle.",
+            "A fresh completed candle is required before a setup is shown.",
+        ),
+        "unavailable": (
+            "This timeframe is not available. No substitute candle is used.",
+            "It stays closed until an exact permitted source exists. A five-minute sample is not split into a shorter candle.",
+        ),
+        "validated": (
+            "A validated signal would name its approved strategy version. None is approved.",
+            "Approval is a separate record. Agreement between readings is not approval.",
+        ),
+    }.get(reading_class, (
+        "No qualifying setup on this candle. A later completed candle can change the observation.",
+        "An observation is not an order and not an AutoPilot signal.",
+    ))
+    return text
+
+
+def public_reading(card):
+    card = card or {}
+    return {
+        "snapshot_id": card.get("snapshot_id"),
+        "reading_version": card.get("reading_version"),
+        "reading_class": card.get("reading_class"),
+        "setup_state": card.get("setup_state"),
+        "direction_label": card.get("direction_label"),
+        "decision": card.get("decision_label") or card.get("decision"),
+        "manual_paper": card.get("manual_paper") is True,
+        "autopilot_eligible": False,
+        "approved": card.get("approved") is True,
+        "probability": None,
+        "explanation": card.get("explanation"),
+        "invalidation": card.get("invalidation"),
+        "changes_when": card.get("changes_when"),
+        "quality": card.get("quality"),
+        "source_id": card.get("source_id"),
+        "provider": card.get("provider"),
+        "candle_close_ms": card.get("candle_close_ms"),
+        "entry": card.get("entry"),
+        "stop": card.get("stop"),
+        "target": card.get("target"),
+    }
 
 
 def public_snapshot(snap):
@@ -416,3 +478,34 @@ def desk_scan(now_ms):
     body["sources"] = source_rows(snaps)
     body["archives"] = archive_restrictions()
     return body
+
+
+def headline_board(now_ms):
+    """Prices and readings for the overview instruments. One observation each."""
+    snaps = headline(now_ms)
+    cards = []
+    try:
+        from ops.scanner import scan
+        body = scan([window_from(snap) for snap in snaps], now_ms=int(now_ms))
+        cards = body.get("markets") or []
+    except Exception:
+        cards = []
+    labeled = []
+    for index, snap in enumerate(snaps):
+        card = cards[index] if index < len(cards) else {}
+        labeled.append(classify(card, snap))
+    return snaps, labeled
+
+
+def reading_for(symbol, interval, now_ms, bars=None, quote=None):
+    """The same classification the desk uses, for one instrument and timeframe."""
+    if (symbol, interval) not in DESK:
+        return None
+    snap = observe(symbol, interval, now_ms, bars=bars, quote=quote)
+    try:
+        from ops.scanner import scan
+        body = scan([window_from(snap)], now_ms=int(now_ms))
+        card = (body.get("markets") or [{}])[0]
+    except Exception:
+        card = {}
+    return classify(card, snap)

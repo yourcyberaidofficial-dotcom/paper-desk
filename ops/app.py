@@ -846,22 +846,23 @@ def _gold():
 
 @app.get("/api/markets")
 def markets():
-    from ops.desk_snapshot import headline
+    from ops.desk_snapshot import headline_board, public_reading
 
     now_ms = int(time.time() * 1000)
     try:
-        snaps = headline(now_ms)
+        snaps, readings = headline_board(now_ms)
     except Exception:
-        snaps = []
-    by_symbol = {snap.get("instrument"): snap for snap in snaps}
+        snaps, readings = [], []
+    by_symbol = {snap.get("instrument"): (snap, readings[index] if index < len(readings) else {}) for index, snap in enumerate(snaps)}
     def row(symbol, row_id, source=None):
-        snap = by_symbol.get(symbol) or {}
+        snap, reading = by_symbol.get(symbol) or ({}, {})
         payload = {
             "id": row_id,
             "symbol": symbol,
             "status": "configured",
             "snapshot_id": snap.get("snapshot_id"),
             "data": snap.get("display") or {"price": None, "close": None, "fresh": False, "quality": "unavailable"},
+            "reading": public_reading(reading) if reading else None,
         }
         if source:
             payload["source"] = source
@@ -1626,6 +1627,64 @@ def desk_api():
         return jsonify({"error": "unavailable", "reason": type(exc).__name__, "markets": [], "broker": False}), 502
 
 
+@app.post("/api/desk/plan")
+def desk_plan():
+    """Review a live reading. This records a plan. It does not open an order."""
+    user_id, user = _session_user()
+    if not user_id or not user:
+        return jsonify({"error": "unauthorized"}), 401
+    body = request.json or {}
+    symbol = str(body.get("symbol") or "")
+    interval = str(body.get("interval") or "")
+    from ops.desk_snapshot import public_reading, reading_for
+    from ops.inbox import record_desk_plan
+    from ops.paperbook import opportunity_row, plan_preview
+    now_ms = int(time.time() * 1000)
+    card = reading_for(symbol, interval, now_ms)
+    if card is None:
+        return jsonify({"ok": False, "reason": "unsupported", "order_opened": False, "broker": False}), 400
+    user = dict(user)
+    user["id"] = user_id
+    shown = public_reading(card)
+    if card.get("manual_paper") is not True:
+        return jsonify({
+            "ok": False,
+            "reason": "not_a_manual_plan",
+            "reading": shown,
+            "reading_class": card.get("reading_class"),
+            "snapshot_id": card.get("snapshot_id"),
+            "autopilot_eligible": False,
+            "approved": False,
+            "order_opened": False,
+            "broker": False,
+        })
+    saved = record_desk_plan(user_id, user, card)
+    stored = opportunity_row(user_id, saved.get("opportunity_id")) if saved.get("opportunity_id") else None
+    plan_row = stored or card
+    preview = plan_preview(user, plan_row)
+    return jsonify({
+        "ok": bool(saved.get("opportunity_id")),
+        "stored": bool(saved.get("stored")),
+        "duplicate": bool(saved.get("duplicate")),
+        "reason": saved.get("reason"),
+        "opportunity_id": saved.get("opportunity_id"),
+        "snapshot_id": (stored or {}).get("snapshot_id") or card.get("snapshot_id"),
+        "reading_version": (stored or {}).get("reading_version") or card.get("reading_version"),
+        "reading_class": "manual_plan",
+        "entry": plan_row.get("entry"),
+        "stop": plan_row.get("stop"),
+        "target": plan_row.get("target"),
+        "explanation": (stored or {}).get("explanation") or card.get("explanation"),
+        "invalidation": plan_row.get("invalidation"),
+        "changes_when": card.get("changes_when"),
+        "paper": preview,
+        "autopilot_eligible": False,
+        "approved": False,
+        "order_opened": False,
+        "broker": False,
+    })
+
+
 @app.get("/api/workspace")
 def workspace_api():
     user_id = session.get("user_id")
@@ -2155,6 +2214,16 @@ function priceText(symbol, value){
   return n.toLocaleString(undefined, {minimumFractionDigits: digits, maximumFractionDigits: digits});
 }
 function stamp(ms){ return ms ? new Date(ms).toISOString() : "unknown"; }
+function when(ms){
+  if (!ms) return "time not available";
+  const d = new Date(ms);
+  if (Number.isNaN(d.getTime())) return "time not available";
+  try {
+    return d.toLocaleString(undefined, {timeZone:"UTC", year:"numeric", month:"short", day:"2-digit", hour:"2-digit", minute:"2-digit"}) + " UTC";
+  } catch (e) {
+    return d.toISOString().slice(0, 16).replace("T", " ") + " UTC";
+  }
+}
 function spark(id, candles){
   const c = document.getElementById(id);
   if (!c || !candles.length) return;
@@ -2259,10 +2328,12 @@ async function overview(){
       const when = data.close_time_ms ? new Date(data.close_time_ms).toISOString().slice(0, 16).replace("T", " ") + " UTC" : "";
       const note = value == null ? "not returned" : (frame + (when ? " · " + when : "") + " · " + (data.quality || "unknown"));
       const quote = data.quote && data.quote.price != null ? `<p class="muted">Separate quote ${priceText(row.symbol, data.quote.price)}. Not the candle close.</p>` : "";
-      return `<div class="row"><span>${row.symbol}</span><span class="num">${shown}</span></div><p class="muted">${note}</p>${quote}`;
+      const reading = row.reading || {};
+      const context = reading.reading_class ? `<p class="muted">${reading.direction_label || "neutral"} · ${reading.reading_class} · ${reading.setup_state || "none"}. ${plainReason(reading.explanation || "")} ${plainReason(reading.changes_when || "")}</p>` : "";
+      return `<div class="row"><span>${row.symbol}</span><span class="num">${shown}</span></div><p class="muted">${note}${row.snapshot_id ? " · " + row.snapshot_id : ""}</p>${quote}${context}`;
     }).join("");
     const states = ((platform && platform.states) || []).map(row => `<div class="row"><span>${row.label}</span><span>${row.value}</span></div>`).join("");
-    market.innerHTML = `<h2>Market data</h2>${quotes || "<p>Prices could not be loaded. No price was invented.</p>"}<p class="muted">Readings are on the desk. Research approval is not required to see them. Gold 1-minute and 3-minute stay unlicensed.</p>${states}${markets ? "" : `<p><button type="button" id="ov-retry2">Retry prices</button></p>`}<p><a href="/trading">Terminal</a> · <a href="/signals">Live Signals</a></p>`;
+    market.innerHTML = `<h2>Market data</h2>${quotes || "<p>Prices could not be loaded. No price was invented.</p>"}<p class="muted">These three readings use the same snapshot as the rest of the desk. Research approval is not required to see them. Gold 1-minute and 3-minute stay unlicensed.</p>${states}${markets ? "" : `<p><button type="button" id="ov-retry2">Retry prices</button></p>`}<p><a href="/trading">Open the terminal</a> · <a href="/signals">Today's setups</a> · <a href="/scanner">Scanner</a></p>`;
     const again = document.getElementById("ov-retry2");
     if (again) again.onclick = () => overview();
   }
@@ -2286,13 +2357,45 @@ async function signals(){
       const decision = minute ? "Unavailable" : (headline === "WAIT" ? "No entry yet" : headline);
       const dir = item.direction_label || "neutral";
       const kind = item.reading_class || "observational";
-      const when = item.candle_close_ms ? new Date(item.candle_close_ms).toISOString().slice(0, 16).replace("T", " ") + " UTC" : "time not available";
-      const manual = item.manual_paper ? `<p><a href="/trading">Inspect this plan on the terminal</a>. A paper trade opens only after you confirm it. AutoPilot will not open it.</p>` : "";
-      return `<div class="row"><span>${item.symbol} ${item.interval || ""}</span><span>${decision}</span></div><div class="row"><span>Candle close</span><span class="num">${minute ? "—" : px}</span></div><p class="muted">${dir} · ${kind} · ${when}. ${plainReason(item.explanation || item.message || "")} Not a probability.</p>${manual}`;
+      const whenText = item.candle_close_ms ? when(item.candle_close_ms) : "time not available";
+      const stance = item.reading_class === "unavailable"
+        ? `<p class="muted">This timeframe is unavailable. That is not a missed setup.</p>`
+        : (item.reading_class === "insufficient"
+          ? `<p class="muted">The candle is not fresh enough to plan. That is not a missed setup.</p>`
+          : (item.reading_class === "developing"
+            ? `<p class="muted">The setup is forming. It is not a paper plan yet. ${plainReason(item.changes_when || "")}</p>`
+            : (item.manual_paper
+              ? `<p>Entry ${priceText(item.symbol, item.entry)}. Stop ${priceText(item.symbol, item.stop)}. Target ${priceText(item.symbol, item.target)}. ${plainReason(item.invalidation || "")}</p><p><button type="button" data-review="${item.symbol}" data-frame="${item.interval}">Review paper plan</button></p><div data-review-box="${item.symbol}:${item.interval}"></div><p class="muted">A paper trade opens only after you confirm it. AutoPilot will not open it. Not an approved strategy.</p>`
+              : `<p class="muted">Observation only. Not a paper plan and not AutoPilot. ${plainReason(item.changes_when || "")}</p>`)));
+      return `<div class="row"><span>${item.symbol} ${item.interval || ""}</span><span>${decision}</span></div><div class="row"><span>Candle close</span><span class="num">${minute ? "—" : px}</span></div><p class="muted">${dir} · ${kind} · ${whenText}. ${item.source_id || item.provider || "source unnamed"}. ${plainReason(item.explanation || item.message || "")} Not a probability. ${item.snapshot_id || ""}</p>${stance}`;
     }).join("");
     now.innerHTML = `<h2>Today's readings</h2><p class="muted">No live approved signals are currently available. These are today's desk readings. A failed historical study is not a current market leader. Nothing here is an order.</p>${cards || "<p>No reading was returned. No price was invented.</p>"}${scan ? "" : `<p><button type="button" id="sig-retry">Retry</button></p>`}<p><a href="/scanner">Open the scanner</a> · <a href="/trading">Terminal</a></p>`;
     const again = document.getElementById("sig-retry");
     if (again) again.onclick = () => signals();
+    document.querySelectorAll("[data-review]").forEach(button => { button.onclick = async () => {
+      button.disabled = true;
+      const box = document.querySelector('[data-review-box="' + button.dataset.review + ":" + button.dataset.frame + '"]');
+      const response = await fetch("/api/desk/plan", {method:"POST", credentials:"same-origin", headers:{"Content-Type":"application/json"}, body: JSON.stringify({symbol: button.dataset.review, interval: button.dataset.frame})});
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok || !payload.opportunity_id) {
+        if (box) box.innerHTML = `<p>No paper plan was saved. ${plainReason(payload.reason || payload.reading_class || "not available")}. No order was opened.</p>`;
+        button.disabled = false;
+        return;
+      }
+      const allow = payload.paper && payload.paper.allowed;
+      const sized = payload.paper && payload.paper.size;
+      const sizeLine = sized && sized.risk_budget_usd != null
+        ? `Risk budget ${Number(sized.risk_budget_usd).toFixed(2)} USD at ${payload.paper.risk_percent} percent. ${sized.ok && sized.quantity != null ? "Quantity " + Number(sized.quantity).toFixed(6) + " is an unrounded estimate, not an exchange lot." : plainReason(sized.note || sized.reason || "Size was not calculated.")}`
+        : `Account check: ${plainReason((payload.paper && payload.paper.reason) || "not allowed")}.`;
+      if (box) box.innerHTML = `<p>Saved plan. Entry ${priceText(button.dataset.review, payload.entry)}. Stop ${priceText(button.dataset.review, payload.stop)}. Target ${priceText(button.dataset.review, payload.target)}. ${sizeLine} Snapshot ${payload.snapshot_id || ""}. Not approved. Not AutoPilot. No broker order.</p>${allow ? `<p><button type="button" data-confirm="${payload.opportunity_id}">Confirm manual paper order</button></p>` : `<p>The account rules did not allow an order. The plan stays a review.</p>`}`;
+      const confirm = box && box.querySelector("[data-confirm]");
+      if (confirm) confirm.onclick = async () => {
+        confirm.disabled = true;
+        const opened = await fetch("/api/paper/orders", {method:"POST", credentials:"same-origin", headers:{"Content-Type":"application/json"}, body: JSON.stringify({opportunity_id: confirm.dataset.confirm})});
+        const done = await opened.json().catch(() => ({}));
+        confirm.textContent = opened.ok && done.ok ? "Paper trade recorded. It is an estimate, not a broker fill." : ("Not opened. " + plainReason(done.reason || "Try again."));
+      };
+    }; });
   }
   const research = await timed("/api/research-lab");
   const hist = document.getElementById("live-hist");
@@ -2459,18 +2562,38 @@ async function terminal(){
       const audit = body.research_levels && body.research_levels.audit_only ? `<details><summary>Audit only, not a trade plan</summary><p class="muted">Stored research levels stay off the plan. Entry ${px(body.research_levels.entry)}. Stop ${px(body.research_levels.stop)}. Target ${px(body.research_levels.target)}.</p></details>` : "";
       const chain = body.evidence_chain ? `<details><summary>Evidence chain</summary><p class="muted">Source ${plainReason(body.evidence_chain.data_source || "unnamed")}. Candle ${stamp(body.evidence_chain.completed_candle_ms)}. Rule ${body.evidence_chain.strategy_version || "unnamed"}. Decision ${body.evidence_chain.decision || "WAIT"}. Approved: ${body.evidence_chain.approved ? "yes" : "no"}. No calibrated probability is shown.</p></details>` : "";
       const persona = body.persona_name ? `${body.persona_name}. ${body.persona_note || ""}` : "No persona note.";
-      const paper = (!withheld && body.paper && body.paper.allowed) ? `<p><button id="openpaper" type="button">Open a paper trade on this plan</button></p><p class="muted">This records a paper estimate for your account. It does not send a broker order. The quantity is not an exchange lot.</p>` : `<p class="muted">Paper trade unavailable${body.paper&&body.paper.reason?": "+plainReason(body.paper.reason):"."} ${withheld ? "No order is created from a blocked reading." : "The market plan is unchanged."}</p>`;
+      const canReview = !withheld && (body.decision === "BUY" || body.decision === "SELL") && body.entry != null && body.approved !== true;
+      const paper = canReview
+        ? `<p><button id="openpaper" type="button">Review this paper plan</button></p><div id="planreview"></div><p class="muted">Review does not open an order. Confirming records a paper estimate. It does not send a broker order and AutoPilot will not open it.</p>`
+        : `<p class="muted">Paper trade unavailable${body.paper&&body.paper.reason?": "+plainReason(body.paper.reason):"."} ${withheld ? "No order is created from a blocked reading." : "An observation is not an order. The market plan is unchanged."}</p>`;
       out.innerHTML = `<article class="card ${klass}" data-request="${requestId}" data-symbol="${body.symbol}" data-interval="${body.interval}"><p data-stale-note></p><p class="badge ${klass === "blocked" ? "block" : (klass === "approved" ? "ok" : "research")}">${kind}</p><h2>${headlineShown}</h2><dl class="sections"><dt>Evaluation status</dt><dd>${headlineShown}</dd><dt>Market and timeframe</dt><dd>${body.symbol||""} ${body.interval||""}</dd><dt>Data source</dt><dd>${sourceLine}</dd><dt>Candle completion</dt><dd>${candleLine}</dd><dt>Observation</dt><dd>${headlineShown}</dd><dt>Validation</dt><dd>${body.validation_status||"unknown"}. ${body.approved?"Approved.":"Not an approved strategy and not a claim of profit."}</dd><dt>Entry condition</dt><dd>${entryLine}</dd><dt>Stop and target</dt><dd>${stopTarget}</dd><dt>Reward/risk</dt><dd class="num">${rr}</dd><dt>Persona eligibility</dt><dd>${persona}</dd><dt>Sizing</dt><dd>${withheld ? "Not calculated." : plainReason(size)}</dd><dt>Why it is waiting or blocked</dt><dd>${why}${gap}${times}</dd></dl>${audit}${chain}<details><summary>Technical record</summary><p class="muted">Request ${requestId}. Requested ${body.requested_symbol||""} ${body.requested_interval||""} ${body.requested_strategy||""}. Resolved ${body.strategy||""}. ${body.evidence_semantics||""} ${body.invalidation||""}</p></details>${paper}</article>`;
       const opener = document.getElementById("openpaper");
-      if (opener && body.inbox_delivery && body.inbox_delivery.opportunity_id) {
+      if (opener) {
         opener.onclick = async () => {
-          const opened = await fetch("/api/paper/orders", {method:"POST", credentials:"same-origin", headers:{"Content-Type":"application/json"}, body: JSON.stringify({opportunity_id: body.inbox_delivery.opportunity_id})});
-          const payload = await opened.json().catch(()=>({}));
-          opener.textContent = opened.ok && payload.ok ? "Paper trade recorded." : ("Not opened. " + (payload.reason || "Try again from the inbox."));
+          opener.disabled = true;
+          const reviewed = await fetch("/api/desk/plan", {method:"POST", credentials:"same-origin", headers:{"Content-Type":"application/json"}, body: JSON.stringify({symbol: body.symbol, interval: body.interval})});
+          const payload = await reviewed.json().catch(() => ({}));
+          const box = document.getElementById("planreview");
+          if (!reviewed.ok || !payload.opportunity_id) {
+            if (box) box.innerHTML = `<p>No paper plan was saved. ${plainReason(payload.reason || payload.reading_class || "not available")}. No order was opened.</p>`;
+            opener.disabled = false;
+            return;
+          }
+          const allow = payload.paper && payload.paper.allowed;
+          const sized = payload.paper && payload.paper.size;
+          const sizeLine = sized && sized.risk_budget_usd != null
+            ? `Risk budget ${Number(sized.risk_budget_usd).toFixed(2)} USD at ${payload.paper.risk_percent} percent. ${sized.ok && sized.quantity != null ? "Quantity " + Number(sized.quantity).toFixed(6) + " is an unrounded estimate, not an exchange lot." : plainReason(sized.note || sized.reason || "Size was not calculated.")}`
+            : `Account check: ${plainReason((payload.paper && payload.paper.reason) || "not allowed")}.`;
+          if (box) box.innerHTML = `<p>Entry ${priceText(body.symbol, payload.entry)}. Stop ${priceText(body.symbol, payload.stop)}. Target ${priceText(body.symbol, payload.target)}. ${plainReason(payload.explanation || "")} ${sizeLine}</p><p class="muted">Snapshot ${payload.snapshot_id || ""}. Not approved. Not AutoPilot.</p>${allow ? `<p><button id="confirmpaper" type="button">Confirm manual paper order</button></p>` : `<p>The account rules did not allow an order. The plan stays a review.</p>`}`;
+          const confirm = document.getElementById("confirmpaper");
+          if (confirm) confirm.onclick = async () => {
+            confirm.disabled = true;
+            const opened = await fetch("/api/paper/orders", {method:"POST", credentials:"same-origin", headers:{"Content-Type":"application/json"}, body: JSON.stringify({opportunity_id: payload.opportunity_id})});
+            const done = await opened.json().catch(() => ({}));
+            confirm.textContent = opened.ok && done.ok ? "Paper trade recorded. It is an estimate, not a broker fill." : ("Not opened. " + plainReason(done.reason || "Try again."));
+            loadBook();
+          };
         };
-      } else if (opener) {
-        opener.textContent = "Save the plan to your inbox before opening a paper trade.";
-        opener.disabled = true;
       }
       history();
       loadBook();
@@ -2558,11 +2681,12 @@ async function scannerPage(){
       const gap = m.quote_gap == null ? "" : ` Observed divergence ${(Number(m.quote_gap)*100).toFixed(2)} percent. Limit 0.08 percent.`;
       const times = headline === "QUOTE DIVERGENCE" ? ` Spot sample ${stamp(m.compared_bar_close_ms)}. Separate quote ${stamp(m.quote_time_ms)}.` : "";
       const source = plainReason(m.quote_label || m.quote || "source not named");
-      const lineage = m.snapshot_id ? ` ${m.direction_label || "neutral"}. ${m.reading_class || "observational"}. Candle ${m.candle_close_ms ? new Date(m.candle_close_ms).toISOString().slice(0, 16).replace("T", " ") + " UTC" : "time unknown"}.` : "";
+      const lineage = m.snapshot_id ? ` ${m.direction_label || "neutral"}. ${m.reading_class || "observational"}. Candle ${m.candle_close_ms ? when(m.candle_close_ms) : "time unknown"}.` : "";
+      const scope = m.reading_class === "unavailable" ? " Unavailable data. Not a missed setup." : (m.reading_class === "insufficient" ? " The candle is not fresh enough to plan. Not a missed setup." : (headline === "WAIT" ? " No qualifying setup on this completed candle." : ""));
       const grade = m.evaluated === false || (blocked && m.evidence_grade == null)
         ? "No candidate evidence grade. The rule was not validly evaluated."
         : "No evidence grade is shown as a probability.";
-      return `<article class="card ${klass}" data-symbol="${m.symbol}"><p class="badge ${klass==="blocked"?"block":"research"}">${kind}</p><h2>${m.symbol} · ${m.interval||""}</h2><div class="row"><span>${headline}</span><span class="num">${m.price==null?"—":priceText(m.symbol, m.price)}</span></div><p class="muted">${source}. ${m.evaluated===false?"This market did not complete a valid reading.":"Reading complete."}${lineage}</p><p>${plainReason(m.message||"No qualifying setup yet.")}${gap}${times}</p>${levels}<p class="muted">${grade} Updated ${m.updated_at||"unknown"}.</p><details><summary>Technical evidence</summary><p class="muted">${plainReason(m.diagnostic||"")} State ${m.scanner_state||m.state||"unknown"}. Source code ${m.quote||"unnamed"}.</p></details></article>`;
+      return `<article class="card ${klass}" data-symbol="${m.symbol}"><p class="badge ${klass==="blocked"?"block":"research"}">${kind}</p><h2>${m.symbol} · ${m.interval||""}</h2><div class="row"><span>${headline}</span><span class="num">${m.price==null?"—":priceText(m.symbol, m.price)}</span></div><p class="muted">${source}. ${m.evaluated===false?"This market did not complete a valid reading.":"Reading complete."}${lineage}${scope}</p><p>${plainReason(m.message||"No qualifying setup yet.")}${gap}${times}</p>${levels}<p class="muted">${grade} Updated ${m.updated_at||"unknown"}. ${m.snapshot_id || ""}</p><details><summary>Technical evidence</summary><p class="muted">${plainReason(m.diagnostic||"")} State ${m.scanner_state||m.state||"unknown"}. Source code ${m.quote||"unnamed"}.</p></details></article>`;
     }).join("");
     const qualifying = (body.markets||[]).some(m => m.approved || m.scanner_state === "APPROVED_SIGNAL");
     const heldOnly = (body.markets||[]).length > 0 && (body.markets||[]).every(m => isRightsHold(m.decision_label, m.scanner_state, m.status));
@@ -2581,8 +2705,8 @@ async function scannerPage(){
     if (box) box.innerHTML = (cards || `<article class="card"><h2>No qualifying opportunity</h2><p>The scan returned no market cards.</p></article>`) + emptyNote;
     const status = document.getElementById("scanstatus");
     if (status) status.textContent = staleNote ? "Scan refresh failed." : (body.notice || "Scan complete.");
-    const when = document.getElementById("scanwhen");
-    if (when) when.textContent = body.scanned_at ? ("Last successful read " + body.scanned_at + ". A reading uses the latest completed candle. It is not a tick feed and not an order.") : "No completed candle was returned. No price was invented. This is not a tick feed and not an order.";
+    const clock = document.getElementById("scanwhen");
+    if (clock) clock.textContent = body.scanned_at ? ("Last successful read " + body.scanned_at + ". A reading uses the latest completed candle. It is not a tick feed and not an order.") : "No completed candle was returned. No price was invented. This is not a tick feed and not an order.";
     const stale = document.getElementById("scanstale");
     if (stale) { stale.hidden = !staleNote; stale.textContent = staleNote || ""; }
   };
@@ -2872,8 +2996,8 @@ async function systemPage(){
   fetch("/api/desk", {credentials:"same-origin"}).then(r => r.ok ? r.json() : null).then(body => {
     const host = document.getElementById("data-coverage");
     if (!host || !body || !(body.sources || []).length) return;
-    const lines = body.sources.map(row => `<div class="row"><span>${row.instrument} ${row.timeframe}</span><span>${row.quality || "unknown"} · ${row.display || "closed"}</span></div>`).join("");
-    host.insertAdjacentHTML("afterend", `<article class="card"><h2>Desk sources</h2><p class="muted">One row per instrument and timeframe. Retention and research can stay closed while a live reading still loads. Gold 1-minute and 3-minute stay unlicensed.</p>${lines}</article>`);
+    const lines = body.sources.map(row => `<div class="row"><span>${row.instrument} ${row.timeframe}</span><span>${row.quality || "unknown"} · display ${row.display || "closed"}</span></div><p class="muted">${row.provider || "unknown"} · ${row.source_id || "unnamed"}. Retention ${row.retention || "closed"}. Research ${row.research || "closed"}. ${row.snapshot_id || ""}</p>`).join("");
+    host.insertAdjacentHTML("afterend", `<article class="card"><h2>Desk sources</h2><p class="muted">One row per instrument and timeframe. Reachable is not the same as approved. Retention and research can stay closed while a live reading still loads. Gold 1-minute and 3-minute stay unlicensed.</p>${lines}</article>`);
   }).catch(() => {});
 }
 async function settings(){

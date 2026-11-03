@@ -110,7 +110,7 @@ def offer(user_id, notice, registry=None):
     rows = _read(user_id)
     if any(row.get("id") == event_id for row in rows):
         return {"ok": True, "duplicate": True, "stored": False}
-    rows.append({
+    row = {
         "id": event_id,
         "kind": kind,
         "label": label,
@@ -150,7 +150,15 @@ def offer(user_id, notice, registry=None):
             "stop": notice.get("stop"),
             "target": notice.get("target"),
         }],
-    })
+    }
+    for key in ("snapshot_id", "reading_version", "source_id", "provider", "explanation", "candle_open_ms"):
+        if notice.get(key) not in (None, ""):
+            row[key] = notice.get(key)
+    if notice.get("snapshot_id"):
+        row["events"][0]["snapshot_id"] = notice.get("snapshot_id")
+        if notice.get("reading_version"):
+            row["events"][0]["reading_version"] = notice.get("reading_version")
+    rows.append(row)
     _write(user_id, rows)
     return {"ok": True, "duplicate": False, "stored": True}
 
@@ -484,4 +492,101 @@ def deliver_evaluation(user_id, user, result):
         "id": card_id,
         "opportunity_id": opportunity_id,
         "kind": kind,
+    }
+
+
+def record_desk_plan(user_id, user, result):
+    """Save a plan the account asked to review.
+
+    This is not a notification, not an AutoPilot signal, and not an order.
+    Experimental alert settings do not apply. The original entry is not rewritten.
+    """
+    result = result or {}
+    from ops.data_rights import is_rights_reason
+    if result.get("rights_status") in {"rights_unconfirmed", "prohibited", "restricted", "fixture_only"} or is_rights_reason(result.get("reason")) or is_rights_reason(result.get("blocked")):
+        return {"stored": False, "duplicate": False, "reason": "commercial_use_unverified", "order_opened": False}
+    if result.get("reading_class") != "manual_plan" or result.get("manual_paper") is not True:
+        return {"stored": False, "duplicate": False, "reason": "not_a_manual_plan", "reading_class": result.get("reading_class"), "order_opened": False}
+    if result.get("autopilot_eligible") is True or result.get("approved") is True:
+        return {"stored": False, "duplicate": False, "reason": "not_a_manual_plan", "order_opened": False}
+    if result.get("quality") != "ok":
+        return {"stored": False, "duplicate": False, "reason": "not_fresh", "order_opened": False}
+    decision = result.get("decision")
+    if decision not in {"BUY", "SELL"}:
+        return {"stored": False, "duplicate": False, "reason": "not_a_plan", "order_opened": False}
+    entry, stop, target = result.get("entry"), result.get("stop"), result.get("target")
+    if entry is None or stop is None or target is None:
+        return {"stored": False, "duplicate": False, "reason": "incomplete", "order_opened": False}
+    symbol = result.get("symbol")
+    interval = str(result.get("interval") or "")
+    anchor = result.get("bar_close_ms")
+    if anchor in (None, ""):
+        anchor = result.get("candle_close_ms")
+    family = str(result.get("rule") or result.get("strategy") or "unspecified")
+    opportunity_id = opportunity_identity(symbol, interval, family, decision, anchor)
+    if opportunity_id is None:
+        return {"stored": False, "duplicate": False, "reason": "incomplete", "order_opened": False}
+    plan_version = f"plan:{entry}:{stop}:{target}"
+    existing = find_open_opportunity(user_id, opportunity_id)
+    if existing:
+        appended = append_event(user_id, existing.get("opportunity_id"), {
+            "id": f"evt:{existing.get('opportunity_id')}:reviewed:{result.get('snapshot_id') or plan_version}",
+            "state": "reviewed",
+            "note": "The account reviewed this plan again. The original entry, stop and target were not rewritten.",
+            "created_ms": result.get("reading_at_ms") or int(time.time() * 1000),
+            "snapshot_id": result.get("snapshot_id"),
+            "reading_version": result.get("reading_version"),
+            "observed_entry": entry,
+            "observed_stop": stop,
+            "observed_target": target,
+        })
+        return {
+            "stored": False,
+            "duplicate": True,
+            "reason": "same_opportunity",
+            "opportunity_id": existing.get("opportunity_id"),
+            "appended": appended.get("stored"),
+            "order_opened": False,
+        }
+    explanation = result.get("explanation") or result.get("message") or result.get("reason")
+    saved = offer(user_id, {
+        "id": notice_id("experimental", opportunity_id),
+        "kind": "experimental",
+        "symbol": symbol,
+        "interval": interval,
+        "strategy": result.get("strategy") or family,
+        "version": result.get("reading_version") or result.get("strategy"),
+        "state": decision,
+        "decision": decision,
+        "message": explanation,
+        "entry": entry,
+        "stop": stop,
+        "target": target,
+        "invalidation": result.get("invalidation"),
+        "reference_price": result.get("reference_price") if result.get("reference_price") is not None else result.get("price"),
+        "fresh": True,
+        "validation_status": result.get("validation_status") or "FAIL",
+        "approved": False,
+        "bar_close_ms": anchor,
+        "created_ms": result.get("reading_at_ms") or int(time.time() * 1000),
+        "market_evaluation_id": f"mkt:{symbol}:{interval}:{anchor}:{result.get('reading_version') or family}",
+        "opportunity_id": opportunity_id,
+        "plan_version": plan_version,
+        "account_decision_id": f"acct:{user_id}:{opportunity_id}:{plan_version}",
+        "event_id": f"evt:acct:{user_id}:{opportunity_id}:{plan_version}:active",
+        "family": family,
+        "direction": decision,
+        "snapshot_id": result.get("snapshot_id"),
+        "reading_version": result.get("reading_version"),
+        "source_id": result.get("source_id"),
+        "provider": result.get("provider"),
+        "explanation": explanation,
+        "candle_open_ms": result.get("candle_open_ms"),
+    })
+    return {
+        "stored": bool(saved.get("stored")),
+        "duplicate": bool(saved.get("duplicate")),
+        "reason": saved.get("reason") or ("stored" if saved.get("stored") else "refused"),
+        "opportunity_id": opportunity_id if saved.get("stored") or saved.get("duplicate") else None,
+        "order_opened": False,
     }

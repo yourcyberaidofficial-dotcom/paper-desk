@@ -128,6 +128,10 @@ def test_the_same_snapshot_classifies_the_same_reading_without_a_probability():
     assert blocked["entry"] is None and blocked["reading_class"] == "insufficient"
     assert withheld["reading_class"] == "manual_plan"
     assert withheld["autopilot_eligible"] is False
+    watch = classify({"decision": "WAIT", "decision_label": "WATCH", "runtime_status": "watch", "direction": "WAIT", "message": "The shorter average is below the longer one. A short idea is not an entry.", "approved": False}, first)
+    assert watch["reading_class"] == "developing"
+    assert watch["direction_label"] == "neutral"
+    assert watch["manual_paper"] is False
     assert permission_for("BTCUSDT", "15m")["display"]["allowed"] is True
     assert permission_for("BTCUSDT", "15m")["retention"]["allowed"] is False
     assert permission_for("BTCUSDT", "15m")["research"]["allowed"] is False
