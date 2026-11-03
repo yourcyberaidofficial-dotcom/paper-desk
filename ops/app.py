@@ -125,6 +125,12 @@ def coverage():
     })
 
 
+@app.get("/api/data-coverage")
+def data_coverage():
+    from ops.market_data import public_report
+    return jsonify(public_report())
+
+
 def _worker_public():
     beat = worker.last_beat_ms or 0
     heartbeat_age = None if not beat else max(0, int(time.time() * 1000) - beat)
@@ -2215,6 +2221,14 @@ async function signalsLegacy(){
     finally { clearTimeout(t); }
   };
 }
+function dataCoverageCard(payload){
+  if (!payload || !payload.coverage) return `<article class="card" id="data-coverage"><h2>Research data coverage</h2><p>The data-rights report could not be read. Historical research is not shown as available.</p></article>`;
+  const rows = payload.coverage.map(row => `<div class="row"><span>${row.market} ${row.timeframe}</span><span>${row.rights_label}</span></div><p class="muted">${row.summary} Bars retained: ${row.bar_count}. Last collection: ${row.last_collection || "never"}.</p>`).join("");
+  const sources = (payload.sources || []).map(row => `<div class="row"><span>${row.provider}</span><span>${row.status_label}</span></div><p class="muted">${row.product}. ${row.note}</p>`).join("");
+  const held = (payload.retained_files || []).map(row => `${row.name} (${row.bytes} bytes, not re-read)`).join(", ") || "none";
+  const bytes = payload.storage ? Math.round(payload.storage.total_bytes / 1000000) : "unknown";
+  return `<article class="card" id="data-coverage"><h2>Research data coverage</h2><p>${payload.headline}</p>${rows}<h3>Source rights</h3>${sources}<p class="muted">Reviewed ${payload.reviewed_on}. Previously stored files, unread this pass: ${held}. A 4h file is not desk history. Holdout from ${payload.holdout.start} is ${payload.holdout.opened ? "open" : "sealed"}. Estimated size of a later full crypto desk archive: about ${bytes} MB. Collected this pass: ${payload.collected_bytes} bytes. Free space on this workspace: ${payload.disk_free_bytes} bytes. Forward collection: ${payload.forward_collection}. Approved strategies: ${payload.strategy.approved_for_paper}. Quote divergence limit remains 0.08 percent.</p></article>`;
+}
 async function researchLab(){
   const d = await fetch("/api/research-lab").then(r=>r.json());
   const gates = (d.gates||[]).map(g => `<div class="row"><span>${g.name}</span><span class="${cls(g.status)}">${g.status}</span></div><div class="muted">${g.evidence}</div>`).join("");
@@ -2229,7 +2243,14 @@ async function researchLab(){
     const bench = market.benchmark_prefix || {};
     return `<h3>${market.symbol}</h3><p>Development ${dev.judgment||"n/a"}, n=${dev.trades==null?"n/a":dev.trades}, net mean ${dev.base_mean==null?"n/a":Number(dev.base_mean).toFixed(5)}, drawdown ${dev.max_drawdown==null?"n/a":Number(dev.max_drawdown).toFixed(3)}. Validation ${val.judgment||"n/a"}, n=${val.trades==null?"n/a":val.trades}, net mean ${val.base_mean==null?"n/a":Number(val.base_mean).toFixed(5)}. Holdout ${market.holdout||"NOT_OPENED"}. Prefix buy-and-hold gross ${bench.buy_and_hold_gross==null?"n/a":Number(bench.buy_and_hold_gross).toFixed(3)}.</p><p class="muted">Failed ${JSON.stringify(dev.failed||[])} / ${JSON.stringify(val.failed||[])}. Blocked ${JSON.stringify(val.blocked||[])}. Long only. Approved for paper: no.</p>`;
   }).join("");
-  view.innerHTML = `<article class="card"><h2>Promotion gates</h2><p>Promoted strategies: ${d.promoted_count}. Production: ${d.production}. Approved for paper: none.</p>${gates}</article><article class="card"><h2>Dataset provenance</h2>${retained||"<p>No retained history file was found.</p>"}<p class="muted">Desk pairs with no retained candle file: ${missing||"none listed"}. A missing file is not a sample. Synthetic bars are not used to approve a strategy.</p></article><article class="card"><h2>Latest pre-registered study</h2><p>${discovery.version||"No discovery file."} Decision: ${discovery.decision||"not scored"}. Holdout opened for: ${(discovery.holdout_opened_for||[]).join(", ")||"nobody"}.</p>${markets||"<p>No scored market.</p>"}<p class="muted">${discovery.multiple_testing||""} Protocol ${discovery.protocol_sha256||""}. This card is research evidence. It is not an approved signal and it is not a performance promise.</p></article><article class="card"><h2>Experiment archive</h2>${rows}<p class="muted">${d.note}</p></article>`;
+  view.innerHTML = `<article class="card"><h2>Promotion gates</h2><p>Promoted strategies: ${d.promoted_count}. Production: ${d.production}. Approved for paper: none.</p>${gates}</article><article class="card"><h2>Dataset provenance</h2>${retained||"<p>No retained history file was found.</p>"}<p class="muted">Desk pairs with no retained candle file: ${missing||"none listed"}. A missing file is not a sample. Synthetic bars are not used to approve a strategy.</p></article><article class="card" id="data-coverage"><h2>Research data coverage</h2><p>Reading data rights.</p></article><article class="card"><h2>Latest pre-registered study</h2><p>${discovery.version||"No discovery file."} Decision: ${discovery.decision||"not scored"}. Holdout opened for: ${(discovery.holdout_opened_for||[]).join(", ")||"nobody"}.</p>${markets||"<p>No scored market.</p>"}<p class="muted">${discovery.multiple_testing||""} Protocol ${discovery.protocol_sha256||""}. This card is research evidence. It is not an approved signal and it is not a performance promise.</p></article><article class="card"><h2>Experiment archive</h2>${rows}<p class="muted">${d.note}</p></article>`;
+  fetch("/api/data-coverage", {credentials:"same-origin"}).then(r => r.json()).then(payload => {
+    const box = document.getElementById("data-coverage");
+    if (box) box.outerHTML = dataCoverageCard(payload);
+  }).catch(() => {
+    const box = document.getElementById("data-coverage");
+    if (box) box.innerHTML = `<h2>Research data coverage</h2><p>The data-rights report could not be read. Historical research is not shown as available.</p>`;
+  });
 }
 async function scannerPage(){
   let lastBody = null;
@@ -2530,7 +2551,14 @@ async function systemPage(){
   const workerHealthy = h.worker && h.worker.healthy === true ? "confirmed" : "not confirmed";
   const bot = await fetch("/api/autopilot", {credentials:"same-origin"}).then(r => r.ok ? r.json() : null).catch(()=>null);
   const autoLine = bot ? `${bot.facing || bot.status}. Entries ${bot.entries_available === true ? "allowed" : "blocked"}. ${bot.facing_note || ""}` : "not signed in";
-  view.innerHTML = `<article class="card"><h2>System</h2>${row("Process", h.process||"unknown")}${row("BTC / ETH", market)}${row("Gold", gold||"not scanned")}${row("Notifications", note)}${row("Approved strategies", qual)}${row("Ledger", h.ledger||"unknown")}${row("Strategy", h.strategy_status||"unknown")}${row("Broker", String(h.broker))}${row("Build", h.build_commit||"unknown")}${row("Worker status", workerStatus + " · " + workerHealthy)}${row("This account AutoPilot", autoLine)}${row("Worker heartbeat", h.worker && h.worker.last_beat_ms ? new Date(h.worker.last_beat_ms).toISOString() : "unknown")}${row("Background scan", h.worker && h.worker.last_monitor_ms ? new Date(h.worker.last_monitor_ms).toISOString() : "not run yet")}${row("Last scan", watched)}</article><p class="muted">A missing, stale or failed heartbeat is not a healthy worker. AutoPilot is not confirmed while that is true. The background scan uses the same decision as the terminal. It does not send Telegram. Gold 1m and 3m are unavailable without a licensed minute feed. AutoPilot is paper only and stays off until the account enables it.</p>`;
+  view.innerHTML = `<article class="card"><h2>System</h2>${row("Process", h.process||"unknown")}${row("BTC / ETH", market)}${row("Gold", gold||"not scanned")}${row("Notifications", note)}${row("Approved strategies", qual)}${row("Ledger", h.ledger||"unknown")}${row("Strategy", h.strategy_status||"unknown")}${row("Broker", String(h.broker))}${row("Build", h.build_commit||"unknown")}${row("Worker status", workerStatus + " · " + workerHealthy)}${row("This account AutoPilot", autoLine)}${row("Worker heartbeat", h.worker && h.worker.last_beat_ms ? new Date(h.worker.last_beat_ms).toISOString() : "unknown")}${row("Background scan", h.worker && h.worker.last_monitor_ms ? new Date(h.worker.last_monitor_ms).toISOString() : "not run yet")}${row("Last scan", watched)}</article><article class="card" id="data-coverage"><h2>Research data coverage</h2><p>Reading data rights.</p></article><p class="muted">A missing, stale or failed heartbeat is not a healthy worker. AutoPilot is not confirmed while that is true. The background scan uses the same decision as the terminal. It does not send Telegram. Gold 1m and 3m are unavailable without a licensed minute feed. AutoPilot is paper only and stays off until the account enables it. A fresh live candle is not historical research coverage.</p>`;
+  fetch("/api/data-coverage", {credentials:"same-origin"}).then(r => r.json()).then(payload => {
+    const box = document.getElementById("data-coverage");
+    if (box) box.outerHTML = dataCoverageCard(payload);
+  }).catch(() => {
+    const box = document.getElementById("data-coverage");
+    if (box) box.innerHTML = `<h2>Research data coverage</h2><p>The data-rights report could not be read. Historical research is not shown as available.</p>`;
+  });
 }
 async function settings(){
   const me = await fetch("/api/me").then(r => r.ok ? r.json() : null);

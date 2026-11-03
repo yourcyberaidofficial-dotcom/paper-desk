@@ -8,6 +8,11 @@ from datetime import datetime, timezone
 
 
 def fetch_history(symbol, interval, years=3, page=1000):
+    from ops.data_rights import ingestion_allowed
+
+    decision = ingestion_allowed("binance_spot_rest_klines", "historical_research")
+    if not decision["allowed"]:
+        raise PermissionError(decision["reason"])
     end = int(datetime.now(timezone.utc).timestamp() * 1000)
     start = end - int(years * 365.25 * 24 * 60 * 60 * 1000)
     bars = []
