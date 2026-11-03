@@ -218,6 +218,7 @@ def assemble(symbol, interval, now_ms, bars=None, quote=None, provider=None, sou
             "quality": quality,
             "source_id": source_name,
             "provider": provider,
+            "candle_semantics": semantics,
             "snapshot_id": f"{symbol}:{interval}:{close_ms}:{READING_VERSION}",
             "reading_version": READING_VERSION,
             "quote": None if quote_view is None else {
@@ -228,6 +229,7 @@ def assemble(symbol, interval, now_ms, bars=None, quote=None, provider=None, sou
             },
         },
         "_bars": usable,
+        "_loaded": list(bars),
         "_live_quote": quote if symbol == "XAUUSD" and interval not in {"1m", "3m"} else None,
     }
     return snap
@@ -439,7 +441,7 @@ def public_reading(card):
 
 
 def public_snapshot(snap):
-    hidden = {"_bars", "_live_quote"}
+    hidden = {"_bars", "_loaded", "_live_quote"}
     return {key: value for key, value in snap.items() if key not in hidden}
 
 

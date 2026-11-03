@@ -224,7 +224,15 @@ def _market_report(snapshot):
             status = "fresh"
         else:
             status = "stale"
-        out[symbol] = {"status": status, "last_close_time_ms": close_ms, "source": row.get("source") or "unknown"}
+        out[symbol] = {
+            "status": status,
+            "last_close_time_ms": close_ms,
+            "source": row.get("source") or "unknown",
+            "kind": "completed_kline",
+            "not_a_quote": True,
+            "desk_snapshot": False,
+            "note": "Independent completed-kline check from the Binance spot REST klines endpoint. Not a quote and not the desk snapshot.",
+        }
     scan = getattr(worker, "last_monitor", None) or {}
     gold = [row for row in (scan.get("evaluations") or []) if row.get("symbol") == "XAUUSD"]
     rights_gold = any(is_rights_reason(row.get("reason")) or is_rights_reason(row.get("blocked")) for row in gold)
@@ -258,31 +266,25 @@ def klines():
     if symbol in {"BTCUSDT", "ETHUSDT"} and interval in {"1m", "3m", "15m", "1h"}:
         from ops.bars import to_chart_candles
         from ops.desk_snapshot import observe
-        from ops.terminal_route import load_crypto_bars
         now_ms = int(time.time() * 1000)
         try:
             limit = min(int(request.args.get("limit", 100)), 200)
         except ValueError:
             limit = 100
-        loaded = load_crypto_bars(symbol, interval, now_ms)
         snap = observe(symbol, interval, now_ms)
-        if isinstance(loaded, tuple):
-            return jsonify({
-                "symbol": symbol,
-                "interval": interval,
-                "candles": [],
-                "error": loaded[1],
-                "snapshot_id": snap.get("snapshot_id"),
-                "source": "binance-public",
-            })
+        loaded = list(snap.get("_loaded") or [])
         return jsonify({
             "symbol": symbol,
             "interval": interval,
             "source": "binance-public",
             "label": "WATCH ONLY",
-            "candles": to_chart_candles(loaded or [])[-limit:],
+            "kind": "completed_bar",
+            "not_a_quote": True,
+            "candles": to_chart_candles(loaded)[-limit:],
             "snapshot_id": snap.get("snapshot_id"),
             "reading_version": snap.get("reading_version"),
+            "candle_semantics": snap.get("candle_semantics"),
+            "quality": snap.get("quality"),
         })
     return jsonify(fetch_klines(symbol, interval))
 
@@ -866,7 +868,8 @@ def markets():
         }
         if source:
             payload["source"] = source
-            payload["kind"] = "candle"
+            semantics = ((snap.get("display") or {}).get("candle_semantics"))
+            payload["kind"] = "sampled_reference" if semantics == "spot_sample_not_bid_ask" else "completed_bar"
         return payload
     return jsonify({
         "markets": [
@@ -1266,7 +1269,7 @@ def gold_signal():
         "broker": False,
         "quote_semantics": view.get("quote_semantics") or "ohlc_not_bid_ask",
         "rows": view.get("rows") or [],
-        "note": "Completed 1h XAUUSD chart OHLC. Not a paper order, not bid/ask, and not an approved signal.",
+        "note": "XAUUSD 1-hour reading from the desk source. A sampled reference bar is not exchange OHLC. Not a paper order, not bid/ask, and not an approved signal.",
     })
 
 
@@ -1284,6 +1287,40 @@ def gold_candles():
             "error": "xau_minute_unlicensed",
             "quote_semantics": "unavailable",
             "note": "Licensed spot minute data is unavailable. A quote was not drawn as a candle, and a longer candle was not substituted.",
+        })
+    if interval in {"15m", "1h"}:
+        from ops.desk_snapshot import observe
+        snap = observe("XAUUSD", interval, int(time.time() * 1000))
+        series = list(snap.get("_loaded") or [])
+        semantics = snap.get("candle_semantics") or "ohlc_not_bid_ask"
+        sampled = semantics == "spot_sample_not_bid_ask"
+        if not series:
+            return jsonify({
+                "symbol": "XAUUSD",
+                "interval": interval,
+                "candles": [],
+                "error": snap.get("blocked_reason") or "GOLD_FEED_UNAVAILABLE",
+                "quote_semantics": semantics,
+                "snapshot_id": snap.get("snapshot_id"),
+                "reading_version": snap.get("reading_version"),
+                "kind": "sampled_reference" if sampled else "chart_ohlc",
+                "note": "No complete sampled reference bar was returned. Nothing was invented." if sampled else "No chart bar was returned. Nothing was invented.",
+            }), 502
+        candles = to_chart_candles(series)[-180:]
+        return jsonify({
+            "symbol": "XAUUSD",
+            "instrument": "XAUUSD_SPOT",
+            "interval": interval,
+            "source": "xaus.com",
+            "kind": "sampled_reference" if sampled else "chart_ohlc",
+            "quote_semantics": semantics,
+            "count": len(candles),
+            "candles": candles,
+            "snapshot_id": snap.get("snapshot_id"),
+            "reading_version": snap.get("reading_version"),
+            "not_a_quote": True,
+            "execution_grade": False,
+            "note": "Sampled indicative reference bars from five-minute spot prints. Not exchange OHLC, not a bid or ask, and not an execution price." if sampled else "Chart OHLC from xaus.com. Not a bid or ask and not an execution price. A quote is not drawn as a bar.",
         })
     series = _gold_bars(interval, int(time.time() * 1000))
     if series.get("reason") == "commercial_use_unverified" or series.get("rights_status"):
@@ -1321,13 +1358,10 @@ def gold_candles():
         "count": len(candles),
         "partial_dropped": series.get("partial_dropped"),
         "candles": candles,
-        "note": "Completed XAUUSD candles from the desk source. A quote is not drawn as a candle.",
+        "not_a_quote": True,
+        "execution_grade": False,
+        "note": "Chart OHLC from xaus.com. Not a bid or ask and not an execution price. A quote is not drawn as a bar.",
     }
-    if interval in {"15m", "1h"}:
-        from ops.desk_snapshot import observe
-        snap = observe("XAUUSD", interval, int(time.time() * 1000))
-        payload["snapshot_id"] = snap.get("snapshot_id")
-        payload["reading_version"] = snap.get("reading_version")
     return jsonify(payload)
 
 
@@ -2160,9 +2194,9 @@ function plainReason(text){
     .replaceAll("sample_is_5m", "the gold feed is five-minute samples, so this shorter candle is not available")
     .replaceAll("xau_minute_unlicensed", "gold one-minute and three-minute data are not licensed")
     .replaceAll("last_trade", "last completed candle close")
-    .replaceAll("spot_sample_not_bid_ask", "indicative gold price, not a bid and ask")
+    .replaceAll("spot_sample_not_bid_ask", "sampled indicative reference bar, not exchange OHLC and not a bid or ask")
     .replaceAll("dukascopy_xauusd_bid_ask", "gold bid and ask")
-    .replaceAll("ohlc_not_bid_ask", "chart prices, not a bid and ask")
+    .replaceAll("ohlc_not_bid_ask", "chart OHLC, not a bid, ask, or execution price")
     .replaceAll("quote_divergence", "the spot sample and the separate quote disagree")
     .replaceAll("snapshot_not_candle", "quote available, candle unavailable")
     .replaceAll("quote_not_bid_ask", "source is not a completed bid and ask candle")
@@ -2324,10 +2358,11 @@ async function overview(){
       const data = (row && row.data) || {};
       const value = data.price != null ? data.price : data.close;
       const shown = value == null ? "—" : priceText(row.symbol, value);
-      const frame = data.timeframe ? data.timeframe + " candle close" : "candle close";
+      const sampled = data.candle_semantics === "spot_sample_not_bid_ask";
+      const frame = sampled ? ((data.timeframe || "Gold") + " sampled reference close") : ((data.timeframe ? data.timeframe + " " : "") + "completed close");
       const when = data.close_time_ms ? new Date(data.close_time_ms).toISOString().slice(0, 16).replace("T", " ") + " UTC" : "";
       const note = value == null ? "not returned" : (frame + (when ? " · " + when : "") + " · " + (data.quality || "unknown"));
-      const quote = data.quote && data.quote.price != null ? `<p class="muted">Separate quote ${priceText(row.symbol, data.quote.price)}. Not the candle close.</p>` : "";
+      const quote = data.quote && data.quote.price != null ? `<p class="muted">Separate quote ${priceText(row.symbol, data.quote.price)}${data.quote.timestamp_ms ? " at " + new Date(data.quote.timestamp_ms).toISOString().slice(0, 16).replace("T", " ") + " UTC" : ""}. Not the completed close.</p>` : "";
       const reading = row.reading || {};
       const context = reading.reading_class ? `<p class="muted">${reading.direction_label || "neutral"} · ${reading.reading_class} · ${reading.setup_state || "none"}. ${plainReason(reading.explanation || "")} ${plainReason(reading.changes_when || "")}</p>` : "";
       return `<div class="row"><span>${row.symbol}</span><span class="num">${shown}</span></div><p class="muted">${note}${row.snapshot_id ? " · " + row.snapshot_id : ""}</p>${quote}${context}`;
@@ -2367,7 +2402,9 @@ async function signals(){
             : (item.manual_paper
               ? `<p>Entry ${priceText(item.symbol, item.entry)}. Stop ${priceText(item.symbol, item.stop)}. Target ${priceText(item.symbol, item.target)}. ${plainReason(item.invalidation || "")}</p><p><button type="button" data-review="${item.symbol}" data-frame="${item.interval}">Review paper plan</button></p><div data-review-box="${item.symbol}:${item.interval}"></div><p class="muted">A paper trade opens only after you confirm it. AutoPilot will not open it. Not an approved strategy.</p>`
               : `<p class="muted">Observation only. Not a paper plan and not AutoPilot. ${plainReason(item.changes_when || "")}</p>`)));
-      return `<div class="row"><span>${item.symbol} ${item.interval || ""}</span><span>${decision}</span></div><div class="row"><span>Candle close</span><span class="num">${minute ? "—" : px}</span></div><p class="muted">${dir} · ${kind} · ${whenText}. ${item.source_id || item.provider || "source unnamed"}. ${plainReason(item.explanation || item.message || "")} Not a probability. ${item.snapshot_id || ""}</p>${stance}`;
+      const sampled = item.source_id === "xaus_spot_samples" || item.quote === "spot_sample_not_bid_ask";
+      const closeLabel = minute ? "Not available" : (sampled ? "Sampled reference close" : "Completed close");
+      return `<div class="row"><span>${item.symbol} ${item.interval || ""}</span><span>${decision}</span></div><div class="row"><span>${closeLabel}</span><span class="num">${minute ? "—" : px}</span></div><p class="muted">${dir} · ${kind} · ${whenText}. ${item.source_id || item.provider || "source unnamed"}. ${plainReason(item.explanation || item.message || "")} Not a probability. ${item.snapshot_id || ""}</p>${stance}`;
     }).join("");
     now.innerHTML = `<h2>Today's readings</h2><p class="muted">No live approved signals are currently available. These are today's desk readings. A failed historical study is not a current market leader. Nothing here is an order.</p>${cards || "<p>No reading was returned. No price was invented.</p>"}${scan ? "" : `<p><button type="button" id="sig-retry">Retry</button></p>`}<p><a href="/scanner">Open the scanner</a> · <a href="/trading">Terminal</a></p>`;
     const again = document.getElementById("sig-retry");
@@ -2444,7 +2481,7 @@ async function terminal(){
       const shown = value == null ? "—" : priceText(row.symbol, value);
       return `<div class="row"><span>${row.symbol}</span><span class="num">${shown}</span></div>`;
     }).join("");
-    box.innerHTML = `<h2>Market watch</h2>${lines}<p class="muted">Completed-candle closes from one desk snapshot. A separate quote is not the close. Gold 1-minute and 3-minute stay unlicensed. A price is not an order.</p>`;
+    box.innerHTML = `<h2>Market watch</h2>${lines}<p class="muted">Closes come from one desk snapshot. Gold 15-minute and 1-hour readings can be sampled reference bars, not exchange candles. A separate quote is not the close. Gold 1-minute and 3-minute stay unlicensed. A price is not an order.</p>`;
   }
   async function loadDeskChart(){
     const note = document.getElementById("chartnote");
@@ -2469,7 +2506,11 @@ async function terminal(){
     }
     chartShow();
     draw(bars.candles);
-    if (note) note.textContent = plainReason(bars.source || bars.quote_semantics || "completed candles") + " · " + requested.interval + " · closed candles only" + (bars.snapshot_id ? " · " + bars.snapshot_id : "");
+    if (note) {
+      const sampled = bars.kind === "sampled_reference" || bars.quote_semantics === "spot_sample_not_bid_ask";
+      const label = sampled ? "Sampled indicative reference bars, not exchange OHLC" : (bars.kind === "chart_ohlc" ? "Chart OHLC, not an execution price" : "Completed bars");
+      note.textContent = label + " · " + requested.interval + (bars.snapshot_id ? " · " + bars.snapshot_id : "");
+    }
     const canvas = document.getElementById("chart");
     if (canvas && !canvas.dataset.bound) {
       canvas.dataset.bound = "1";
@@ -2558,7 +2599,8 @@ async function terminal(){
       const times = headline === "QUOTE DIVERGENCE" ? ` Spot sample ${stamp(body.compared_bar_close_ms || body.bar_close_ms)}. Separate quote ${stamp(body.quote_time_ms)}.` : "";
       const why = licensed ? "Gold 1-minute and 3-minute data are not licensed. No plan was calculated from a quote or a sample candle." : (rightsHold ? (body.message || RIGHTS_MESSAGE) : plainReason(body.reason || ""));
       const sourceLine = licensed ? "Licensed spot minute data unavailable. A quote was not used as a candle." : (rightsHold ? "Not read. No commercial use is approved." : (plainReason(body.source_name || "unknown") + ". " + plainReason(body.quote || "source not named")));
-      const candleLine = licensed ? "Not evaluated. No 1-minute or 3-minute candle was requested." : (rightsHold ? "Not read. No candle was requested." : ((body.fresh ? "Completed candle is fresh." : "Not a fresh live candle.") + " " + stamp(body.bar_close_ms)));
+      const sampledBar = body.quote === "spot_sample_not_bid_ask";
+      const candleLine = licensed ? "Not evaluated. No 1-minute or 3-minute bar was requested." : (rightsHold ? "Not read. No bar was requested." : ((body.fresh ? (sampledBar ? "Sampled reference bar is fresh." : "Completed bar is fresh.") : (sampledBar ? "Not a fresh sampled reference bar." : "Not a fresh completed bar.")) + " " + stamp(body.bar_close_ms)));
       const audit = body.research_levels && body.research_levels.audit_only ? `<details><summary>Audit only, not a trade plan</summary><p class="muted">Stored research levels stay off the plan. Entry ${px(body.research_levels.entry)}. Stop ${px(body.research_levels.stop)}. Target ${px(body.research_levels.target)}.</p></details>` : "";
       const chain = body.evidence_chain ? `<details><summary>Evidence chain</summary><p class="muted">Source ${plainReason(body.evidence_chain.data_source || "unnamed")}. Candle ${stamp(body.evidence_chain.completed_candle_ms)}. Rule ${body.evidence_chain.strategy_version || "unnamed"}. Decision ${body.evidence_chain.decision || "WAIT"}. Approved: ${body.evidence_chain.approved ? "yes" : "no"}. No calibrated probability is shown.</p></details>` : "";
       const persona = body.persona_name ? `${body.persona_name}. ${body.persona_note || ""}` : "No persona note.";

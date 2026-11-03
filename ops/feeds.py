@@ -149,7 +149,12 @@ def _chart_range(interval):
 
 
 def xaus_chart(interval, now_ms=None, timeout=30, attempts=3):
-    """XAUUSD chart OHLC. No open is invented. The unaligned live tail is dropped."""
+    """XAUUSD chart OHLC from xaus.com /api/v1/chart.
+
+    The chart feed returns o/h/l/c/v with data_state.source upstream. That is
+    not verified here as an exchange print, a bid/ask, or an execution price.
+    Volume is kept only when the payload sends it. The unaligned live tail is dropped.
+    """
     spec = _chart_range(interval)
     if spec is None:
         return {"ok": False, "reason": "interval_not_available", "bars": []}
@@ -210,23 +215,59 @@ def xaus_chart(interval, now_ms=None, timeout=30, attempts=3):
 
 
 def aggregate_spot_samples(points, interval, now_ms):
-    """Bucket five-minute spot prints. A bucket with too few prints is a gap, not a candle."""
+    """Build a sampled indicative reference bar from five-minute spot prints.
+
+    XAUS /intraday is a recorded spot series, not native OHLC. A 15-minute bar
+    needs all 3 prints and a 1-hour bar needs all 12. A missing, conflicting,
+    duplicated or disordered print drops the interval. No high, low or open is
+    filled in, and the source's missing volume is not replaced with a count.
+    Prints are not split into 1-minute or 3-minute bars.
+    """
     step = interval_ms(interval)
-    minimum = 2 if interval == "15m" else 3
+    sample_ms = 300_000
+    tolerance = 15_000
+    if interval not in {"15m", "1h"} or step < sample_ms or step % sample_ms != 0:
+        return []
+    expected = step // sample_ms
     buckets = {}
     for point in points or []:
-        price = point.get("p")
-        if price is None:
+        raw = point.get("p")
+        if raw is None:
             continue
-        stamp = int(point["t"])
-        open_ms = stamp if stamp > 10_000_000_000 else stamp * 1000
-        open_ms -= open_ms % step
-        buckets.setdefault(open_ms, []).append(float(price))
+        try:
+            price = float(raw)
+            stamp = int(point["t"])
+        except (TypeError, ValueError):
+            continue
+        if price <= 0:
+            continue
+        open_stamp = stamp if stamp > 10_000_000_000 else stamp * 1000
+        bucket = open_stamp - (open_stamp % step)
+        seen = buckets.setdefault(bucket, {})
+        previous = seen.get(open_stamp)
+        if previous is not None and previous != price:
+            seen["conflict"] = True
+            continue
+        seen[open_stamp] = price
     bars = []
     for open_ms in sorted(buckets):
-        prices = buckets[open_ms]
+        seen = buckets[open_ms]
+        if seen.get("conflict"):
+            continue
+        ordered = sorted((ts, px) for ts, px in seen.items() if isinstance(ts, int))
+        if len(ordered) != expected:
+            continue
+        spaced = all(
+            sample_ms - tolerance <= ordered[index + 1][0] - ordered[index][0] <= sample_ms + tolerance
+            for index in range(len(ordered) - 1)
+        )
+        if not spaced:
+            continue
+        if ordered[-1][0] >= open_ms + step or ordered[0][0] < open_ms:
+            continue
+        prices = [px for _, px in ordered]
         close_ms = open_ms + step - 1
-        if close_ms > now_ms or len(prices) < minimum:
+        if close_ms > now_ms:
             continue
         bars.append(make_bar(
             symbol="XAUUSD",
@@ -234,11 +275,11 @@ def aggregate_spot_samples(points, interval, now_ms):
             interval=interval,
             open_time_ms=open_ms,
             close_time_ms=close_ms,
-            open=prices[0],
+            open=ordered[0][1],
             high=max(prices),
             low=min(prices),
-            close=prices[-1],
-            volume=len(prices),
+            close=ordered[-1][1],
+            volume=None,
             provider="xaus.com",
             source_type="spot_sample",
             quote_semantics="spot_sample_not_bid_ask",
@@ -276,7 +317,7 @@ def xaus_spot_bars(interval="1h", now_ms=None, timeout=8, attempts=1):
         "provider": "xaus.com",
         "quote_semantics": "spot_sample_not_bid_ask",
         "source": "xaus-intraday-spot-sample",
-        "note": "Built from five-minute spot samples. Not exchange OHLC and not the Yahoo chart.",
+        "note": "Built only from complete five-minute spot samples. A sampled indicative reference bar, not exchange OHLC, not a bid or ask, and not an execution price.",
         "samples": payload.get("count"),
     }
 

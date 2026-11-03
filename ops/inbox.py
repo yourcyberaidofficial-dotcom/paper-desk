@@ -190,7 +190,9 @@ def append_event(user_id, opportunity_id, event):
             return {"ok": True, "duplicate": True, "stored": False, "opportunity_id": opportunity_id}
         events.append(event)
         row["events"] = events[-40:]
-        row["lifecycle"] = event.get("state") or row.get("lifecycle")
+        state = event.get("state")
+        if state not in {"reviewed", "reevaluated"}:
+            row["lifecycle"] = state or row.get("lifecycle")
         row["lifecycle_note"] = event.get("note")
         _write(user_id, rows)
         return {"ok": True, "stored": True, "opportunity_id": opportunity_id}
