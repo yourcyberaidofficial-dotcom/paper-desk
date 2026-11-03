@@ -1639,7 +1639,36 @@ def index():
     if not _gate():
         return redirect("/login?next=" + _safe_next(request.path))
     failed = request.args.get("login") == "failed"
-    page = DASHBOARD.replace("{{AUTHED}}", "1").replace("{{FAILED}}", "1" if failed else "0").replace("{{CSRF}}", _csrf())
+    title = {
+        "/": "Overview",
+        "/overview": "Overview",
+        "/signals": "Live Signals",
+        "/trading": "Trading Terminal",
+        "/strategies": "Strategies",
+        "/portfolio": "Portfolio",
+        "/risk": "Risk Management",
+        "/activity": "Orders & Trade History",
+        "/live": "Live Activities",
+        "/system": "System Status",
+        "/settings": "Account & Settings",
+        "/research": "Backtesting & Research",
+        "/onboarding": "Account setup",
+        "/scanner": "Live Scanner",
+        "/learn": "Academy",
+        "/indicators": "Academy",
+        "/plan": "My Trading Plan",
+        "/notifications": "Inbox",
+        "/lab": "Trading Lab",
+    }.get(request.path, "Aureon")
+    page = (
+        DASHBOARD.replace("{{AUTHED}}", "1")
+        .replace("{{FAILED}}", "1" if failed else "0")
+        .replace("{{CSRF}}", _csrf())
+        .replace("{{PAGE_TITLE}}", title)
+        .replace("{{PAGE_PATH}}", request.path)
+    )
+    needle = f'data-path="{request.path}"'
+    page = page.replace(needle, needle + ' class="active"')
     return make_response(page)
 
 
@@ -1811,7 +1840,7 @@ DASHBOARD = """<!doctype html>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Aureon Trading Lab</title>
+<title>{{PAGE_TITLE}} · Aureon Trading Lab</title>
 <style>
 :root{--bg:#07090d;--panel:#12161d;--line:#242b36;--text:#f4f7fb;--muted:#93a0b4;--teal:#2dd4bf;--ok:#3dd68c;--bad:#ff6b7a;--warn:#e7b85a}
 *{box-sizing:border-box}
@@ -1834,10 +1863,14 @@ header{display:flex;justify-content:space-between;align-items:flex-start;gap:12p
 .muted{color:var(--muted);font-size:.82rem}
 .row{display:flex;justify-content:space-between;gap:8px;padding:6px 0;border-bottom:1px solid rgba(255,255,255,.05)}
 .long{color:var(--ok)} .short{color:var(--bad)} .wait{color:var(--warn)}
-.desk{display:grid;grid-template-columns:220px minmax(0,1fr) minmax(260px,320px);gap:12px;align-items:start}
+.desk{display:grid;grid-template-columns:minmax(0,1.4fr) minmax(260px,340px);gap:12px;align-items:start}
+.desk #watch{grid-column:1 / -1}
 .matrix{width:100%;border-collapse:collapse}
-.matrix th,.matrix td{white-space:normal;vertical-align:top}
 canvas{width:100%;height:320px;background:#0a0e14;border-radius:12px;display:block}
+canvas.is-empty{display:none}
+.empty-chart{min-height:96px;display:flex;align-items:center;justify-content:center;text-align:center;padding:22px 16px;border:1px dashed #242b36;border-radius:12px;background:#0c1016;color:var(--muted);line-height:1.45}
+.empty-chart[hidden]{display:none !important}
+.price.quiet{font-size:1.05rem;font-weight:650;color:var(--muted)}
 canvas.spark{height:46px;background:transparent;border-radius:0}
 a{color:#99f6e4}
 #view a{text-underline-offset:2px}
@@ -1880,13 +1913,14 @@ button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible{ou
 .tablewrap{overflow:auto;border:1px solid var(--line);border-radius:12px}
 table{width:100%;border-collapse:collapse;font-size:.88rem}
 th,td{text-align:left;padding:10px 12px;border-bottom:1px solid #222a36;white-space:nowrap}
+.matrix th,.matrix td{white-space:normal;vertical-align:top;word-break:break-word}
 th{color:#93a0b4;font-weight:600;font-size:.75rem;letter-spacing:.04em;text-transform:uppercase}
 tr:last-child td{border-bottom:0}
 @media(max-width:1100px){.desk{grid-template-columns:1fr}}
 @media(max-width:900px){header{flex-direction:column;align-items:flex-start}.shell{grid-template-columns:1fr}#menu{display:inline-block}aside{display:none;position:fixed;inset:0 auto 0 0;width:min(260px,88vw);z-index:20;overflow:auto}aside.open{display:block}.markets,.courses,.workspace,.empty-grid,.sections,.desk{grid-template-columns:1fr}button,select{min-height:40px}main{padding:12px 12px 28px}}
 </style>
 </head>
-<body>
+<body data-path="{{PAGE_PATH}}">
 <div class="shell">
   <button id="menu" aria-label="Open navigation" aria-expanded="false">☰ Menu</button>
   <aside id="nav">
@@ -1918,12 +1952,12 @@ tr:last-child td{border-bottom:0}
   <main>
     <header>
       <div>
-        <h1 id="title">Overview</h1>
+        <h1 id="title">{{PAGE_TITLE}}</h1>
         <div class="muted">Paper desk. A plan is not an order, and a paper result is not a broker fill.</div>
       </div>
-      <div class="pills"><span class="pill" id="whobadge">Account</span><span class="pill" id="autobadge">AutoPilot</span><span class="pill" id="feedbadge">Feed not confirmed</span><a href="/notifications" id="inboxlink">Inbox</a><button id="signout" type="button">Sign out</button></div>
+      <div class="pills"><span class="pill" id="whobadge">Account</span><span class="pill" id="autobadge">AutoPilot</span><span class="pill" id="feedbadge">Checking status</span><a href="/notifications" id="inboxlink">Inbox</a><button id="signout" type="button">Sign out</button></div>
     </header>
-    <section id="view"></section>
+    <section id="view"><article class="card"><p role="status">Loading this page. Prices are not invented while this loads.</p></article></section>
   </main>
 </div>
 <script>
@@ -1977,7 +2011,7 @@ function plainReason(text){
     .replaceAll("DATA_UNAVAILABLE", "not available")
     .replaceAll("rights_unconfirmed", "rights not confirmed")
     .replaceAll("commercial_use_unverified", "commercial use permissions are being verified")
-    .replaceAll("withheld", "withheld pending permission")
+    .replaceAll("withheld", "not shown")
     .replaceAll("binance_spot", "Binance spot candles")
     .replaceAll("spot_sample", "spot sample")
     .replaceAll("LONG_BIAS", "bullish research")
@@ -1986,6 +2020,21 @@ function plainReason(text){
 function cls(d){ return String(d||"").includes("LONG")?"long":String(d||"").includes("SHORT")?"short":"wait"; }
 function label(d){ if (d==="SHORT_BIAS") return "Bearish observation"; if (d==="LONG_BIAS") return "Bullish observation"; if (d==="WAIT") return "No entry yet"; return d; }
 const RIGHTS_MESSAGE = "Market data access unavailable — commercial use permissions are being verified.";
+function chartHold(message){
+  const canvas = document.getElementById("chart");
+  const empty = document.getElementById("chartempty");
+  if (canvas) canvas.classList.add("is-empty");
+  if (empty) { empty.hidden = false; empty.textContent = message || RIGHTS_MESSAGE; }
+}
+function chartShow(){
+  const canvas = document.getElementById("chart");
+  const empty = document.getElementById("chartempty");
+  if (canvas) canvas.classList.remove("is-empty");
+  if (empty) empty.hidden = true;
+}
+function isRightsHold(headline, state, status){
+  return headline === "RIGHTS" || state === "RIGHTS" || status === "withheld" || status === "rights_unconfirmed" || status === "restricted" || status === "prohibited";
+}
 function priceText(symbol, value){
   if (value == null || value === "") return "—";
   const n = Number(value);
@@ -2084,7 +2133,7 @@ async function overview(){
     const held = data.reason === "commercial_use_unverified" || data.status === "withheld" || data.rights_status === "rights_unconfirmed" || data.rights_status === "prohibited" || data.rights_status === "restricted";
     if (held) {
       const name = item.id === "GOLD" ? "XAUUSD" : item.symbol;
-      return `<article class="card" id="card-${name}"><div class="muted">${name}</div><div class="price">—</div><p>${data.message || RIGHTS_MESSAGE}</p><p class="muted">This is not a provider outage. No price is shown while commercial use is unverified.</p></article>`;
+      return `<article class="card" id="card-${name}"><div class="muted">${name}</div><div class="price quiet">Not shown</div><p>${data.message || RIGHTS_MESSAGE}</p><p class="muted">Not a provider outage. The worker can still be running.</p></article>`;
     }
     if (item.id === "GOLD") {
       const g = data;
@@ -2095,27 +2144,31 @@ async function overview(){
     const fresh = data.fresh === false ? "Feed is not fresh. " : "";
     return `<article class="card" id="card-${item.symbol}"><div class="muted">${item.symbol}</div><div class="price">${price}</div><canvas id="spark-${item.symbol}" class="spark"></canvas><div id="detail-${item.symbol}" class="muted">${fresh}Research state loading.</div></article>`;
   });
-  view.innerHTML = `${accountCard}${selected ? `<p class="muted">Showing your selected markets. <a href="/settings">Change settings</a></p>` : ""}<div class="markets">${cards.join("") || "<p>No markets selected.</p>"}</div><div class="workspace"><article class="card"><h2>Chart</h2><select id="sym"><option>BTCUSDT</option><option>ETHUSDT</option><option>XAUUSD</option></select> <select id="tf"><option>1m</option><option>3m</option><option selected>15m</option><option>1h</option></select><canvas id="chart"></canvas><p class="muted" id="chartnote">Loading closed candles.</p></article><article class="card"><h2>Profile eligibility</h2><div id="elig">loading</div><p class="muted">Eligibility uses the saved signal style. It is not an order.</p></article></div><article class="card" id="councilcard"><h2>Strategy council</h2><p class="muted">Loading the combined research summary. This is not the account signal style.</p></article>`;
+  view.innerHTML = `${accountCard}${selected ? `<p class="muted">Showing your selected markets. <a href="/settings">Change settings</a></p>` : ""}<div class="markets">${cards.join("") || "<p>No markets selected.</p>"}</div><div class="workspace"><article class="card"><h2>Chart</h2><select id="sym"><option>BTCUSDT</option><option>ETHUSDT</option><option>XAUUSD</option></select> <select id="tf"><option>1m</option><option>3m</option><option selected>15m</option><option>1h</option></select><canvas id="chart" class="is-empty"></canvas><p class="empty-chart" id="chartempty">Loading closed candles.</p><p class="muted" id="chartnote"></p></article><article class="card"><h2>Profile eligibility</h2><div id="elig">loading</div><p class="muted">Eligibility uses the saved signal style. It is not an order.</p></article></div><article class="card" id="councilcard"><h2>Strategy council</h2><p class="muted">Loading the combined research summary. This is not the account signal style.</p></article>`;
   async function loadChart(){
     const sym = document.getElementById("sym").value, tf = document.getElementById("tf").value;
     const note = document.getElementById("chartnote");
     if (sym === "XAUUSD" && (tf === "1m" || tf === "3m")) {
-      if (note) note.textContent = "XAUUSD " + tf + " is unavailable. Licensed spot minute data is required (xau_minute_unlicensed). No candle was substituted and no plan was calculated.";
+      chartHold("XAUUSD " + tf + " is unavailable. Licensed spot minute data is required. No candle was substituted.");
+      if (note) note.textContent = "";
       return;
     }
     if (sym === "XAUUSD") {
       const bars = await fetch("/api/gold/candles?interval="+encodeURIComponent(tf)).then(r=>r.json());
       const candles = (bars.candles||[]).filter(c => c.o != null && c.h != null && c.l != null && c.c != null).map(c => ({t:c.t, o:+c.o, h:+c.h, l:+c.l, c:+c.c}));
-      if (!candles.length) { if (note) note.textContent = (bars.reason === "commercial_use_unverified" || bars.message) ? (bars.message || RIGHTS_MESSAGE) : (bars.error ? "Chart unavailable: " + bars.error : (bars.note || "No completed gold candles.")); return; }
+      if (!candles.length) { chartHold((bars.reason === "commercial_use_unverified" || bars.message) ? (bars.message || RIGHTS_MESSAGE) : (bars.error ? "Chart unavailable: " + bars.error : (bars.note || "No completed gold candles."))); if (note) note.textContent = ""; return; }
+      chartShow();
       draw(candles);
       if (note) note.textContent = (bars.blocked === "xau_minute_unlicensed" ? "Licensed spot minute data unavailable. " : "") + (bars.interval || tf) + " · " + plainReason(bars.note || "XAUUSD chart OHLC") + (bars.quote_semantics ? " · " + plainReason(bars.quote_semantics) : "");
       return;
     }
     const bars = await fetch(`/api/klines?symbol=${sym}&interval=${tf}`).then(r=>r.json());
     if (!bars.candles || !bars.candles.length) {
-      if (note) note.textContent = (bars.reason === "commercial_use_unverified" || bars.message) ? (bars.message || RIGHTS_MESSAGE) : (bars.error ? "Chart unavailable: " + bars.error : "No closed candles returned.");
+      chartHold((bars.reason === "commercial_use_unverified" || bars.message) ? (bars.message || RIGHTS_MESSAGE) : (bars.error ? "Chart unavailable: " + bars.error : "No closed candles returned."));
+      if (note) note.textContent = "";
       return;
     }
+    chartShow();
     draw(bars.candles||[]);
     if (note) note.textContent = (bars.source || "market") + " · " + tf + " · closed candles only · quote currency is the market's own";
   }
@@ -2148,7 +2201,7 @@ async function overview(){
   fetch("/api/council").then(r=>r.json()).then(council => {
     const box = document.getElementById("councilcard");
     if (!box) return;
-    const html = (council.markets||[]).map(row => row.council ? `<div class="row"><span>${row.symbol} ${row.timeframe||""}</span><span>${label(row.council.state)}</span></div><div class="muted">${plainReason(row.council.reason||"")} ${plainReason(row.limitation||"")}</div>` : `<div class="row"><span>${row.symbol} ${row.timeframe||""}</span><span>withheld</span></div><div class="muted">${plainReason(row.limitation || row.reason || "Market data is withheld.")}</div>`).join("");
+    const html = (council.markets||[]).map(row => row.council ? `<div class="row"><span>${row.symbol} ${row.timeframe||""}</span><span>${label(row.council.state)}</span></div><div class="muted">${plainReason(row.council.reason||"")} ${plainReason(row.limitation||"")}</div>` : `<div class="row"><span>${row.symbol} ${row.timeframe||""}</span><span>Not shown</span></div><div class="muted">${plainReason(row.limitation || row.reason || "Market data is not shown.")}</div>`).join("");
     box.innerHTML = `<h2>Strategy council</h2>${html}<p class="muted">Combined research summary. Not the account signal style, and not a validated signal.</p>`;
   }).catch(()=>{});
 }
@@ -2169,6 +2222,9 @@ async function signals(){
   const body = await response.json().catch(()=>({panels:[], history:[], strategies:[], notice:"The workspace could not be read. Please retry."}));
   const panels = (body.panels||[]).map(panel => {
     const headline = panel.decision_label || panel.scanner_state || "BLOCKED";
+    if (isRightsHold(headline, panel.scanner_state, panel.status)) {
+      return `<article class="card blocked" data-symbol="${panel.symbol}"><p class="badge block">Price withheld</p><h2>${panel.symbol} · ${panel.interval||""}</h2><div class="row"><span>Not shown</span><span class="num">—</span></div><p>${panel.message || RIGHTS_MESSAGE}</p><p class="muted">No rule was run. This is not a missed setup and not a provider outage.</p></article>`;
+    }
     const hide = headline === "QUOTE DIVERGENCE" || headline === "UNAVAILABLE" || headline === "BLOCKED" || panel.entry == null;
     const levels = hide ? "Entry —. Stop —. Target —. Not an actionable plan." : `Entry ${priceText(panel.symbol, panel.entry)}. Stop ${priceText(panel.symbol, panel.stop)}. Target ${priceText(panel.symbol, panel.target)}. Research only.`;
     const kind = headline === "QUOTE DIVERGENCE" || headline === "BLOCKED" || headline === "UNAVAILABLE" ? "Blocked" : (headline === "WATCH" ? "Watch — no entry" : (String(headline).includes("SELL") || String(headline).includes("BUY") ? "Experimental, not approved" : "No qualifying setup"));
@@ -2184,7 +2240,7 @@ async function signals(){
     (cov.evaluations||[]).forEach(row => { by[row.symbol+" "+row.interval] = row; });
     const lines = (cov.availability||cov.pairs||[]).map(pair => {
       const row = by[pair.symbol+" "+pair.interval];
-      const state = pair.status === "unavailable" ? "unavailable" : (row ? row.decision : "not scanned yet");
+      const state = pair.status === "unavailable" ? "Unavailable" : (row ? (row.decision === "RIGHTS" ? "Withheld" : row.decision) : "not scanned yet");
       return `<div class="row"><span>${pair.symbol} ${pair.interval}</span><span>${state}</span></div>`;
     }).join("");
     const when = cov.last_monitor_ms ? new Date(cov.last_monitor_ms).toISOString() : "no completed pass";
@@ -2196,7 +2252,7 @@ async function signals(){
   };
 }
 async function terminal(){
-  view.innerHTML = `<div class="desk"><article class="card" id="watch"><h2>Market watch</h2><p class="muted">Loading availability. An unavailable market is not shown as a live price.</p></article><article class="card"><h2>Completed candles</h2><div class="fieldrow"><label>Market <select id="term-symbol"><option>BTCUSDT</option><option>ETHUSDT</option><option>XAUUSD</option></select></label><label>Timeframe <select id="term-interval"><option value="1m">1m</option><option value="3m">3m</option><option value="15m" selected>15m</option><option value="1h">1h</option></select></label><label>Reading <select id="term-strategy"><option value="auto">Auto</option><option value="compress-break-4h-20261028">BTC compression breakout</option><option value="sweep-reclaim-4h-20261028">ETH failed-breakdown</option><option value="london-reclaim-1h-20261028">Gold London reclaim</option><option value="dip-in-trend-1d-20261028">Daily dip in trend</option><option value="quiet-week-reversal-1d-20261028">Quiet week reversal</option></select></label></div><canvas id="chart"></canvas><p id="chartnote" class="muted">Loading closed candles.</p><p id="crosshair" class="muted"></p><button id="generate" type="button">Evaluate market</button><p id="termstatus" role="status"></p><p class="muted">This requests an analysis. It is not an approved signal and it does not place an order. Gold 1-minute and 3-minute stay unavailable. The chart does not invent ticks.</p></article><article class="card" id="intel"><h2>Market intelligence</h2><div id="termout"><p>No evaluation yet. An empty panel is not a signal.</p></div></article></div><article class="card" id="termbook"><h2>Paper record</h2><p class="muted">Loading this account's paper book.</p></article><article class="card"><h2>Saved evaluations</h2><div id="termhist"><p>No requested evaluation yet.</p></div></article>`;
+  view.innerHTML = `<div class="desk"><article class="card" id="watch"><h2>Market watch</h2><p class="muted">Loading availability. An unavailable market is not shown as a live price.</p></article><article class="card"><h2>Completed candles</h2><div class="fieldrow"><label>Market <select id="term-symbol"><option>BTCUSDT</option><option>ETHUSDT</option><option>XAUUSD</option></select></label><label>Timeframe <select id="term-interval"><option value="1m">1m</option><option value="3m">3m</option><option value="15m" selected>15m</option><option value="1h">1h</option></select></label><label>Reading <select id="term-strategy"><option value="auto">Auto</option><option value="compress-break-4h-20261028">BTC compression breakout</option><option value="sweep-reclaim-4h-20261028">ETH failed-breakdown</option><option value="london-reclaim-1h-20261028">Gold London reclaim</option><option value="dip-in-trend-1d-20261028">Daily dip in trend</option><option value="quiet-week-reversal-1d-20261028">Quiet week reversal</option></select></label></div><canvas id="chart" class="is-empty"></canvas><p class="empty-chart" id="chartempty">Loading closed candles.</p><p id="chartnote" class="muted"></p><p id="crosshair" class="muted"></p><button id="generate" type="button">Evaluate market</button><p id="termstatus" role="status"></p><p class="muted">This requests an analysis. It is not an approved signal and it does not place an order. Gold 1-minute and 3-minute stay unavailable. The chart does not invent ticks.</p></article><article class="card" id="intel"><h2>Market intelligence</h2><div id="termout"><p>No evaluation yet. An empty panel is not a signal.</p></div></article></div><article class="card" id="termbook"><h2>Paper record</h2><p class="muted">Loading this account's paper book.</p></article><article class="card"><h2>Saved evaluations</h2><p class="muted">Older requests on this account. They are not live prices, and a past wait is not the current market.</p><div id="termhist"><p>No requested evaluation yet.</p></div></article>`;
   const symbolEl = document.getElementById("term-symbol");
   const intervalEl = document.getElementById("term-interval");
   const strategyEl = document.getElementById("term-strategy");
@@ -2217,11 +2273,10 @@ async function terminal(){
       const rows = (cov.availability || []).map(pair => {
         const rights = pair.status === "rights_unconfirmed" || pair.status === "restricted" || pair.status === "prohibited";
         const unavailable = pair.status === "unavailable";
-        const state = unavailable ? "Unavailable" : (rights ? "Rights not confirmed" : plainReason(pair.status));
-        const source = unavailable ? "No feed" : (rights ? "Withheld" : plainReason(pair.feed || pair.status));
-        return `<tr><td>${pair.symbol}</td><td>${pair.interval}</td><td>${state}</td><td>${rights || unavailable ? plainReason(pair.reason || "") : plainReason(pair.reason || "")}</td></tr>`;
+        const state = unavailable ? "Unavailable" : (rights ? "Withheld" : plainReason(pair.status));
+        return `<tr><td>${pair.symbol}</td><td>${pair.interval}</td><td>${state}</td><td>${plainReason(pair.reason || "")}</td></tr>`;
       }).join("");
-      box.innerHTML = `<h2>Market watch</h2><p class="muted">Twelve combinations. A rights block is not a live tick and not a provider outage.</p><div class="tablewrap"><table class="matrix"><thead><tr><th>Market</th><th>Time</th><th>State</th><th>Why</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+      box.innerHTML = `<h2>Market watch</h2><p class="muted">Twelve combinations. Withheld means the price stays hidden while commercial use is unverified. That is not a provider outage.</p><div class="tablewrap"><table class="matrix"><thead><tr><th>Market</th><th>Time</th><th>State</th><th>Why</th></tr></thead><tbody>${rows}</tbody></table></div>`;
     } catch (err) {
       box.innerHTML = `<h2>Market watch</h2><p>Availability could not be read. No prices were invented.</p>`;
     }
@@ -2231,18 +2286,19 @@ async function terminal(){
     const hover = document.getElementById("crosshair");
     const requested = requestedNow();
     if (requested.symbol === "XAUUSD" && (requested.interval === "1m" || requested.interval === "3m")) {
-      if (note) note.textContent = "Licensed spot minute data unavailable. No candle was drawn.";
+      chartHold("Licensed spot minute data unavailable. No candle was drawn.");
+      if (note) note.textContent = "";
       if (hover) hover.textContent = "";
-      const canvas = document.getElementById("chart");
-      if (canvas) { const ctx = canvas.getContext("2d"); ctx.clearRect(0, 0, canvas.width, canvas.height); }
       return;
     }
     const url = requested.symbol === "XAUUSD" ? `/api/gold/candles?interval=${requested.interval}` : `/api/klines?symbol=${requested.symbol}&interval=${requested.interval}`;
     const bars = await fetch(url).then(r => r.json()).catch(() => null);
     if (!bars || bars.blocked === "xau_minute_unlicensed" || !(bars.candles || []).length) {
-      if (note) note.textContent = (bars && (bars.reason === "commercial_use_unverified" || bars.blocked === "commercial_use_unverified" || bars.message)) ? (bars.message || RIGHTS_MESSAGE) : (bars && bars.blocked === "xau_minute_unlicensed" ? "Licensed spot minute data unavailable. No candle was drawn." : (bars && bars.error ? "Chart unavailable: " + bars.error : "No completed candles returned. Nothing was invented."));
+      chartHold((bars && (bars.reason === "commercial_use_unverified" || bars.blocked === "commercial_use_unverified" || bars.message)) ? (bars.message || RIGHTS_MESSAGE) : (bars && bars.blocked === "xau_minute_unlicensed" ? "Licensed spot minute data unavailable. No candle was drawn." : (bars && bars.error ? "Chart unavailable: " + bars.error : "No completed candles returned. Nothing was invented.")));
+      if (note) note.textContent = "";
       return;
     }
+    chartShow();
     draw(bars.candles);
     if (note) note.textContent = plainReason(bars.source || bars.quote_semantics || "completed candles") + " · " + requested.interval + " · closed candles only";
     const canvas = document.getElementById("chart");
@@ -2315,8 +2371,10 @@ async function terminal(){
       const size = body.size_presentation && body.size_presentation.text ? body.size_presentation.text : (body.size && body.size.reason ? `Executable sizing is unavailable: ${plainReason(body.size.reason)}.` : "No position size on this result.");
       const licensed = body.blocked === "xau_minute_unlicensed";
       const headline = licensed ? "UNAVAILABLE" : (body.decision_label || body.decision || "WAIT");
-      const withheld = licensed || headline === "QUOTE DIVERGENCE" || headline === "BLOCKED" || headline === "UNAVAILABLE" || Boolean(body.blocked);
-      const kind = body.approved ? "Approved paper opportunity" : (headline === "WATCH" ? "Watch — no entry" : (withheld ? "Blocked" : (String(headline).includes("SELL") || String(headline).includes("BUY") ? "Experimental, not approved" : (headline === "WAIT" ? "No qualifying setup" : "Research observation"))));
+      const rightsHold = headline === "RIGHTS" || body.reason === "commercial_use_unverified";
+      const headlineShown = rightsHold ? "Not shown" : headline;
+      const withheld = licensed || rightsHold || headline === "QUOTE DIVERGENCE" || headline === "BLOCKED" || headline === "UNAVAILABLE" || Boolean(body.blocked);
+      const kind = body.approved ? "Approved paper opportunity" : (rightsHold ? "Price withheld" : (headline === "WATCH" ? "Watch — no entry" : (withheld ? "Blocked" : (String(headline).includes("SELL") || String(headline).includes("BUY") ? "Experimental, not approved" : (headline === "WAIT" ? "No qualifying setup" : "Research observation")))));
       const klass = body.approved ? "approved" : (withheld ? "blocked" : "research");
       const px = (value) => priceText(body.symbol, value);
       const entryLine = withheld ? "—. Not an actionable entry." : (headline === "WATCH" ? `Watch level ${px(body.watch_entry)}. Not an entry.` : px(body.entry));
@@ -2324,14 +2382,14 @@ async function terminal(){
       const rr = withheld || body.reward_risk == null ? "—" : Number(body.reward_risk).toFixed(2);
       const gap = body.quote_gap == null ? "" : ` Observed divergence ${(Number(body.quote_gap) * 100).toFixed(2)} percent. Limit 0.08 percent.`;
       const times = headline === "QUOTE DIVERGENCE" ? ` Spot sample ${stamp(body.compared_bar_close_ms || body.bar_close_ms)}. Separate quote ${stamp(body.quote_time_ms)}.` : "";
-      const why = licensed ? "Gold 1-minute and 3-minute data are not licensed. No plan was calculated from a quote or a sample candle." : plainReason(body.reason || "");
-      const sourceLine = licensed ? "Licensed spot minute data unavailable. A quote was not used as a candle." : (plainReason(body.source_name || "unknown") + ". " + plainReason(body.quote || "source not named"));
-      const candleLine = licensed ? "Not evaluated. No 1-minute or 3-minute candle was requested." : ((body.fresh ? "Completed candle is fresh." : "Not a fresh live candle.") + " " + stamp(body.bar_close_ms));
+      const why = licensed ? "Gold 1-minute and 3-minute data are not licensed. No plan was calculated from a quote or a sample candle." : (rightsHold ? (body.message || RIGHTS_MESSAGE) : plainReason(body.reason || ""));
+      const sourceLine = licensed ? "Licensed spot minute data unavailable. A quote was not used as a candle." : (rightsHold ? "Not read. No commercial use is approved." : (plainReason(body.source_name || "unknown") + ". " + plainReason(body.quote || "source not named")));
+      const candleLine = licensed ? "Not evaluated. No 1-minute or 3-minute candle was requested." : (rightsHold ? "Not read. No candle was requested." : ((body.fresh ? "Completed candle is fresh." : "Not a fresh live candle.") + " " + stamp(body.bar_close_ms)));
       const audit = body.research_levels && body.research_levels.audit_only ? `<details><summary>Audit only, not a trade plan</summary><p class="muted">Stored research levels stay off the plan. Entry ${px(body.research_levels.entry)}. Stop ${px(body.research_levels.stop)}. Target ${px(body.research_levels.target)}.</p></details>` : "";
       const chain = body.evidence_chain ? `<details><summary>Evidence chain</summary><p class="muted">Source ${plainReason(body.evidence_chain.data_source || "unnamed")}. Candle ${stamp(body.evidence_chain.completed_candle_ms)}. Rule ${body.evidence_chain.strategy_version || "unnamed"}. Decision ${body.evidence_chain.decision || "WAIT"}. Approved: ${body.evidence_chain.approved ? "yes" : "no"}. No calibrated probability is shown.</p></details>` : "";
       const persona = body.persona_name ? `${body.persona_name}. ${body.persona_note || ""}` : "No persona note.";
       const paper = (!withheld && body.paper && body.paper.allowed) ? `<p><button id="openpaper" type="button">Open a paper trade on this plan</button></p><p class="muted">This records a paper estimate for your account. It does not send a broker order. The quantity is not an exchange lot.</p>` : `<p class="muted">Paper trade unavailable${body.paper&&body.paper.reason?": "+plainReason(body.paper.reason):"."} ${withheld ? "No order is created from a blocked reading." : "The market plan is unchanged."}</p>`;
-      out.innerHTML = `<article class="card ${klass}" data-request="${requestId}" data-symbol="${body.symbol}" data-interval="${body.interval}"><p data-stale-note></p><p class="badge ${klass === "blocked" ? "block" : (klass === "approved" ? "ok" : "research")}">${kind}</p><h2>${headline}</h2><dl class="sections"><dt>Evaluation status</dt><dd>${headline}</dd><dt>Market and timeframe</dt><dd>${body.symbol||""} ${body.interval||""}</dd><dt>Data source</dt><dd>${sourceLine}</dd><dt>Candle completion</dt><dd>${candleLine}</dd><dt>Observation</dt><dd>${headline}</dd><dt>Validation</dt><dd>${body.validation_status||"unknown"}. ${body.approved?"Approved.":"Not an approved strategy and not a claim of profit."}</dd><dt>Entry condition</dt><dd>${entryLine}</dd><dt>Stop and target</dt><dd>${stopTarget}</dd><dt>Reward/risk</dt><dd class="num">${rr}</dd><dt>Persona eligibility</dt><dd>${persona}</dd><dt>Sizing</dt><dd>${withheld ? "Not calculated." : plainReason(size)}</dd><dt>Why it is waiting or blocked</dt><dd>${why}${gap}${times}</dd></dl>${audit}${chain}<details><summary>Technical record</summary><p class="muted">Request ${requestId}. Requested ${body.requested_symbol||""} ${body.requested_interval||""} ${body.requested_strategy||""}. Resolved ${body.strategy||""}. ${body.evidence_semantics||""} ${body.invalidation||""}</p></details>${paper}</article>`;
+      out.innerHTML = `<article class="card ${klass}" data-request="${requestId}" data-symbol="${body.symbol}" data-interval="${body.interval}"><p data-stale-note></p><p class="badge ${klass === "blocked" ? "block" : (klass === "approved" ? "ok" : "research")}">${kind}</p><h2>${headlineShown}</h2><dl class="sections"><dt>Evaluation status</dt><dd>${headlineShown}</dd><dt>Market and timeframe</dt><dd>${body.symbol||""} ${body.interval||""}</dd><dt>Data source</dt><dd>${sourceLine}</dd><dt>Candle completion</dt><dd>${candleLine}</dd><dt>Observation</dt><dd>${headlineShown}</dd><dt>Validation</dt><dd>${body.validation_status||"unknown"}. ${body.approved?"Approved.":"Not an approved strategy and not a claim of profit."}</dd><dt>Entry condition</dt><dd>${entryLine}</dd><dt>Stop and target</dt><dd>${stopTarget}</dd><dt>Reward/risk</dt><dd class="num">${rr}</dd><dt>Persona eligibility</dt><dd>${persona}</dd><dt>Sizing</dt><dd>${withheld ? "Not calculated." : plainReason(size)}</dd><dt>Why it is waiting or blocked</dt><dd>${why}${gap}${times}</dd></dl>${audit}${chain}<details><summary>Technical record</summary><p class="muted">Request ${requestId}. Requested ${body.requested_symbol||""} ${body.requested_interval||""} ${body.requested_strategy||""}. Resolved ${body.strategy||""}. ${body.evidence_semantics||""} ${body.invalidation||""}</p></details>${paper}</article>`;
       const opener = document.getElementById("openpaper");
       if (opener && body.inbox_delivery && body.inbox_delivery.opportunity_id) {
         opener.onclick = async () => {
@@ -2402,12 +2460,18 @@ async function researchLab(){
 }
 async function scannerPage(){
   let lastBody = null;
-  view.innerHTML = `<article class="card"><h2>Live Scanner</h2><p id="scanstatus" role="status">Reading the latest completed candles.</p><p class="muted" id="scanwhen">No completed read yet.</p><p id="scanstale" class="stale-note" hidden></p><div class="markets" id="scancards"><article class="card"><p class="muted">BTCUSDT</p><div class="skeleton lg"></div><div class="skeleton"></div><p>Loading.</p></article><article class="card"><p class="muted">ETHUSDT</p><div class="skeleton lg"></div><div class="skeleton"></div><p>Loading.</p></article><article class="card"><p class="muted">XAUUSD</p><div class="skeleton lg"></div><div class="skeleton"></div><p>Loading.</p></article></div></article><article class="card" id="scanboard"><h2>Twelve combinations</h2><p class="muted">Loading coverage.</p></article>`;
+  view.innerHTML = `<article class="card"><h2>Live Scanner</h2><p id="scanstatus" role="status">Checking which prices can be shown.</p><p class="muted" id="scanwhen">No candle is read until commercial use is approved.</p><p id="scanstale" class="stale-note" hidden></p><div class="markets" id="scancards"><article class="card"><p class="muted">BTCUSDT</p><div class="skeleton lg"></div><div class="skeleton"></div><p>Loading.</p></article><article class="card"><p class="muted">ETHUSDT</p><div class="skeleton lg"></div><div class="skeleton"></div><p>Loading.</p></article><article class="card"><p class="muted">XAUUSD</p><div class="skeleton lg"></div><div class="skeleton"></div><p>Loading.</p></article></div></article><article class="card" id="scanboard"><h2>Twelve combinations</h2><p class="muted">Loading coverage.</p></article>`;
   const draw = (body, staleNote) => {
     const cards = (body.markets||[]).map(m => {
       const headline = m.decision_label || m.scanner_state || m.state || "WAIT";
-      const blocked = headline === "QUOTE DIVERGENCE" || headline === "UNAVAILABLE" || headline === "BLOCKED" || headline === "RIGHTS" || m.scanner_state === "RIGHTS" || m.scanner_state === "BLOCKED" || m.scanner_state === "QUOTE_DIVERGENCE" || m.state === "DATA_UNAVAILABLE" || m.blocked;
-      const kind = headline === "RIGHTS" || m.scanner_state === "RIGHTS" ? "Rights" : (headline === "QUOTE DIVERGENCE" ? "Blocked" : (headline === "UNAVAILABLE" || m.blocked === "xau_minute_unlicensed" ? "Blocked" : (headline === "WATCH" ? "Watch — no entry" : (String(headline).includes("SELL") || String(headline).includes("BUY") ? "Experimental, not approved" : (headline === "WAIT" ? "No qualifying setup" : "Research observation")))));
+      if (isRightsHold(headline, m.scanner_state, m.status)) {
+        return `<article class="card blocked" data-symbol="${m.symbol}"><p class="badge block">Price withheld</p><h2>${m.symbol} · ${m.interval||""}</h2><div class="row"><span>Not shown</span><span class="num">—</span></div><p>${m.message || RIGHTS_MESSAGE}</p><p class="muted">No rule was run. This is not a missed setup and not a provider outage.</p></article>`;
+      }
+      if (headline === "UNAVAILABLE" || m.blocked === "xau_minute_unlicensed") {
+        return `<article class="card blocked" data-symbol="${m.symbol}"><p class="badge block">Unavailable</p><h2>${m.symbol} · ${m.interval||""}</h2><div class="row"><span>Not available</span><span class="num">—</span></div><p>${plainReason(m.message||"This timeframe is not available.")}</p><p class="muted">No candle was substituted.</p></article>`;
+      }
+      const blocked = headline === "QUOTE DIVERGENCE" || headline === "BLOCKED" || m.scanner_state === "BLOCKED" || m.scanner_state === "QUOTE_DIVERGENCE" || m.state === "DATA_UNAVAILABLE" || m.blocked;
+      const kind = headline === "QUOTE DIVERGENCE" ? "Blocked" : (headline === "WATCH" ? "Watch — no entry" : (String(headline).includes("SELL") || String(headline).includes("BUY") ? "Experimental, not approved" : (headline === "WAIT" ? "No qualifying setup" : "Research observation")));
       const klass = m.approved ? "approved" : (blocked || kind === "Blocked" ? "blocked" : "research");
       const hideLevels = blocked || kind === "Blocked" || kind === "Watch — no entry" || kind === "No qualifying setup" || m.entry == null;
       const levels = hideLevels
@@ -2422,13 +2486,14 @@ async function scannerPage(){
       return `<article class="card ${klass}" data-symbol="${m.symbol}"><p class="badge ${klass==="blocked"?"block":"research"}">${kind}</p><h2>${m.symbol} · ${m.interval||""}</h2><div class="row"><span>${headline}</span><span class="num">${m.price==null?"—":priceText(m.symbol, m.price)}</span></div><p class="muted">${source}. ${m.evaluated===false?"This market did not complete a valid reading.":"Reading complete."}</p><p>${plainReason(m.message||"No qualifying setup yet.")}${gap}${times}</p>${levels}<p class="muted">${grade} Updated ${m.updated_at||"unknown"}.</p><details><summary>Technical evidence</summary><p class="muted">${plainReason(m.diagnostic||"")} State ${m.scanner_state||m.state||"unknown"}. Source code ${m.quote||"unnamed"}.</p></details></article>`;
     }).join("");
     const qualifying = (body.markets||[]).some(m => m.approved || m.scanner_state === "APPROVED_SIGNAL");
-    const emptyNote = qualifying ? "" : `<article class="card"><h2>No qualifying opportunity</h2><p>None of these readings is an approved paper opportunity. Nothing was invented to fill the page.</p></article>`;
+    const heldOnly = (body.markets||[]).length > 0 && (body.markets||[]).every(m => isRightsHold(m.decision_label, m.scanner_state, m.status) || m.scanner_state === "BLOCKED" || m.decision_label === "UNAVAILABLE" || m.status === "unavailable");
+    const emptyNote = qualifying ? "" : (heldOnly ? "" : `<article class="card"><h2>No qualifying opportunity</h2><p>None of these readings is an approved paper opportunity. Nothing was invented to fill the page.</p></article>`);
     const box = document.getElementById("scancards");
     if (box) box.innerHTML = (cards || `<article class="card"><h2>No qualifying opportunity</h2><p>The scan returned no market cards.</p></article>`) + emptyNote;
     const status = document.getElementById("scanstatus");
     if (status) status.textContent = staleNote ? "Scan refresh failed." : (body.notice || "Scan complete.");
     const when = document.getElementById("scanwhen");
-    if (when) when.textContent = "Last successful read " + (body.scanned_at || "unknown") + ". A reading uses the latest completed candle. It is not a tick feed and not an order.";
+    if (when) when.textContent = body.scanned_at ? ("Last successful read " + body.scanned_at + ". A reading uses the latest completed candle. It is not a tick feed and not an order.") : "No candle was read. Prices stay hidden until commercial use is approved. This is not a tick feed and not an order.";
     const stale = document.getElementById("scanstale");
     if (stale) { stale.hidden = !staleNote; stale.textContent = staleNote || ""; }
   };
@@ -2439,7 +2504,7 @@ async function scannerPage(){
       const lines = (cov.availability||[]).map(pair => {
         const evaluated = ((cov.evaluations || []).find(row => row.symbol === pair.symbol && row.interval === pair.interval) || {});
         const rights = pair.status === "rights_unconfirmed" || pair.status === "restricted" || pair.status === "prohibited";
-        const state = pair.status === "unavailable" ? "Unavailable" : (rights ? "Rights not confirmed" : (evaluated.decision || plainReason(pair.status)));
+        const state = pair.status === "unavailable" ? "Unavailable" : (rights ? "Withheld" : (evaluated.decision === "RIGHTS" ? "Withheld" : (evaluated.decision || plainReason(pair.status))));
         const source = pair.status === "unavailable" ? "No feed" : (rights ? "Withheld" : plainReason(pair.feed || pair.status));
         const extra = evaluated.blocked && evaluated.blocked !== "commercial_use_unverified" && evaluated.blocked !== "xau_minute_unlicensed" ? " " + plainReason(evaluated.blocked) : "";
         return `<tr><td>${pair.symbol}</td><td>${pair.interval}</td><td>${source}</td><td>${state}</td><td>${plainReason(pair.reason || "")}${extra}</td></tr>`;

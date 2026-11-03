@@ -1,5 +1,7 @@
 # Implementation status
 
+2026-11-03. Live prices stay withheld. That is the commercial-use gate, not a dead worker and not a provider outage. The desk copy now says “Not shown” / “Price withheld” instead of the internal token RIGHTS, the market-watch column no longer clips the status, and an empty chart is a stated pause rather than a black canvas. Production at `81de54b` still shows the older labels until this presentation change is deployed. No feed was turned back on. Approved strategies remain zero.
+
 Observed on https://aureontradelab.tech at 2026-10-24 19:03 UTC. The running process had been up for about 9.4 hours. `/health` was `WAIT_DEFAULT`, `broker: false`, `paper_only: true`, market data fresh. The live HTML matches the three-style product on main `cd62b27`. This file's later portfolio change is source-only until that commit is deployed.
 
 | Area | Status | Evidence |

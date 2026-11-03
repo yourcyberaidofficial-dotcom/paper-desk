@@ -218,7 +218,7 @@ def test_inbox_age_and_desk_copy_keep_research_separate_from_orders():
     assert fresh["freshness"] == "current"
     assert fresh["read_state"] == "read"
     assert fresh["notice_class"] == "research observation"
-    assert "Reading the latest completed candles" in DASHBOARD
+    assert "Checking which prices can be shown" in DASHBOARD
     assert "Scanner unavailable" in DASHBOARD
     assert "No completed paper trades" in DASHBOARD
     assert "Historical research record" in DASHBOARD
