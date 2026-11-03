@@ -27,6 +27,23 @@ DESK = (
     ("XAUUSD", "1h"),
 )
 
+USES = (
+    "connection",
+    "memory",
+    "display",
+    "retention",
+    "research",
+    "indicators",
+    "strategy",
+    "notification",
+    "autopilot",
+    "redistribution",
+)
+
+KNOWN_STATES = {"approved", "restricted", "prohibited", "rights_unconfirmed", "fixture_only"}
+MESSAGE = "Market data access unavailable — commercial use permissions are being verified."
+_AUDIT = []
+
 STATUS_LABELS = {
     "approved": "Rights approved",
     "restricted": "Restricted",
@@ -80,8 +97,7 @@ SOURCES = (
         "note": (
             "The endpoint is reachable without an API key. The Spot product terms file only points at "
             "https://www.binance.com/en/terms and states no market-data redistribution, retention, or commercial-display grant. "
-            "Unauthenticated access is not a licence. Existing live reads in the desk are operational freshness only "
-            "and are not a retained research dataset."
+            "Unauthenticated access is not a licence. Live desk requests stay off until a written grant covers the exact use."
         ),
     },
     {
@@ -131,6 +147,25 @@ SOURCES = (
         ),
     },
     {
+        "id": "xaus_public_chart",
+        "provider": "XAUS public chart",
+        "product": "xaus.com spot and chart endpoints used for XAUUSD samples",
+        "data_type": "Indicative gold spot and chart OHLC",
+        "intended_use": "Gold display, comparison and research",
+        "retention": False,
+        "historical_research": False,
+        "derivative_indicators": False,
+        "customer_display": False,
+        "commercial_use": False,
+        "attribution": "Not established",
+        "terms_url": None,
+        "terms_version": "No applicable written licence was on file at review",
+        "written_approval": None,
+        "status": "rights_unconfirmed",
+        "block_reason": "rights_unconfirmed",
+        "note": "These endpoints were used as an operational gold sample. No written permission to request, display, retain or derive a commercial signal from them was found.",
+    },
+    {
         "id": "deterministic_fixture",
         "provider": "Aureon fixture",
         "product": "Deterministic test candles",
@@ -178,10 +213,177 @@ def ingestion_allowed(source_id, purpose):
     }
 
 
+def _audit(source_id, use, allowed, status, reason):
+    _AUDIT.append({
+        "source": source_id,
+        "use": use,
+        "allowed": allowed,
+        "status": status,
+        "reason": reason,
+        "reviewed_on": REVIEWED_ON,
+    })
+    del _AUDIT[:-200]
+    return {"allowed": allowed, "status": status, "reason": reason, "use": use, "source": source_id}
+
+
+def audit_log():
+    return list(_AUDIT)
+
+
+def uses_for(row):
+    declared = row.get("uses") if isinstance(row.get("uses"), dict) else {}
+    base = row.get("status") if row.get("status") in KNOWN_STATES else "rights_unconfirmed"
+    if row.get("id") == "deterministic_fixture":
+        base = "fixture_only"
+    return {use: declared.get(use, base) for use in USES}
+
+
+def use_permission(source_id, use, *, record=None, today=REVIEWED_ON):
+    row = source(source_id) if record is None else record
+    if not isinstance(row, dict) or use not in USES:
+        return _audit(source_id, use, False, "rights_unconfirmed", "missing_or_malformed_rights")
+    raw = uses_for(row).get(use)
+    if raw not in KNOWN_STATES:
+        return _audit(source_id, use, False, "rights_unconfirmed", "malformed_permission")
+    if raw == "fixture_only":
+        return _audit(source_id, use, False, "fixture_only", "fixture_not_market_evidence")
+    if raw != "approved":
+        return _audit(source_id, use, False, raw, raw)
+    evidence = {}
+    bundle = row.get("use_evidence") if isinstance(row.get("use_evidence"), dict) else {}
+    item = bundle.get(use)
+    if isinstance(item, dict):
+        evidence = item
+    required = ("provider", "product", "data_type", "permitted_purpose", "terms_version", "clause", "verified_by", "verified_on")
+    if any(not evidence.get(key) for key in required):
+        return _audit(source_id, use, False, "rights_unconfirmed", "approval_without_evidence")
+    if evidence.get("review_due") and str(evidence["review_due"]) < str(today):
+        return _audit(source_id, use, False, "rights_unconfirmed", "rights_review_expired")
+    return _audit(source_id, use, True, "approved", "evidenced")
+
+
+def network_block(source_id, use="connection"):
+    decision = use_permission(source_id, use)
+    if decision["allowed"]:
+        return None
+    return {
+        "ok": False,
+        "allowed": False,
+        "bars": [],
+        "candles": [],
+        "price": None,
+        "close": None,
+        "fresh": False,
+        "blocked": decision["status"],
+        "rights_status": decision["status"],
+        "display_permission": use_permission(source_id, "display")["status"],
+        "retention_permission": use_permission(source_id, "retention")["status"],
+        "research_permission": use_permission(source_id, "research")["status"],
+        "decision_permission": use_permission(source_id, "strategy")["status"],
+        "source_reachable": "not_checked",
+        "feed_freshness": "not_applicable",
+        "reason": "commercial_use_unverified",
+        "message": MESSAGE,
+    }
+
+
+def open_market_stream(source_id="binance_spot_rest_klines"):
+    """No WebSocket client is connected. Unconfirmed connection rights refuse the socket."""
+    blocked = network_block(source_id, "connection")
+    if blocked:
+        blocked["stream"] = False
+        return blocked
+    return {"ok": False, "stream": False, "reason": "no_stream_client"}
+
+
+def retained_research_status(path):
+    name = str(path).rsplit("/", 1)[-1]
+    if name in {"BTCUSDT-4h.csv", "ETHUSDT-4h.csv"}:
+        status = "rights_unconfirmed"
+        provenance = (
+            "Recorded as binance-public in docs/DATA_AUDIT.json. "
+            "That does not prove a Binance Vision archive, and it is not a written commercial licence."
+        )
+    elif name.startswith("XAUUSD"):
+        status = "rights_unconfirmed"
+        provenance = "Recorded Dukascopy or spot-sample gold history. No written commercial research licence is on file."
+    else:
+        status = "rights_unconfirmed"
+        provenance = "Provenance was not established."
+    return {
+        "path": name,
+        "provenance": provenance,
+        "status": status,
+        "commercial_research": False,
+        "holdout_opened": False,
+        "deleted": False,
+        "owner_decision_required": "Whether this file may remain stored. It was not deleted and its candles were not read for a new result.",
+    }
+
+
+class RightsDenied(PermissionError):
+    """A market-data call stopped before the network because the use is not approved."""
+
+    def __init__(self, block):
+        self.block = block if isinstance(block, dict) else {}
+        super().__init__(self.block.get("reason") or "commercial_use_unverified")
+
+
+RIGHTS_REASONS = frozenset({
+    "commercial_use_unverified",
+    "rights_unconfirmed",
+    "prohibited",
+    "restricted",
+    "fixture_only",
+    "fixture_not_market_evidence",
+    "approval_without_evidence",
+    "rights_review_expired",
+    "missing_or_malformed_rights",
+    "malformed_permission",
+    "unknown_source",
+})
+
+
+def is_rights_reason(value):
+    return value in RIGHTS_REASONS
+
+
+def source_for_url(url):
+    text = str(url or "").lower()
+    if "binance" in text:
+        if "/data/spot/" in text or "vision" in text and "klines" in text and "api/v3" not in text:
+            return "binance_vision_klines"
+        return "binance_spot_rest_klines"
+    if "dukascopy" in text:
+        return "dukascopy_datafeed_bi5"
+    if "xaus.com" in text:
+        return "xaus_public_chart"
+    if "swissquote" in text:
+        return "swissquote_public_bbo"
+    return None
+
+
+def refuse_url(url, use="connection"):
+    source_id = source_for_url(url)
+    if source_id is None:
+        blocked = network_block("unknown_market_host", use)
+        if blocked:
+            blocked["reason"] = "commercial_use_unverified"
+        return blocked
+    return network_block(source_id, use)
+
+
+def screen_bars(source_id, bars, use="indicators"):
+    """Derived calculations receive no rows unless that exact use is approved."""
+    if not use_permission(source_id, use)["allowed"]:
+        return []
+    return list(bars or [])
+
+
 def register_public():
     rows = []
     for row in SOURCES:
-        rows.append({
+        public = {
             "id": row["id"],
             "provider": row["provider"],
             "product": row["product"],
@@ -201,7 +403,9 @@ def register_public():
             "note": row["note"],
             "reviewed_on": REVIEWED_ON,
             "reviewed_by": REVIEWED_BY,
-        })
+            "uses": uses_for(row),
+        }
+        rows.append(public)
     return rows
 
 
@@ -225,17 +429,17 @@ def coverage_rows():
             live = "No minute source"
         elif symbol == "XAUUSD":
             summary = (
-                "An operational spot sample can be read for this timeframe. Rights for keeping it, researching on it, "
-                "or presenting it as licensed market data are not confirmed. No new history is being collected. "
+                "Current gold information is withheld. Dukascopy samples, the XAUS chart and the Swissquote quote "
+                "check are not approved for commercial display, retention or strategy use. No new history is being collected. "
                 "The separate quote check still uses the 0.08 percent limit and is not a research archive."
             )
-            live = "Operational spot sample only"
+            live = "Withheld — rights not confirmed"
         else:
             summary = (
-                "A live public candle read can refresh this market. That is not retained desk history and it is not "
-                "permission to research or redistribute the candles. Forward collection is off until a written licence exists."
+                "Binance spot candles are not requested for this market. Connection, display, retention, indicators "
+                "and strategy use are rights_unconfirmed. Forward collection is off until a written licence covers the exact use."
             )
-            live = "Live read only"
+            live = "Withheld — rights not confirmed"
         rows.append({
             "market": symbol,
             "timeframe": interval,
@@ -252,3 +456,38 @@ def coverage_rows():
             "summary": summary,
         })
     return rows
+
+
+CONSUMERS = {
+    "binance_spot_rest_klines": (
+        "ops.market.fetch_last_closed",
+        "ops.market.fetch_klines",
+        "ops.market.snapshot",
+        "ops.feeds.binance_bars",
+        "ops.history.fetch_history",
+        "ops.leaderboard.leaderboard",
+        "ops.replay.replay",
+        "ops.deepboard.deep_board",
+        "ops.terminal_route.load_crypto_bars",
+        "ops.app._remember",
+        "ops.app._engine_view",
+        "ops.shadow_bridge.load_live_windows",
+        "ops.worker._monitor_windows",
+    ),
+    "dukascopy_datafeed_bi5": (
+        "ops.feeds.dukascopy_hour",
+        "ops.xau_pull.fetch_day",
+        "ops.terminal_route.gold_session",
+    ),
+    "swissquote_public_bbo": ("ops.gold_live.swissquote_xau", "ops.worker._monitor_windows"),
+    "xaus_public_chart": (
+        "ops.feeds.xaus_chart",
+        "ops.feeds.xaus_spot",
+        "ops.feeds.xaus_spot_bars",
+        "ops.app._gold",
+        "ops.app._gold_bars",
+        "ops.terminal_route.load_gold_ohlc",
+    ),
+    "binance_vision_klines": ("ops.history.fetch_history",),
+    "websocket": ("ops.data_rights.open_market_stream",),
+}

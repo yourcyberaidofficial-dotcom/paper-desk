@@ -10,6 +10,12 @@ STALE_MS = 15 * 60 * 1000
 
 def fetch_last_closed(symbol: str, interval: str = "15m", now_ms: int | None = None, timeout: int = 6) -> dict:
     now_ms = int(now_ms if now_ms is not None else time.time() * 1000)
+    from ops.data_rights import network_block
+
+    blocked = network_block("binance_spot_rest_klines", "connection")
+    if blocked:
+        blocked.update({"symbol": symbol, "interval": interval, "checked_at_ms": now_ms})
+        return blocked
     query = urllib.parse.urlencode({"symbol": symbol, "interval": interval, "limit": 2})
     request = urllib.request.Request(
         f"https://data-api.binance.vision/api/v3/klines?{query}",
@@ -41,6 +47,12 @@ def fetch_last_closed(symbol: str, interval: str = "15m", now_ms: int | None = N
 
 def fetch_klines(symbol: str, interval: str = "15m", limit: int = 100, now_ms: int | None = None) -> dict:
     now_ms = int(now_ms if now_ms is not None else time.time() * 1000)
+    from ops.data_rights import network_block
+
+    blocked = network_block("binance_spot_rest_klines", "display")
+    if blocked:
+        blocked.update({"symbol": symbol, "interval": interval})
+        return blocked
     if symbol not in {"BTCUSDT", "ETHUSDT"}:
         return {"symbol": symbol, "error": "symbol_not_allowed", "candles": []}
     if interval not in {"1m", "3m", "15m", "1h", "4h", "1d"}:

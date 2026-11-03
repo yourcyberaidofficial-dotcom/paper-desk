@@ -364,6 +364,9 @@ def inbox_settings(user):
 def deliver_evaluation(user_id, user, result):
     """History is separate. This only stores an inbox event the saved filters allow."""
     result = result or {}
+    from ops.data_rights import is_rights_reason
+    if result.get("rights_status") in {"rights_unconfirmed", "prohibited", "restricted", "fixture_only"} or is_rights_reason(result.get("reason")) or is_rights_reason(result.get("blocked")):
+        return {"stored": False, "duplicate": False, "reason": "commercial_use_unverified"}
     settings = inbox_settings(user)
     if result.get("blocked") or result.get("rejected") == "market_mismatch":
         return {"stored": False, "duplicate": False, "reason": "blocked"}

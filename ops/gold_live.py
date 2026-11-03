@@ -39,6 +39,23 @@ def parse_swissquote(payload, now_ms):
 
 def swissquote_xau(now_ms=None):
     now_ms = int(now_ms if now_ms is not None else datetime.now(timezone.utc).timestamp() * 1000)
+    from ops.data_rights import network_block
+
+    blocked = network_block("swissquote_public_bbo", "connection")
+    if blocked:
+        return {
+            "ok": False,
+            "bid": None,
+            "ask": None,
+            "reason": "commercial_use_unverified",
+            "rights_status": blocked.get("rights_status"),
+            "message": blocked.get("message"),
+            "quote_semantics": "bid_ask_snapshot",
+            "source_reachable": "not_checked",
+            "feed_freshness": "not_applicable",
+            "credential": None,
+            "not_a_candle": True,
+        }
     request = urllib.request.Request(URL, headers={"User-Agent": "aureon-paper-desk"})
     try:
         with urllib.request.urlopen(request, timeout=15) as response:

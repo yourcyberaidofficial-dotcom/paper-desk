@@ -34,10 +34,31 @@ def promotion_ids(path=None):
 
 def load_live_windows(now_ms):
     """Completed public bars only. A failure is an empty window, not a price."""
+    from ops.data_rights import MESSAGE, network_block
+
+    now_ms = int(now_ms)
+    crypto = network_block("binance_spot_rest_klines", "display")
+    gold = network_block("xaus_public_chart", "display")
+    if crypto or gold:
+        windows = []
+        for symbol in ("BTCUSDT", "ETHUSDT", "XAUUSD"):
+            for interval in ("1m", "3m", "15m", "1h"):
+                if symbol == "XAUUSD" and interval in {"1m", "3m"}:
+                    windows.append(_empty(symbol, interval, "none", "unavailable", "xau_minute_unlicensed"))
+                    continue
+                block = gold if symbol == "XAUUSD" else crypto
+                if block:
+                    row = _empty(symbol, interval, "withheld", "withheld", "commercial_use_unverified")
+                    row["rights_status"] = block.get("rights_status")
+                    row["message"] = MESSAGE
+                    row["price"] = None
+                    windows.append(row)
+                else:
+                    windows.append(_empty(symbol, interval, "unknown", "unknown", "missing_bars"))
+        return windows
     from concurrent.futures import ThreadPoolExecutor
     from ops.feeds import binance_bars, xaus_chart
 
-    now_ms = int(now_ms)
     crypto_start = now_ms - 50 * 60 * 60 * 1000
     with ThreadPoolExecutor(max_workers=3) as pool:
         btc = pool.submit(_crypto_window, "BTCUSDT", crypto_start, now_ms, binance_bars)

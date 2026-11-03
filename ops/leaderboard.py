@@ -12,6 +12,11 @@ STRESS = 15 / 10000
 
 
 def _bars(symbol, interval, limit=1000):
+    from ops.data_rights import network_block
+
+    blocked = network_block("binance_spot_rest_klines", "research")
+    if blocked:
+        raise PermissionError("rights_unconfirmed")
     query = urllib.parse.urlencode({"symbol": symbol, "interval": interval, "limit": limit})
     request = urllib.request.Request(
         f"https://data-api.binance.vision/api/v3/klines?{query}",
@@ -74,6 +79,19 @@ def _metrics(trades):
 
 
 def leaderboard():
+    from ops.data_rights import MESSAGE, network_block
+
+    blocked = network_block("binance_spot_rest_klines", "research")
+    if blocked:
+        return {
+            "ok": False,
+            "rows": [],
+            "validated": False,
+            "reason": "commercial_use_unverified",
+            "rights_status": blocked.get("rights_status"),
+            "message": MESSAGE,
+            "label": "RESEARCH WITHHELD — COMMERCIAL USE NOT APPROVED",
+        }
     rows = []
     coverage = []
     for symbol in ("BTCUSDT", "ETHUSDT"):

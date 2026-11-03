@@ -36,6 +36,20 @@ def day_url(day, side):
 
 
 def fetch_day(day, side, cache, timeout=40, attempts=8):
+    from ops.data_rights import network_block
+
+    blocked = network_block("dukascopy_datafeed_bi5", "retention")
+    if blocked:
+        return {
+            "ok": False,
+            "reason": "commercial_use_unverified",
+            "rights_status": blocked.get("rights_status"),
+            "message": blocked.get("message"),
+            "body": None,
+            "cached": False,
+            "sha256": None,
+            "url": None,
+        }
     path = cache / side / f"{day.isoformat()}.bi5"
     path.parent.mkdir(parents=True, exist_ok=True)
     if path.exists() and path.stat().st_size > 0:

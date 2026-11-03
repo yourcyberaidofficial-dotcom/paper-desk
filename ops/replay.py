@@ -11,6 +11,11 @@ BASE_COST = 11 / 10000
 
 
 def _klines(symbol, interval, end_ms, limit=80):
+    from ops.data_rights import network_block
+
+    blocked = network_block("binance_spot_rest_klines", "research")
+    if blocked:
+        raise PermissionError("rights_unconfirmed")
     query = urllib.parse.urlencode({
         "symbol": symbol,
         "interval": interval,

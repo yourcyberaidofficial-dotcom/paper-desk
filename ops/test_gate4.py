@@ -280,7 +280,8 @@ def test_closed_saturday_hour_is_not_kept_and_history_is_not_fresh():
         cache = Path(tempfile.mkdtemp())
         result = fetch_day(date(2026, 1, 5), "BID", cache, attempts=1, timeout=1)
         assert result["ok"] is False
-        assert result["reason"] == "http_503"
+        assert result["reason"] == "commercial_use_unverified"
+        assert result["body"] is None
         assert list(cache.rglob("*.bi5")) == []
     finally:
         urllib.request.urlopen = original

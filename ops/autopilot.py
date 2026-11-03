@@ -178,6 +178,11 @@ def consider(user, result, now_ms, opportunity_id=None):
     user_id = user.get("id")
     state = view(user)
     result = result or {}
+    from ops.data_rights import is_rights_reason
+    if result.get("rights_status") in {"rights_unconfirmed", "prohibited", "restricted", "fixture_only"} or is_rights_reason(result.get("reason")) or is_rights_reason(result.get("blocked")):
+        if state["enabled"]:
+            note(user_id, now_ms, opportunity_id, rejection="commercial_use_unverified")
+        return {"attempted": False, "ok": False, "reason": "commercial_use_unverified", "order": False}
     if state["enabled"]:
         note(user_id, now_ms, opportunity_id)
     if not state["accepts_new_entries"]:

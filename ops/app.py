@@ -158,8 +158,10 @@ def health():
     markets = market_snapshot()
     report = _market_report(markets)
     promoted = _promotion_state()
+    fresh = report["BTCUSDT"]["status"] == "fresh" and report["ETHUSDT"]["status"] == "fresh"
+    withheld = report["BTCUSDT"]["status"] == "withheld" or report["ETHUSDT"]["status"] == "withheld"
     return jsonify({
-        "status": "ok" if report["BTCUSDT"]["status"] == "fresh" and report["ETHUSDT"]["status"] == "fresh" else "degraded",
+        "status": "rights_withheld" if withheld else ("ok" if fresh else "degraded"),
         "process": "ok",
         "uptime_s": int(time.time() - STARTED),
         "market_data": report,
@@ -192,10 +194,28 @@ def _qualification_public():
 
 
 def _market_report(snapshot):
+    from ops.data_rights import MESSAGE, is_rights_reason
+
     out = {}
     now_ms = int(time.time() * 1000)
     for symbol in ("BTCUSDT", "ETHUSDT"):
         row = (snapshot or {}).get(symbol) or {}
+        if is_rights_reason(row.get("reason")) or row.get("rights_status") in {"rights_unconfirmed", "prohibited", "restricted", "fixture_only"}:
+            out[symbol] = {
+                "status": "withheld",
+                "rights_status": row.get("rights_status") or "rights_unconfirmed",
+                "display_permission": row.get("display_permission"),
+                "retention_permission": row.get("retention_permission"),
+                "research_permission": row.get("research_permission"),
+                "decision_permission": row.get("decision_permission"),
+                "source_reachable": "not_checked",
+                "feed_freshness": "not_applicable",
+                "reason": "commercial_use_unverified",
+                "message": MESSAGE,
+                "last_close_time_ms": None,
+                "source": "withheld",
+            }
+            continue
         close_ms = row.get("close_time_ms")
         checked = row.get("checked_at_ms") or now_ms
         if not isinstance(close_ms, (int, float)):
@@ -205,13 +225,16 @@ def _market_report(snapshot):
         else:
             status = "stale"
         out[symbol] = {"status": status, "last_close_time_ms": close_ms, "source": row.get("source") or "unknown"}
-    out["XAUUSD"] = {"status": "not_checked", "reason": "health_does_not_treat_spot_as_a_candle", "source": "none"}
     scan = getattr(worker, "last_monitor", None) or {}
     gold = [row for row in (scan.get("evaluations") or []) if row.get("symbol") == "XAUUSD"]
     out["XAUUSD"] = {
-        "status": "scanned" if gold else "not_scanned",
-        "reason": "last background scan" if gold else "no completed gold scan in this process",
-        "source": "worker",
+        "status": "withheld",
+        "rights_status": "rights_unconfirmed",
+        "source_reachable": "not_checked",
+        "feed_freshness": "not_applicable",
+        "reason": "commercial_use_unverified",
+        "message": MESSAGE,
+        "source": "withheld",
         "rows": [{k: row.get(k) for k in ("interval", "decision", "reason")} for row in gold],
     }
     return out
@@ -349,6 +372,9 @@ def period_api():
     at_ms = yesterday_ms() if not at or at == "yesterday" else int(at)
     try:
         return jsonify(period(symbol, interval, at_ms))
+    except PermissionError:
+        from ops.data_rights import MESSAGE
+        return jsonify({"ok": False, "reason": "commercial_use_unverified", "message": MESSAGE, "trades": []})
     except Exception as exc:
         return jsonify({"error": "unavailable"}), 502
 
@@ -361,6 +387,9 @@ def replay_api():
     at_ms = yesterday_ms() if not at or at == "yesterday" else int(at)
     try:
         return jsonify(replay(symbol, interval, at_ms))
+    except PermissionError:
+        from ops.data_rights import MESSAGE
+        return jsonify({"ok": False, "reason": "commercial_use_unverified", "message": MESSAGE})
     except Exception as exc:
         return jsonify({"error": "unavailable"}), 502
 
@@ -565,6 +594,17 @@ def lab_save():
 
 
 def _remember(key, ttl, loader):
+    from ops.data_rights import network_block
+
+    source_id = None
+    if isinstance(key, tuple) and key and key[0] == "binance":
+        source_id = "binance_spot_rest_klines"
+    elif isinstance(key, tuple) and key and key[0] == "xaus":
+        source_id = "xaus_public_chart"
+    if source_id:
+        blocked = network_block(source_id, "display")
+        if blocked:
+            return blocked
     now = time.time()
     hit = _FEED_CACHE.get(key)
     if hit and now - hit[0] < ttl:
@@ -621,11 +661,20 @@ def _engine_view(symbol, now_ms=None):
     }
     if symbol == "XAUUSD":
         series = _gold_bars("1h", now_ms)
+        if series.get("reason") == "commercial_use_unverified" or series.get("rights_status"):
+            empty.update(state="DATA_UNAVAILABLE", reason="commercial_use_unverified", interval="1h", evaluated=False, rights_status=series.get("rights_status"))
+            return empty
         higher = _gold_bars("4h", now_ms) if series.get("ok") else {"bars": []}
         if not series.get("ok") or not series.get("bars"):
             empty.update(state="DATA_UNAVAILABLE", reason=series.get("reason") or "GOLD_FEED_UNAVAILABLE", interval="1h")
             return empty
         bars, higher_bars, interval = series["bars"], higher.get("bars") or [], "1h"
+        from ops.data_rights import screen_bars
+        bars = screen_bars("xaus_public_chart", bars)
+        higher_bars = screen_bars("xaus_public_chart", higher_bars)
+        if not bars:
+            empty.update(state="DATA_UNAVAILABLE", reason="commercial_use_unverified", interval="1h", evaluated=False)
+            return empty
     elif symbol in {"BTCUSDT", "ETHUSDT"}:
         entry = _remember(
             ("binance", symbol, "15m"),
@@ -638,9 +687,15 @@ def _engine_view(symbol, now_ms=None):
             lambda: binance_bars(symbol, "1h", now_ms - 90 * 60 * 60 * 1000, now_ms, now_ms),
         )
         if not entry.get("ok") or not higher.get("ok") or not entry.get("bars"):
-            empty.update(state="DATA_UNAVAILABLE", reason=entry.get("reason") or higher.get("reason") or "DATA_UNAVAILABLE", interval="15m")
+            empty.update(state="DATA_UNAVAILABLE", reason=entry.get("reason") or higher.get("reason") or "DATA_UNAVAILABLE", interval="15m", evaluated=False, rights_status=entry.get("rights_status"))
             return empty
-        bars, higher_bars, interval = entry["bars"], higher.get("bars") or [], "15m"
+        from ops.data_rights import screen_bars
+        bars = screen_bars("binance_spot_rest_klines", entry.get("bars") or [])
+        higher_bars = screen_bars("binance_spot_rest_klines", higher.get("bars") or [])
+        if not bars:
+            empty.update(state="DATA_UNAVAILABLE", reason="commercial_use_unverified", interval="15m", evaluated=False)
+            return empty
+        interval = "15m"
     else:
         empty.update(state="DATA_UNAVAILABLE", reason="symbol_not_allowed")
         return empty
@@ -661,12 +716,46 @@ def _engine_view(symbol, now_ms=None):
 
 
 def _gold():
+    from ops.data_rights import MESSAGE, network_block
+
+    blocked = network_block("xaus_public_chart", "display")
+    if blocked:
+        return {
+            "symbol": "XAUUSD",
+            "instrument": "XAUUSD_SPOT",
+            "source": "withheld",
+            "kind": "indicative_spot",
+            "quote_semantics": "indicative_mid",
+            "price": None,
+            "fresh": False,
+            "status": "withheld",
+            "rights_status": blocked.get("rights_status"),
+            "display_permission": blocked.get("display_permission"),
+            "source_reachable": "not_checked",
+            "feed_freshness": "not_applicable",
+            "reason": "commercial_use_unverified",
+            "not_bid_ask": True,
+            "not_a_candle": True,
+            "note": MESSAGE,
+            "message": MESSAGE,
+        }
     from ops.feeds import xaus_spot
     from ops.gold_cache import load, save
     try:
         spot = _remember(("xaus", "spot"), 15, xaus_spot)
     except Exception as exc:
         spot = {"ok": False, "reason": type(exc).__name__}
+    if spot.get("reason") == "commercial_use_unverified" or spot.get("rights_status"):
+        return {
+            "symbol": "XAUUSD",
+            "price": None,
+            "fresh": False,
+            "status": "withheld",
+            "reason": "commercial_use_unverified",
+            "rights_status": spot.get("rights_status") or "rights_unconfirmed",
+            "note": MESSAGE,
+            "message": MESSAGE,
+        }
     if spot.get("ok") and spot.get("price") is not None:
         payload = {
             "symbol": "XAUUSD",
@@ -1008,33 +1097,48 @@ def api_council():
     out = []
     for symbol in ("BTCUSDT", "ETHUSDT"):
         data = fetch_klines(symbol, "15m", limit=50)
-        bars = [{"high": c["h"], "low": c["l"], "close": c["c"]} for c in data.get("candles") or []]
-        states = research_states(bars) if bars else []
+        bars = [{"high": c["h"], "low": c["l"], "close": c["c"]} for c in data.get("candles") or [] if c.get("h") is not None]
+        withheld = data.get("reason") == "commercial_use_unverified" or not bars
+        states = research_states(bars) if bars and not withheld else []
         by = {s["strategy"]: s["direction"] for s in states}
-        candle = (data.get("candles") or [{}])[-1].get("t")
+        candle = (data.get("candles") or [{}])[-1].get("t") if bars else None
         out.append({
             "symbol": symbol,
             "timeframe": "15m",
-            "fresh": True,
-            "council": council(by.get("E1-donchian-20", "WAIT"), by.get("SMA20-state", "WAIT"), by.get("RSI14-state", "WAIT"), True, candle),
+            "fresh": not withheld,
+            "rights_status": data.get("rights_status"),
+            "reason": "commercial_use_unverified" if withheld else None,
+            "limitation": data.get("message") if withheld else None,
+            "council": None if withheld else council(by.get("E1-donchian-20", "WAIT"), by.get("SMA20-state", "WAIT"), by.get("RSI14-state", "WAIT"), True, candle),
         })
     try:
         series = _gold_bars("1h", int(time.time() * 1000))
-        bars = series.get("bars") or []
-        norm = [{"high": bar["high"], "low": bar["low"], "close": bar["close"]} for bar in bars]
-        states = research_states(norm) if len(norm) >= 21 else []
-        by = {s["strategy"]: s["direction"] for s in states}
-        last = bars[-1] if bars else {}
-        out.append({
-            "symbol": "XAUUSD",
-            "timeframe": "1h",
-            "fresh": bool(series.get("ok") and last.get("fresh")),
-            "history": len(bars),
-            "quote_semantics": "ohlc_not_bid_ask",
-            "states": states,
-            "limitation": "Completed XAUUSD chart OHLC. Not bid/ask. Not a daily close copied into the open. Weekend gaps are a closed market.",
-            "council": council(by.get("E1-donchian-20", "WAIT"), by.get("SMA20-state", "WAIT"), by.get("RSI14-state", "WAIT"), bool(last.get("fresh")), last.get("open_time_ms")),
-        })
+        if series.get("reason") == "commercial_use_unverified" or series.get("rights_status") or not series.get("ok"):
+            out.append({
+                "symbol": "XAUUSD",
+                "timeframe": "1h",
+                "fresh": False,
+                "rights_status": series.get("rights_status") or "rights_unconfirmed",
+                "reason": "commercial_use_unverified",
+                "limitation": series.get("message") or "Market data access unavailable — commercial use permissions are being verified.",
+                "council": None,
+            })
+        else:
+            bars = series.get("bars") or []
+            norm = [{"high": bar["high"], "low": bar["low"], "close": bar["close"]} for bar in bars]
+            states = research_states(norm) if len(norm) >= 21 else []
+            by = {s["strategy"]: s["direction"] for s in states}
+            last = bars[-1] if bars else {}
+            out.append({
+                "symbol": "XAUUSD",
+                "timeframe": "1h",
+                "fresh": bool(series.get("ok") and last.get("fresh")),
+                "history": len(bars),
+                "quote_semantics": "ohlc_not_bid_ask",
+                "states": states,
+                "limitation": "Completed XAUUSD chart OHLC. Not bid/ask. Not a daily close copied into the open. Weekend gaps are a closed market.",
+                "council": council(by.get("E1-donchian-20", "WAIT"), by.get("SMA20-state", "WAIT"), by.get("RSI14-state", "WAIT"), bool(last.get("fresh")), last.get("open_time_ms")),
+            })
     except Exception as exc:
         out.append({"symbol": "XAUUSD", "timeframe": "1h", "fresh": False, "error": type(exc).__name__, "reason": "GOLD_FEED_UNAVAILABLE"})
     return jsonify({"markets": out, "source": "awuru-goal-signal-engine council idea, simplified"})
@@ -1107,6 +1211,21 @@ def gold_candles():
             "note": "Licensed spot minute data is unavailable. A quote was not drawn as a candle, and a longer candle was not substituted.",
         })
     series = _gold_bars(interval, int(time.time() * 1000))
+    if series.get("reason") == "commercial_use_unverified" or series.get("rights_status"):
+        from ops.data_rights import MESSAGE
+        return jsonify({
+            "symbol": "XAUUSD",
+            "interval": interval,
+            "candles": [],
+            "blocked": "commercial_use_unverified",
+            "reason": "commercial_use_unverified",
+            "rights_status": series.get("rights_status") or "rights_unconfirmed",
+            "source_reachable": "not_checked",
+            "feed_freshness": "not_applicable",
+            "quote_semantics": "withheld",
+            "note": MESSAGE,
+            "message": MESSAGE,
+        })
     if not series.get("ok"):
         return jsonify({
             "symbol": "XAUUSD",
@@ -1383,11 +1502,25 @@ def scanner_api():
         windows = []
     body = scan(windows, now_ms=now_ms)
     if not body["markets"]:
-        body["markets"] = [
-            {"symbol": "BTCUSDT", "status": "unavailable", "state": "DATA_UNAVAILABLE", "scanner_state": "BLOCKED", "message": "BTCUSDT is not being scanned. The latest completed bar is missing or stale.", "approved": False},
-            {"symbol": "ETHUSDT", "status": "unavailable", "state": "DATA_UNAVAILABLE", "scanner_state": "BLOCKED", "message": "ETHUSDT is not being scanned. The latest completed bar is missing or stale.", "approved": False},
-            {"symbol": "XAUUSD", "status": "unavailable", "state": "DATA_UNAVAILABLE", "scanner_state": "BLOCKED", "message": "Gold scanning is temporarily unavailable. Last verified market update: unknown.", "approved": False},
-        ]
+        from ops.data_rights import MESSAGE
+        from ops.worker import pair_availability
+        body["markets"] = []
+        for row in pair_availability():
+            minute = row["status"] == "unavailable"
+            body["markets"].append({
+                "symbol": row["symbol"],
+                "interval": row["interval"],
+                "price": None,
+                "entry": None,
+                "stop": None,
+                "target": None,
+                "approved": False,
+                "evaluated": False,
+                "scanner_state": "BLOCKED" if minute else "RIGHTS",
+                "status": "unavailable" if minute else "withheld",
+                "message": row["reason"] if minute else MESSAGE,
+            })
+        body["notice"] = MESSAGE
     user_id = session.get("user_id")
     if user_id:
         from ops.inbox import record_scan
@@ -1821,7 +1954,9 @@ fetch("/health").then(r => r.ok ? r.json() : null).then(health => {
   if (!badge || !health) return;
   const worker = health.worker || {};
   const btc = health.market_data && health.market_data.BTCUSDT ? health.market_data.BTCUSDT.status : "unknown";
-  badge.textContent = "Worker " + (worker.status || "unknown") + " · BTC " + btc;
+  badge.textContent = (health.status === "rights_withheld" || btc === "withheld")
+    ? ("Worker " + (worker.status || "unknown") + " · market data withheld")
+    : ("Worker " + (worker.status || "unknown") + " · BTC " + btc);
 }).catch(() => {
   const badge = document.getElementById("feedbadge");
   if (badge) badge.textContent = "Health not confirmed";
@@ -1840,6 +1975,9 @@ function plainReason(text){
     .replaceAll("quote_not_bid_ask", "source is not a completed bid and ask candle")
     .replaceAll("stale_or_incomplete", "the latest candle is missing, still forming, or too old")
     .replaceAll("DATA_UNAVAILABLE", "not available")
+    .replaceAll("rights_unconfirmed", "rights not confirmed")
+    .replaceAll("commercial_use_unverified", "commercial use permissions are being verified")
+    .replaceAll("withheld", "withheld pending permission")
     .replaceAll("binance_spot", "Binance spot candles")
     .replaceAll("spot_sample", "spot sample")
     .replaceAll("LONG_BIAS", "bullish research")
@@ -1847,6 +1985,7 @@ function plainReason(text){
 }
 function cls(d){ return String(d||"").includes("LONG")?"long":String(d||"").includes("SHORT")?"short":"wait"; }
 function label(d){ if (d==="SHORT_BIAS") return "Bearish observation"; if (d==="LONG_BIAS") return "Bullish observation"; if (d==="WAIT") return "No entry yet"; return d; }
+const RIGHTS_MESSAGE = "Market data access unavailable — commercial use permissions are being verified.";
 function priceText(symbol, value){
   if (value == null || value === "") return "—";
   const n = Number(value);
@@ -1941,13 +2080,19 @@ async function overview(){
   }
   const markets = selected ? (m.markets||[]).filter(item => selected.includes(item.symbol) || (item.id === "GOLD" && selected.includes("XAUUSD"))) : (m.markets||[]);
   const cards = markets.map(item => {
+    const data = item.data || {};
+    const held = data.reason === "commercial_use_unverified" || data.status === "withheld" || data.rights_status === "rights_unconfirmed" || data.rights_status === "prohibited" || data.rights_status === "restricted";
+    if (held) {
+      const name = item.id === "GOLD" ? "XAUUSD" : item.symbol;
+      return `<article class="card" id="card-${name}"><div class="muted">${name}</div><div class="price">—</div><p>${data.message || RIGHTS_MESSAGE}</p><p class="muted">This is not a provider outage. No price is shown while commercial use is unverified.</p></article>`;
+    }
     if (item.id === "GOLD") {
-      const g = item.data || {};
+      const g = data;
       const price = g.price != null ? Number(g.price).toLocaleString(undefined,{maximumFractionDigits:2}) : "unavailable";
       return `<article class="card" id="card-XAUUSD"><div class="muted">XAUUSD · indicative mid · USD/oz</div><div class="price">${price}</div><canvas id="spark-gold" class="spark"></canvas><div id="detail-XAUUSD" class="muted">${g.fresh===false?"Not a live quote. ":""}${plainReason(g.note||"Indicative mid. Not bid/ask.")} Research state loading.</div></article>`;
     }
-    const price = item.data && item.data.close != null ? Number(item.data.close).toLocaleString() : "unavailable";
-    const fresh = item.data && item.data.fresh === false ? "Feed is not fresh. " : "";
+    const price = data.close != null ? Number(data.close).toLocaleString() : "unavailable";
+    const fresh = data.fresh === false ? "Feed is not fresh. " : "";
     return `<article class="card" id="card-${item.symbol}"><div class="muted">${item.symbol}</div><div class="price">${price}</div><canvas id="spark-${item.symbol}" class="spark"></canvas><div id="detail-${item.symbol}" class="muted">${fresh}Research state loading.</div></article>`;
   });
   view.innerHTML = `${accountCard}${selected ? `<p class="muted">Showing your selected markets. <a href="/settings">Change settings</a></p>` : ""}<div class="markets">${cards.join("") || "<p>No markets selected.</p>"}</div><div class="workspace"><article class="card"><h2>Chart</h2><select id="sym"><option>BTCUSDT</option><option>ETHUSDT</option><option>XAUUSD</option></select> <select id="tf"><option>1m</option><option>3m</option><option selected>15m</option><option>1h</option></select><canvas id="chart"></canvas><p class="muted" id="chartnote">Loading closed candles.</p></article><article class="card"><h2>Profile eligibility</h2><div id="elig">loading</div><p class="muted">Eligibility uses the saved signal style. It is not an order.</p></article></div><article class="card" id="councilcard"><h2>Strategy council</h2><p class="muted">Loading the combined research summary. This is not the account signal style.</p></article>`;
@@ -1961,14 +2106,14 @@ async function overview(){
     if (sym === "XAUUSD") {
       const bars = await fetch("/api/gold/candles?interval="+encodeURIComponent(tf)).then(r=>r.json());
       const candles = (bars.candles||[]).filter(c => c.o != null && c.h != null && c.l != null && c.c != null).map(c => ({t:c.t, o:+c.o, h:+c.h, l:+c.l, c:+c.c}));
-      if (!candles.length) { if (note) note.textContent = bars.error ? "Chart unavailable: " + bars.error : (bars.note || "No completed gold candles."); return; }
+      if (!candles.length) { if (note) note.textContent = (bars.reason === "commercial_use_unverified" || bars.message) ? (bars.message || RIGHTS_MESSAGE) : (bars.error ? "Chart unavailable: " + bars.error : (bars.note || "No completed gold candles.")); return; }
       draw(candles);
       if (note) note.textContent = (bars.blocked === "xau_minute_unlicensed" ? "Licensed spot minute data unavailable. " : "") + (bars.interval || tf) + " · " + plainReason(bars.note || "XAUUSD chart OHLC") + (bars.quote_semantics ? " · " + plainReason(bars.quote_semantics) : "");
       return;
     }
     const bars = await fetch(`/api/klines?symbol=${sym}&interval=${tf}`).then(r=>r.json());
     if (!bars.candles || !bars.candles.length) {
-      if (note) note.textContent = bars.error ? "Chart unavailable: " + bars.error : "No closed candles returned.";
+      if (note) note.textContent = (bars.reason === "commercial_use_unverified" || bars.message) ? (bars.message || RIGHTS_MESSAGE) : (bars.error ? "Chart unavailable: " + bars.error : "No closed candles returned.");
       return;
     }
     draw(bars.candles||[]);
@@ -2003,7 +2148,7 @@ async function overview(){
   fetch("/api/council").then(r=>r.json()).then(council => {
     const box = document.getElementById("councilcard");
     if (!box) return;
-    const html = (council.markets||[]).map(row => row.council ? `<div class="row"><span>${row.symbol} ${row.timeframe||""}</span><span>${label(row.council.state)}</span></div><div class="muted">${plainReason(row.council.reason||"")} ${plainReason(row.limitation||"")}</div>` : `<div class="row"><span>${row.symbol}</span><span>unavailable</span></div>`).join("");
+    const html = (council.markets||[]).map(row => row.council ? `<div class="row"><span>${row.symbol} ${row.timeframe||""}</span><span>${label(row.council.state)}</span></div><div class="muted">${plainReason(row.council.reason||"")} ${plainReason(row.limitation||"")}</div>` : `<div class="row"><span>${row.symbol} ${row.timeframe||""}</span><span>withheld</span></div><div class="muted">${plainReason(row.limitation || row.reason || "Market data is withheld.")}</div>`).join("");
     box.innerHTML = `<h2>Strategy council</h2>${html}<p class="muted">Combined research summary. Not the account signal style, and not a validated signal.</p>`;
   }).catch(()=>{});
 }
@@ -2070,10 +2215,13 @@ async function terminal(){
     try {
       const cov = await fetch("/api/coverage", {credentials:"same-origin"}).then(r => r.json());
       const rows = (cov.availability || []).map(pair => {
+        const rights = pair.status === "rights_unconfirmed" || pair.status === "restricted" || pair.status === "prohibited";
         const unavailable = pair.status === "unavailable";
-        return `<tr><td>${pair.symbol}</td><td>${pair.interval}</td><td>${unavailable ? "Unavailable" : plainReason(pair.status)}</td><td>${plainReason(pair.reason || "")}</td></tr>`;
+        const state = unavailable ? "Unavailable" : (rights ? "Rights not confirmed" : plainReason(pair.status));
+        const source = unavailable ? "No feed" : (rights ? "Withheld" : plainReason(pair.feed || pair.status));
+        return `<tr><td>${pair.symbol}</td><td>${pair.interval}</td><td>${state}</td><td>${rights || unavailable ? plainReason(pair.reason || "") : plainReason(pair.reason || "")}</td></tr>`;
       }).join("");
-      box.innerHTML = `<h2>Market watch</h2><p class="muted">Twelve combinations. A feed name is not a live tick, and an unavailable row has no price.</p><div class="tablewrap"><table class="matrix"><thead><tr><th>Market</th><th>Time</th><th>State</th><th>Why</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+      box.innerHTML = `<h2>Market watch</h2><p class="muted">Twelve combinations. A rights block is not a live tick and not a provider outage.</p><div class="tablewrap"><table class="matrix"><thead><tr><th>Market</th><th>Time</th><th>State</th><th>Why</th></tr></thead><tbody>${rows}</tbody></table></div>`;
     } catch (err) {
       box.innerHTML = `<h2>Market watch</h2><p>Availability could not be read. No prices were invented.</p>`;
     }
@@ -2092,7 +2240,7 @@ async function terminal(){
     const url = requested.symbol === "XAUUSD" ? `/api/gold/candles?interval=${requested.interval}` : `/api/klines?symbol=${requested.symbol}&interval=${requested.interval}`;
     const bars = await fetch(url).then(r => r.json()).catch(() => null);
     if (!bars || bars.blocked === "xau_minute_unlicensed" || !(bars.candles || []).length) {
-      if (note) note.textContent = bars && bars.error ? "Chart unavailable: " + bars.error : "No completed candles returned. Nothing was invented.";
+      if (note) note.textContent = (bars && (bars.reason === "commercial_use_unverified" || bars.blocked === "commercial_use_unverified" || bars.message)) ? (bars.message || RIGHTS_MESSAGE) : (bars && bars.blocked === "xau_minute_unlicensed" ? "Licensed spot minute data unavailable. No candle was drawn." : (bars && bars.error ? "Chart unavailable: " + bars.error : "No completed candles returned. Nothing was invented."));
       return;
     }
     draw(bars.candles);
@@ -2227,7 +2375,7 @@ function dataCoverageCard(payload){
   const sources = (payload.sources || []).map(row => `<div class="row"><span>${row.provider}</span><span>${row.status_label}</span></div><p class="muted">${row.product}. ${row.note}</p>`).join("");
   const held = (payload.retained_files || []).map(row => `${row.name} (${row.bytes} bytes, not re-read)`).join(", ") || "none";
   const bytes = payload.storage ? Math.round(payload.storage.total_bytes / 1000000) : "unknown";
-  return `<article class="card" id="data-coverage"><h2>Research data coverage</h2><p>${payload.headline}</p>${rows}<h3>Source rights</h3>${sources}<p class="muted">Reviewed ${payload.reviewed_on}. Previously stored files, unread this pass: ${held}. A 4h file is not desk history. Holdout from ${payload.holdout.start} is ${payload.holdout.opened ? "open" : "sealed"}. Estimated size of a later full crypto desk archive: about ${bytes} MB. Collected this pass: ${payload.collected_bytes} bytes. Free space on this workspace: ${payload.disk_free_bytes} bytes. Forward collection: ${payload.forward_collection}. Approved strategies: ${payload.strategy.approved_for_paper}. Quote divergence limit remains 0.08 percent.</p></article>`;
+  return `<article class="card" id="data-coverage"><h2>Research data coverage</h2><p>${RIGHTS_MESSAGE}</p><p>${payload.headline}</p>${rows}<h3>Source rights</h3>${sources}<p class="muted">Reviewed ${payload.reviewed_on}. Previously stored files, unread this pass: ${held}. A 4h file is not desk history. Holdout from ${payload.holdout.start} is ${payload.holdout.opened ? "open" : "sealed"}. Estimated size of a later full crypto desk archive: about ${bytes} MB. Collected this pass: ${payload.collected_bytes} bytes. Free space on this workspace: ${payload.disk_free_bytes} bytes. Forward collection: ${payload.forward_collection}. Approved strategies: ${payload.strategy.approved_for_paper}. Quote divergence limit remains 0.08 percent.</p></article>`;
 }
 async function researchLab(){
   const d = await fetch("/api/research-lab").then(r=>r.json());
@@ -2258,8 +2406,8 @@ async function scannerPage(){
   const draw = (body, staleNote) => {
     const cards = (body.markets||[]).map(m => {
       const headline = m.decision_label || m.scanner_state || m.state || "WAIT";
-      const blocked = headline === "QUOTE DIVERGENCE" || headline === "UNAVAILABLE" || headline === "BLOCKED" || m.scanner_state === "BLOCKED" || m.scanner_state === "QUOTE_DIVERGENCE" || m.state === "DATA_UNAVAILABLE" || m.blocked;
-      const kind = headline === "QUOTE DIVERGENCE" ? "Blocked" : (headline === "UNAVAILABLE" || m.blocked === "xau_minute_unlicensed" ? "Blocked" : (headline === "WATCH" ? "Watch — no entry" : (String(headline).includes("SELL") || String(headline).includes("BUY") ? "Experimental, not approved" : (headline === "WAIT" ? "No qualifying setup" : "Research observation"))));
+      const blocked = headline === "QUOTE DIVERGENCE" || headline === "UNAVAILABLE" || headline === "BLOCKED" || headline === "RIGHTS" || m.scanner_state === "RIGHTS" || m.scanner_state === "BLOCKED" || m.scanner_state === "QUOTE_DIVERGENCE" || m.state === "DATA_UNAVAILABLE" || m.blocked;
+      const kind = headline === "RIGHTS" || m.scanner_state === "RIGHTS" ? "Rights" : (headline === "QUOTE DIVERGENCE" ? "Blocked" : (headline === "UNAVAILABLE" || m.blocked === "xau_minute_unlicensed" ? "Blocked" : (headline === "WATCH" ? "Watch — no entry" : (String(headline).includes("SELL") || String(headline).includes("BUY") ? "Experimental, not approved" : (headline === "WAIT" ? "No qualifying setup" : "Research observation")))));
       const klass = m.approved ? "approved" : (blocked || kind === "Blocked" ? "blocked" : "research");
       const hideLevels = blocked || kind === "Blocked" || kind === "Watch — no entry" || kind === "No qualifying setup" || m.entry == null;
       const levels = hideLevels
@@ -2290,10 +2438,13 @@ async function scannerPage(){
       if (!box) return;
       const lines = (cov.availability||[]).map(pair => {
         const evaluated = ((cov.evaluations || []).find(row => row.symbol === pair.symbol && row.interval === pair.interval) || {});
-        const state = pair.status === "unavailable" ? "Unavailable" : (evaluated.decision || plainReason(pair.status));
-        return `<tr><td>${pair.symbol}</td><td>${pair.interval}</td><td>${pair.status === "unavailable" ? "No feed" : plainReason(pair.feed || pair.status)}</td><td>${state}</td><td>${plainReason(pair.reason || "")}${evaluated.blocked ? " " + plainReason(evaluated.blocked) : ""}</td></tr>`;
+        const rights = pair.status === "rights_unconfirmed" || pair.status === "restricted" || pair.status === "prohibited";
+        const state = pair.status === "unavailable" ? "Unavailable" : (rights ? "Rights not confirmed" : (evaluated.decision || plainReason(pair.status)));
+        const source = pair.status === "unavailable" ? "No feed" : (rights ? "Withheld" : plainReason(pair.feed || pair.status));
+        const extra = evaluated.blocked && evaluated.blocked !== "commercial_use_unverified" && evaluated.blocked !== "xau_minute_unlicensed" ? " " + plainReason(evaluated.blocked) : "";
+        return `<tr><td>${pair.symbol}</td><td>${pair.interval}</td><td>${source}</td><td>${state}</td><td>${plainReason(pair.reason || "")}${extra}</td></tr>`;
       }).join("");
-      box.innerHTML = `<h2>Twelve combinations</h2><p class="muted">Gold 1-minute and 3-minute stay unavailable. The other ten use the feed named here. A status is not a trade. Validation is shown before any direction.</p><div class="tablewrap"><table class="matrix"><thead><tr><th>Market</th><th>Time</th><th>Source</th><th>Evaluation</th><th>Reason</th></tr></thead><tbody>${lines}</tbody></table></div>`;
+      box.innerHTML = `<h2>Twelve combinations</h2><p class="muted">Gold 1-minute and 3-minute stay unlicensed. The other rows are withheld until commercial use is approved. A rights status is not a trade and not a provider outage.</p><div class="tablewrap"><table class="matrix"><thead><tr><th>Market</th><th>Time</th><th>Source</th><th>Evaluation</th><th>Reason</th></tr></thead><tbody>${lines}</tbody></table></div>`;
     }).catch(()=>{ const box = document.getElementById("scanboard"); if (box) box.innerHTML = `<h2>Twelve combinations</h2><p>The coverage list could not be read. The cards above are unchanged.</p>`; });
   };
   const fail = (message) => {
@@ -2551,7 +2702,8 @@ async function systemPage(){
   const workerHealthy = h.worker && h.worker.healthy === true ? "confirmed" : "not confirmed";
   const bot = await fetch("/api/autopilot", {credentials:"same-origin"}).then(r => r.ok ? r.json() : null).catch(()=>null);
   const autoLine = bot ? `${bot.facing || bot.status}. Entries ${bot.entries_available === true ? "allowed" : "blocked"}. ${bot.facing_note || ""}` : "not signed in";
-  view.innerHTML = `<article class="card"><h2>System</h2>${row("Process", h.process||"unknown")}${row("BTC / ETH", market)}${row("Gold", gold||"not scanned")}${row("Notifications", note)}${row("Approved strategies", qual)}${row("Ledger", h.ledger||"unknown")}${row("Strategy", h.strategy_status||"unknown")}${row("Broker", String(h.broker))}${row("Build", h.build_commit||"unknown")}${row("Worker status", workerStatus + " · " + workerHealthy)}${row("This account AutoPilot", autoLine)}${row("Worker heartbeat", h.worker && h.worker.last_beat_ms ? new Date(h.worker.last_beat_ms).toISOString() : "unknown")}${row("Background scan", h.worker && h.worker.last_monitor_ms ? new Date(h.worker.last_monitor_ms).toISOString() : "not run yet")}${row("Last scan", watched)}</article><article class="card" id="data-coverage"><h2>Research data coverage</h2><p>Reading data rights.</p></article><p class="muted">A missing, stale or failed heartbeat is not a healthy worker. AutoPilot is not confirmed while that is true. The background scan uses the same decision as the terminal. It does not send Telegram. Gold 1m and 3m are unavailable without a licensed minute feed. AutoPilot is paper only and stays off until the account enables it. A fresh live candle is not historical research coverage.</p>`;
+  const rightsLine = h.status === "rights_withheld" ? `<p>${RIGHTS_MESSAGE}</p><p class="muted">The process is up. Market data is withheld because commercial use is not approved. That is not a provider outage and not a stale feed.</p>` : "";
+  view.innerHTML = `<article class="card"><h2>System</h2>${rightsLine}${row("Process", h.process||"unknown")}${row("Overall", h.status||"unknown")}${row("BTC / ETH", market)}${row("Gold", gold||"not scanned")}${row("Notifications", note)}${row("Approved strategies", qual)}${row("Ledger", h.ledger||"unknown")}${row("Strategy", h.strategy_status||"unknown")}${row("Broker", String(h.broker))}${row("Build", h.build_commit||"unknown")}${row("Worker status", workerStatus + " · " + workerHealthy)}${row("This account AutoPilot", autoLine)}${row("Worker heartbeat", h.worker && h.worker.last_beat_ms ? new Date(h.worker.last_beat_ms).toISOString() : "unknown")}${row("Background scan", h.worker && h.worker.last_monitor_ms ? new Date(h.worker.last_monitor_ms).toISOString() : "not run yet")}${row("Last scan", watched)}</article><article class="card" id="data-coverage"><h2>Research data coverage</h2><p>Reading data rights.</p></article><p class="muted">A missing, stale or failed heartbeat is not a healthy worker. A rights withhold is not an outage. AutoPilot is not confirmed while the worker is unhealthy. The background scan uses the same decision as the terminal. It does not send Telegram. Gold 1m and 3m are unavailable without a licensed minute feed. AutoPilot is paper only and stays off until the account enables it.</p>`;
   fetch("/api/data-coverage", {credentials:"same-origin"}).then(r => r.json()).then(payload => {
     const box = document.getElementById("data-coverage");
     if (box) box.outerHTML = dataCoverageCard(payload);
@@ -2572,7 +2724,7 @@ async function settings(){
   const profile = me.profile || {};
   const styles = (catalog.profiles||[]).map(p => `<label><input type="radio" name="style" value="${p.key}" ${profile.signal_style===p.key?"checked":""}> ${p.name} — ${p.risk_mode}. ${p.confirmation}</label>`).join("");
   const currencies = (catalog.currencies||[]).map(c => `<option value="${c}" ${profile.currency===c?"selected":""}>${c}</option>`).join("");
-  view.innerHTML = `<article class="card"><h2>${path==="/onboarding"?"Choose a signal style":"Signal style"}</h2><p class="muted">${catalog.note||""}</p><div class="styles">${styles}</div></article><article class="card"><h2>Base currency and capital</h2><div class="field"><span>Currency</span><select id="currency"><option value="">Not set</option>${currencies}</select></div><div class="field"><span>Paper capital</span><input id="capital" type="number" min="0" step="any" value="${profile.capital??""}"></div><p class="muted">Saving a currency does not convert the stored amount. Market quotes stay in USDT or USD/oz.</p></article><article class="card"><h2>Markets</h2><div class="checks"><label><input type="checkbox" id="btc" ${has("BTCUSDT")}> BTCUSDT</label><label><input type="checkbox" id="eth" ${has("ETHUSDT")}> ETHUSDT</label><label><input type="checkbox" id="gold" ${has("XAUUSD")}> XAUUSD</label></div><p class="muted">BTC and ETH use Binance candles. Gold 15-minute and 1-hour readings use spot samples. Gold 1-minute and 3-minute stay unavailable until a licensed minute feed exists.</p></article><article class="card"><h2>Experience</h2><label>How you describe your experience <select id="labexp"><option value="">Not stated</option><option value="new">New</option><option value="developing">Developing</option><option value="independent">Independent</option></select></label><p class="muted">This is what you say about yourself. It is stored on this account and is not a skill score.</p></article><article class="card" id="autopilot-card"><h2>AutoPilot</h2><p>Loading paper automation.</p></article><article class="card"><h2>Notifications and risk</h2><div class="checks"><label><input type="checkbox" id="exp" ${profile.experimental_alerts?"checked":""}> Experimental alerts</label><label><input type="checkbox" id="digest" ${profile.daily_report!==false?"checked":""}> Daily digest</label></div><div class="field"><span>Max risk per trade %</span><input id="risk" type="number" step="0.1" min="0" value="${profile.max_risk_pct??""}"></div><p class="muted">Risk cannot be set above the active style cap. These caps do not guarantee protection from losses. Production is WAIT_DEFAULT, so no trade alert is sent until a strategy is promoted. Turning experimental alerts on does not bypass that. In-app experimental matches stay labelled unapproved and never become an approved alert. Telegram is ${me.telegram_verified?"verified":"not verified"}.</p><button id="tglink" type="button">Create a one-time Telegram link</button><p id="tglinkout" class="muted"></p></article><article class="card" id="inbox-settings"><h2>In-app inbox</h2><p class="muted" id="inboxnote">Loading delivery settings.</p></article><p><button id="saveall" type="button">Save</button> <button id="skip" type="button">Continue without optional alerts</button> <button id="out" type="button">Sign out</button></p><p id="savedp" class="muted"></p>`;
+  view.innerHTML = `<article class="card"><h2>${path==="/onboarding"?"Choose a signal style":"Signal style"}</h2><p class="muted">${catalog.note||""}</p><div class="styles">${styles}</div></article><article class="card"><h2>Base currency and capital</h2><div class="field"><span>Currency</span><select id="currency"><option value="">Not set</option>${currencies}</select></div><div class="field"><span>Paper capital</span><input id="capital" type="number" min="0" step="any" value="${profile.capital??""}"></div><p class="muted">Saving a currency does not convert the stored amount. Market quotes stay in USDT or USD/oz.</p></article><article class="card"><h2>Markets</h2><div class="checks"><label><input type="checkbox" id="btc" ${has("BTCUSDT")}> BTCUSDT</label><label><input type="checkbox" id="eth" ${has("ETHUSDT")}> ETHUSDT</label><label><input type="checkbox" id="gold" ${has("XAUUSD")}> XAUUSD</label></div><p class="muted">BTC and ETH prices are withheld while commercial permissions are verified. Gold 15-minute and 1-hour readings are also withheld. Gold 1-minute and 3-minute stay unavailable until a licensed minute feed exists.</p></article><article class="card"><h2>Experience</h2><label>How you describe your experience <select id="labexp"><option value="">Not stated</option><option value="new">New</option><option value="developing">Developing</option><option value="independent">Independent</option></select></label><p class="muted">This is what you say about yourself. It is stored on this account and is not a skill score.</p></article><article class="card" id="autopilot-card"><h2>AutoPilot</h2><p>Loading paper automation.</p></article><article class="card"><h2>Notifications and risk</h2><div class="checks"><label><input type="checkbox" id="exp" ${profile.experimental_alerts?"checked":""}> Experimental alerts</label><label><input type="checkbox" id="digest" ${profile.daily_report!==false?"checked":""}> Daily digest</label></div><div class="field"><span>Max risk per trade %</span><input id="risk" type="number" step="0.1" min="0" value="${profile.max_risk_pct??""}"></div><p class="muted">Risk cannot be set above the active style cap. These caps do not guarantee protection from losses. Production is WAIT_DEFAULT, so no trade alert is sent until a strategy is promoted. Turning experimental alerts on does not bypass that. In-app experimental matches stay labelled unapproved and never become an approved alert. Telegram is ${me.telegram_verified?"verified":"not verified"}.</p><button id="tglink" type="button">Create a one-time Telegram link</button><p id="tglinkout" class="muted"></p></article><article class="card" id="inbox-settings"><h2>In-app inbox</h2><p class="muted" id="inboxnote">Loading delivery settings.</p></article><p><button id="saveall" type="button">Save</button> <button id="skip" type="button">Continue without optional alerts</button> <button id="out" type="button">Sign out</button></p><p id="savedp" class="muted"></p>`;
   const inbox = await fetch("/api/inbox/settings", {credentials:"same-origin"}).then(r => r.ok ? r.json() : null);
   const box = (inbox && inbox.settings) || {};
   const on = (name) => box[name] ? "checked" : "";

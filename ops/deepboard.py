@@ -52,6 +52,21 @@ def _metrics(trades):
 
 
 def deep_board():
+    from ops.data_rights import MESSAGE, network_block
+
+    blocked = network_block("binance_spot_rest_klines", "research")
+    if blocked:
+        return {
+            "ok": False,
+            "rows": [],
+            "coverage": [],
+            "validated": False,
+            "reason": "commercial_use_unverified",
+            "rights_status": blocked.get("rights_status"),
+            "message": MESSAGE,
+            "label": "DEEP RESEARCH BOARD — WITHHELD",
+            "gold": {"status": "withheld", "instrument": "XAUUSD", "reason": "commercial_use_unverified"},
+        }
     rows = []
     coverage = []
     for symbol in ("BTCUSDT", "ETHUSDT"):

@@ -19,7 +19,9 @@ COVERAGE = tuple(
 
 
 def pair_availability():
-    """What this desk can actually read. Gold minutes are not invented."""
+    """What this desk is allowed to show. Gold minutes stay separately unlicensed."""
+    from ops.data_rights import MESSAGE
+
     rows = []
     for symbol, interval in COVERAGE:
         if symbol == "XAUUSD" and interval in {"1m", "3m"}:
@@ -34,17 +36,19 @@ def pair_availability():
             rows.append({
                 "symbol": symbol,
                 "interval": interval,
-                "status": "spot_sample",
-                "feed": "xaus.com",
-                "reason": "Spot samples aggregated from five-minute observations. Not a verified bid/ask candle.",
+                "status": "rights_unconfirmed",
+                "feed": "withheld",
+                "rights_status": "rights_unconfirmed",
+                "reason": MESSAGE,
             })
         else:
             rows.append({
                 "symbol": symbol,
                 "interval": interval,
-                "status": "binance_spot",
-                "feed": "binance",
-                "reason": "Binance spot klines.",
+                "status": "rights_unconfirmed",
+                "feed": "withheld",
+                "rights_status": "rights_unconfirmed",
+                "reason": MESSAGE,
             })
     return rows
 
@@ -290,6 +294,18 @@ class Worker:
                 "reason": "xau_minute_unlicensed",
             })
             return 0
+        from ops.data_rights import is_rights_reason
+        rights_reason = window.get("reason") or window.get("blocked")
+        if is_rights_reason(rights_reason) or window.get("rights_status") in {"rights_unconfirmed", "prohibited", "restricted", "fixture_only"}:
+            evaluations.append({
+                "symbol": symbol,
+                "interval": interval,
+                "decision": "RIGHTS",
+                "blocked": "commercial_use_unverified",
+                "reason": "commercial_use_unverified",
+                "rights_status": window.get("rights_status") or "rights_unconfirmed",
+            })
+            return 0
         if not bars:
             evaluations.append({"symbol": symbol, "interval": interval, "decision": "DATA BLOCK", "reason": window.get("reason") or "missing_bars"})
             return 0
@@ -354,13 +370,17 @@ class Worker:
                 continue
             if symbol == "XAUUSD":
                 gold = load_gold_ohlc(interval, now_ms)
-                quote = None
-                try:
-                    from ops.gold_live import swissquote_xau
-                    quote = swissquote_xau(now_ms)
-                except Exception:
-                    quote = None
-                windows.append({"symbol": symbol, "interval": interval, "bars": gold or [], "live_quote": quote, "reason": None if gold else "missing_bars"})
+                if isinstance(gold, tuple):
+                    windows.append({
+                        "symbol": symbol,
+                        "interval": interval,
+                        "bars": [],
+                        "reason": gold[1],
+                        "blocked": gold[1],
+                        "live_quote": None,
+                    })
+                    continue
+                windows.append({"symbol": symbol, "interval": interval, "bars": gold or [], "live_quote": None, "reason": None if gold else "missing_bars"})
                 continue
             loaded = load_crypto_bars(symbol, interval, now_ms)
             if isinstance(loaded, tuple):

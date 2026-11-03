@@ -161,13 +161,19 @@ def test_gold_and_minute_bars_are_not_scored_by_the_follow_up():
     assert trend_hold([_bar(index, 100) for index in range(130)], 120, [], "XAUUSD") is None
 
 
-def test_real_prefix_rescore_keeps_the_holdout_closed():
-    bars = load_csv(ROOT / "BTCUSDT-4h.csv", "BTCUSDT", "4h", "binance-public", "last_trade")
-    scored = score_symbol("BTCUSDT", bars)
-    assert scored["holdout"] == "NOT_OPENED"
-    assert max(scored["bars_simulated_lengths"]) == int(len(bars) * 0.8)
-    assert scored["sha256"] == _hash(bars)
-    assert scored["validation"]["trades"] < 30
+def test_real_prefix_rescore_keeps_the_holdout_closed(monkeypatch):
+    def explode(*_args, **_kwargs):
+        raise AssertionError("retained candles were read")
+
+    monkeypatch.setattr("ops.discovery.load_csv", explode)
+    from ops.discovery import evaluate_saved
+    report = evaluate_saved()
+    assert report["quarantined"] is True
+    assert report["markets"] == []
+    assert report["holdout_opened_for"] == []
+    assert report["approved_for_paper"] == []
+    assert report["promoted"] == []
+    assert all(row["commercial_research"] is False and row["holdout_opened"] is False and row["deleted"] is False for row in report["retained"])
 
 
 def test_the_new_version_cannot_be_forged_into_autopilot_or_paper_approval():

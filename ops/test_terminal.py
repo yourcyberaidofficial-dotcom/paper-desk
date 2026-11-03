@@ -312,7 +312,10 @@ def test_terminal_route_requires_a_user_and_uses_completed_bars(tmp_path, monkey
     users.update_profile(created["id"], {"capital": 1000, "currency": "USD", "signal_style": "orion_balance"})
     now = int(time.time() * 1000)
     bars = _compress_bars(now - 50 * 14_400_000)
-    monkeypatch.setattr("ops.feeds.binance_bars", lambda *args, **kwargs: {"ok": True, "bars": bars})
+    def boom(*_args, **_kwargs):
+        raise AssertionError("binance bars requested")
+
+    monkeypatch.setattr("ops.feeds.binance_bars", boom)
     app.config["TESTING"] = True
     client = app.test_client()
     assert client.post("/api/terminal/signal", json={"symbol": "BTCUSDT", "interval": "4h", "strategy": "auto"}).status_code == 401
@@ -322,13 +325,10 @@ def test_terminal_route_requires_a_user_and_uses_completed_bars(tmp_path, monkey
     response = client.post("/api/terminal/signal", json={"symbol": "BTCUSDT", "interval": "4h", "strategy": "auto"})
     body = response.get_json()
     assert response.status_code == 200
-    assert body["decision"] == "BUY"
-    assert body["decision_label"] == "BUY · Experimental"
+    assert body["decision"] == "WAIT"
+    assert body["decision_label"] == "RIGHTS"
     assert body["approved"] is False
-    assert body["eligible_for_alert"] is False
-    assert body["validation_status"] == "FAIL"
-    assert body["entry"] is not None
-    assert body["experimental_match"]["decision"] == "BUY"
+    assert body["entry"] is None
+    assert "commercial use permissions" in (body.get("reason") or "")
     history = client.get("/api/terminal/history").get_json()
-    assert history["items"][0]["decision"] == "BUY"
-    assert history["items"][0]["source"] == "user_requested"
+    assert history["items"] == []

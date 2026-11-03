@@ -20,7 +20,28 @@ DUKA = "https://datafeed.dukascopy.com/datafeed/XAUUSD"
 USER_AGENT = "aureon-paper-desk"
 
 
+def _blocked_feed(block, **extra):
+    out = {
+        "ok": False,
+        "bars": [],
+        "ticks": [],
+        "price": None,
+        "reason": "commercial_use_unverified",
+        "rights_status": (block or {}).get("rights_status"),
+        "message": (block or {}).get("message"),
+        "source_reachable": "not_checked",
+        "feed_freshness": "not_applicable",
+    }
+    out.update(extra)
+    return out
+
+
 def _get(url, timeout=20, attempts=3):
+    from ops.data_rights import RightsDenied, refuse_url
+
+    blocked = refuse_url(url)
+    if blocked:
+        raise RightsDenied(blocked)
     delay = 0.4
     last = None
     for attempt in range(attempts):
@@ -46,13 +67,25 @@ def _get(url, timeout=20, attempts=3):
     raise last
 
 
+def _fetch(url, timeout=20, attempts=3):
+    from ops.data_rights import RightsDenied
+
+    try:
+        return _get(url, timeout=timeout, attempts=attempts), None
+    except RightsDenied as exc:
+        return None, exc.block
+
+
 def _binance_rows(symbol, interval, start_ms=None, end_ms=None, limit=1000, timeout=20, attempts=3):
     params = {"symbol": symbol, "interval": interval, "limit": limit}
     if start_ms is not None:
         params["startTime"] = int(start_ms)
     if end_ms is not None:
         params["endTime"] = int(end_ms)
-    status, raw = _get(BINANCE + "?" + urllib.parse.urlencode(params), timeout=timeout, attempts=attempts)
+    got, blocked = _fetch(BINANCE + "?" + urllib.parse.urlencode(params), timeout=timeout, attempts=attempts)
+    if blocked:
+        return _blocked_feed(blocked)
+    status, raw = got
     if status == 429:
         return {"ok": False, "reason": "rate_limited", "bars": []}
     if status != 200:
@@ -123,7 +156,10 @@ def xaus_chart(interval, now_ms=None, timeout=30, attempts=3):
     now_ms = int(now_ms if now_ms is not None else time.time() * 1000)
     step = interval_ms(interval)
     query = urllib.parse.urlencode({"symbol": "xau", "range": spec[0], "interval": spec[1]})
-    status, raw = _get(XAUS_CHART + "?" + query, timeout=timeout, attempts=attempts)
+    got, blocked = _fetch(XAUS_CHART + "?" + query, timeout=timeout, attempts=attempts)
+    if blocked:
+        return _blocked_feed(blocked, provider="xaus.com")
+    status, raw = got
     if status != 200:
         return {"ok": False, "reason": f"http_{status}", "bars": [], "provider": "xaus.com"}
     payload = json.loads(raw.decode())
@@ -226,7 +262,10 @@ def xaus_spot_bars(interval="1h", now_ms=None, timeout=8, attempts=1):
     if interval not in {"15m", "1h"}:
         return {"ok": False, "reason": "interval_not_available", "bars": [], "provider": "xaus.com"}
     now_ms = int(now_ms if now_ms is not None else time.time() * 1000)
-    status, raw = _get(XAUS_INTRADAY + "?hours=48", timeout=timeout, attempts=attempts)
+    got, blocked = _fetch(XAUS_INTRADAY + "?hours=48", timeout=timeout, attempts=attempts)
+    if blocked:
+        return _blocked_feed(blocked, provider="xaus.com")
+    status, raw = got
     if status != 200:
         return {"ok": False, "reason": f"http_{status}", "bars": [], "provider": "xaus.com"}
     payload = json.loads(raw.decode())
@@ -245,7 +284,10 @@ def xaus_spot_bars(interval="1h", now_ms=None, timeout=8, attempts=1):
 def xaus_spot(now_ms=None):
     """Indicative mid. Never a candle and never a bid or ask."""
     now_ms = int(now_ms if now_ms is not None else time.time() * 1000)
-    status, raw = _get(XAUS_SPOT + "?compact=1", timeout=15)
+    got, blocked = _fetch(XAUS_SPOT + "?compact=1", timeout=15)
+    if blocked:
+        return _blocked_feed(blocked, quote_semantics="indicative_mid", symbol="XAUUSD")
+    status, raw = got
     if status != 200:
         return {"ok": False, "reason": f"http_{status}", "quote_semantics": "indicative_mid"}
     payload = json.loads(raw.decode())
@@ -322,7 +364,10 @@ def decode_dukascopy_m1(payload, day_open_ms, point_scale=1000.0):
 def dukascopy_hour(year, month_index, day, hour, timeout=20):
     """month_index is Dukascopy's zero-based month. HTTP 429 stays unavailable."""
     url = f"{DUKA}/{year}/{month_index:02d}/{day:02d}/{hour:02d}h_ticks.bi5"
-    status, raw = _get(url, timeout=timeout, attempts=2)
+    got, blocked = _fetch(url, timeout=timeout, attempts=2)
+    if blocked:
+        return _blocked_feed(blocked, provider="dukascopy")
+    status, raw = got
     if status == 429:
         return {"ok": False, "reason": "provider_throttled", "provider": "dukascopy"}
     if status != 200 or not raw or raw[:1] == b"{":

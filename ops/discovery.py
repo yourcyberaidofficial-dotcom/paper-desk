@@ -305,38 +305,30 @@ def _git_sha():
 
 
 def evaluate_saved(simulate_fn=simulate, judge_fn=judge):
-    markets = []
-    for symbol in ("BTCUSDT", "ETHUSDT"):
-        path = ROOT / f"{symbol}-4h.csv"
-        bars = load_csv(path, symbol, "4h", "binance-public", "last_trade")
-        markets.append(score_symbol(symbol, bars, simulate_fn=simulate_fn, judge_fn=judge_fn))
-    opened = [row["symbol"] for row in markets if row.get("holdout") == "OPENED_ONCE"]
-    passed = []
-    for row in markets:
-        validation = row.get("validation") or {}
-        holdout = row.get("holdout_row") or {}
-        if validation.get("judgment") == "PASS" and holdout.get("judgment") == "PASS":
-            passed.append(row["symbol"])
-    report = {
+    """Quarantine retained 4h files. Do not read their candles or open the holdout."""
+    del simulate_fn, judge_fn
+    from ops.data_rights import MESSAGE, retained_research_status
+
+    retained = [retained_research_status(ROOT / f"{symbol}-4h.csv") for symbol in ("BTCUSDT", "ETHUSDT")]
+    return {
         "study": "discovery-20261103",
         "version": VERSION,
         "protocol": protocol(),
         "protocol_sha256": protocol_sha256(),
         "software_sha": _git_sha(),
-        "software_sha_meaning": "HEAD at the time of the run. This study is not inside that commit; the commit that adds this file records the result.",
-        "evaluation_command": "python -c 'from ops.discovery import evaluate_saved, write_report; write_report(evaluate_saved())'",
+        "quarantined": True,
+        "commercial_research": False,
+        "evaluation_command": "not run — retained 4h candles were not read",
         "costs_are_assumptions": True,
         "promoted": [],
         "approved_for_paper": [],
-        "passed_existing_gates_on_validation_and_holdout": passed,
-        "holdout_opened_for": opened,
-        "markets": markets,
-        "decision": "none_approved",
-        "note": "No symbol is approved for paper from this file. A research PASS would still require a new version review, and this writer does not set promoted.",
+        "passed_existing_gates_on_validation_and_holdout": [],
+        "holdout_opened_for": [],
+        "markets": [],
+        "retained": retained,
+        "decision": "rights_unconfirmed",
+        "note": MESSAGE + " The retained BTC and ETH 4h files were not opened and were not rescored.",
     }
-    if not passed:
-        report["decision"] = "none_passed_validation_and_holdout"
-    return report
 
 
 def _fmt(value):

@@ -403,6 +403,7 @@ def retained_file_notes():
             "read_for_this_review": False,
             "research_cleared": False,
             "desk_substitute": False,
+            **__import__("ops.data_rights", fromlist=["retained_research_status"]).retained_research_status(name),
         })
     return notes
 
@@ -414,7 +415,7 @@ def public_report():
     disk = shutil.disk_usage(Path(__file__).resolve().parents[1])
     qual = summary()
     return {
-        "headline": "No source is approved for commercial historical research. Nothing new was downloaded.",
+        "headline": "No source is approved for commercial display or historical research. Live requests are withheld. Nothing new was downloaded.",
         "reviewed_on": "2026-11-03",
         "coverage": __import__("ops.data_rights", fromlist=["coverage_rows"]).coverage_rows(),
         "sources": __import__("ops.data_rights", fromlist=["register_public"]).register_public(),

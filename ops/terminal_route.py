@@ -25,6 +25,11 @@ _BAR_CACHE = {}
 
 
 def load_crypto_bars(symbol, interval, now_ms):
+    from ops.data_rights import network_block
+
+    blocked = network_block("binance_spot_rest_klines", "display")
+    if blocked:
+        return None, "commercial_use_unverified"
     try:
         if symbol in {"BTCUSDT", "ETHUSDT"}:
             key = (symbol, interval)
@@ -47,8 +52,13 @@ def load_crypto_bars(symbol, interval, now_ms):
 
 
 def load_gold_ohlc(interval, now_ms):
+    from ops.data_rights import network_block
+
     if interval in {"1m", "3m"}:
         return (None, "xau_minute_unlicensed")
+    blocked = network_block("xaus_public_chart", "display")
+    if blocked:
+        return None, "commercial_use_unverified"
     key = ("XAUUSD", interval)
     cached = _BAR_CACHE.get(key)
     if cached and now_ms - cached[0] < 30_000:
@@ -150,19 +160,56 @@ def handle_signal(user_id, body, now_ms=None, bars_loader=None, quote_loader=Non
                 "order": False,
                 "size": {"ok": False, "reason": "xau_minute_unlicensed", "order": False, "quantity_orderable": False, "budget_ok": False},
             })
+        if detail in {"commercial_use_unverified", "rights_unconfirmed", "prohibited", "restricted"} or (isinstance(live_quote, dict) and live_quote.get("reason") == "commercial_use_unverified" and not bars):
+            from ops.data_rights import MESSAGE
+            return 200, _publish(body, {
+                "decision": "WAIT",
+                "decision_label": "RIGHTS",
+                "symbol": symbol,
+                "interval": interval,
+                "strategy": strategy,
+                "reason": MESSAGE,
+                "message": MESSAGE,
+                "approved": False,
+                "fresh": False,
+                "evaluated": False,
+                "reference_price": None,
+                "entry": None,
+                "stop": None,
+                "target": None,
+                "blocked": "commercial_use_unverified",
+                "rights_status": "rights_unconfirmed",
+                "source_reachable": "not_checked",
+                "feed_freshness": "not_applicable",
+                "delivered": False,
+                "filled": False,
+                "order": False,
+            })
     else:
         bars = (bars_loader or load_crypto_bars)(symbol, interval, now_ms)
     if isinstance(bars, tuple):
+        from ops.data_rights import MESSAGE, is_rights_reason
+        reason = bars[1]
+        rights = is_rights_reason(reason)
         return 200, _publish(body, {
             "decision": "WAIT",
+            "decision_label": "RIGHTS" if rights else "WAIT",
             "symbol": symbol,
             "interval": interval,
             "strategy": strategy,
-            "reason": bars[1],
+            "reason": MESSAGE if rights else reason,
+            "message": MESSAGE if rights else reason,
             "approved": False,
             "fresh": False,
+            "evaluated": False,
             "reference_price": None,
-            "blocked": "feed_error",
+            "entry": None,
+            "stop": None,
+            "target": None,
+            "blocked": "commercial_use_unverified" if rights else "feed_error",
+            "rights_status": "rights_unconfirmed" if rights else None,
+            "source_reachable": "not_checked" if rights else None,
+            "feed_freshness": "not_applicable" if rights else None,
             "delivered": False,
             "filled": False,
             "order": False,

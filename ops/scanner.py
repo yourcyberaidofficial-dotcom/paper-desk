@@ -78,6 +78,48 @@ def present_window(window, now_ms):
         "alert": "unavailable",
         "quote_label": QUOTE_LABELS.get(window.get("quote_semantics") or "", None),
     }
+    from ops.data_rights import MESSAGE, is_rights_reason
+    rights_reason = window.get("reason") or window.get("blocked")
+    if is_rights_reason(rights_reason) or window.get("rights_status") in {"rights_unconfirmed", "prohibited", "restricted", "fixture_only"}:
+        base.update(
+            status="withheld",
+            state="DATA_UNAVAILABLE",
+            scanner_state="RIGHTS",
+            direction="WAIT",
+            decision="WAIT",
+            decision_label="RIGHTS",
+            rule=None,
+            price=None,
+            entry=None,
+            stop=None,
+            target=None,
+            evidence_grade=None,
+            evaluated=False,
+            approved=False,
+            eligible_for_alert=False,
+            rights_status=window.get("rights_status") or "rights_unconfirmed",
+            source_reachable="not_checked",
+            feed_freshness="not_applicable",
+            message=MESSAGE,
+        )
+        return base
+    if symbol == "XAUUSD" and interval in {"1m", "3m"}:
+        base.update(
+            status="unavailable",
+            state="DATA_UNAVAILABLE",
+            scanner_state="BLOCKED",
+            direction="WAIT",
+            decision_label="UNAVAILABLE",
+            price=None,
+            entry=None,
+            stop=None,
+            target=None,
+            evidence_grade=None,
+            evaluated=False,
+            blocked="xau_minute_unlicensed",
+            message="No licensed one-minute XAUUSD spot feed. A five-minute sample is not split into a 1-minute or 3-minute candle.",
+        )
+        return base
     if symbol == "XAUUSD":
         quote = window.get("quote_semantics") or (last.get("quote_semantics") if last else None) or "missing_quote"
         if quote != "dukascopy_xauusd_bid_ask" or not completed_bid_ask_bar(last):
