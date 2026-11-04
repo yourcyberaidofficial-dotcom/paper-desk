@@ -104,22 +104,30 @@ def present_window(window, now_ms):
         )
         return base
     if symbol == "XAUUSD" and interval in {"1m", "3m"}:
-        base.update(
-            status="unavailable",
-            state="DATA_UNAVAILABLE",
-            scanner_state="BLOCKED",
-            direction="WAIT",
-            decision_label="UNAVAILABLE",
-            price=None,
-            entry=None,
-            stop=None,
-            target=None,
-            evidence_grade=None,
-            evaluated=False,
-            blocked="xau_minute_unlicensed",
-            message="No licensed one-minute XAUUSD spot feed. A five-minute sample is not split into a 1-minute or 3-minute candle.",
-        )
-        return base
+        native = interval == "1m" and ((last or {}).get("provider") == "twelve-data" or window.get("provider") == "twelve-data")
+        released = False
+        if native:
+            from ops.entitlements import decide_use
+
+            decision = decide_use("twelve_data", "candle_display", symbol="XAUUSD", interval="1m")
+            released = decision.get("verified") is True and decision.get("allowed") is True
+        if not released:
+            base.update(
+                status="unavailable",
+                state="DATA_UNAVAILABLE",
+                scanner_state="BLOCKED",
+                direction="WAIT",
+                decision_label="UNAVAILABLE",
+                price=None,
+                entry=None,
+                stop=None,
+                target=None,
+                evidence_grade=None,
+                evaluated=False,
+                blocked="xau_minute_unlicensed",
+                message="No licensed one-minute XAUUSD spot feed. A five-minute sample is not split into a 1-minute or 3-minute candle.",
+            )
+            return base
     if symbol == "XAUUSD":
         quote = window.get("quote_semantics") or (last.get("quote_semantics") if last else None) or "missing_quote"
         if quote != "dukascopy_xauusd_bid_ask" or not completed_bid_ask_bar(last):
@@ -134,8 +142,14 @@ def present_window(window, now_ms):
                     live_quote = None
                 shared = _shared_reading(symbol, interval, bars, now_ms, price, live_quote)
                 if shared is not None:
+                    if (last or {}).get("provider") == "twelve-data" or window.get("provider") == "twelve-data":
+                        lead = "Native XAU/USD OHLC from Twelve Data. Not a bid or ask and not an execution price. "
+                    elif quote == "spot_sample_not_bid_ask":
+                        lead = "First-party spot samples, not the Yahoo chart. "
+                    else:
+                        lead = "Yahoo chart proxy, not a bid/ask hour. "
                     shared["quote"] = quote
-                    shared["message"] = ("First-party spot samples, not the Yahoo chart. " if quote == "spot_sample_not_bid_ask" else "Yahoo chart proxy, not a bid/ask hour. ") + "The London rule was not calculated. " + (shared.get("message") or "")
+                    shared["message"] = lead + "The London rule was not calculated. " + (shared.get("message") or "")
                     base.update(shared)
                     base["price"] = price
                     return base

@@ -139,7 +139,11 @@ def test_unverified_feeds_are_not_called_and_the_sentinel_is_absent(tmp_path, mo
     assert found["POST /api/terminal/signal"].get_json()["customer_status"] == "reading_unavailable"
     assert found["POST /api/desk/plan"].get_json()["reason"] == "reading_unavailable"
     health = found["/health"].get_json()
-    assert health["market_data"]["BTCUSDT"]["last_close_time_ms"] == 10
+    assert health["status"] == "reading_unavailable"
+    assert health["process"] == "ok"
+    assert health["market_data"]["BTCUSDT"]["status"] == "not_shown"
+    assert health["market_data"]["BTCUSDT"]["last_close_time_ms"] is None
+    assert health["market_data"]["BTCUSDT"]["kind"] == "not_a_customer_reading"
     assert "close" not in health["market_data"]["BTCUSDT"]
     for row in (health["worker"]["last_monitor"] or {}).get("evaluations") or []:
         assert "entry" not in row

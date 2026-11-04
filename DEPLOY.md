@@ -36,4 +36,4 @@ Before replacing the container:
 
 Rollback is the previous image on the same volumes.
 
-Paper orders live in the users volume at `paper/{user}.json`. A file that is still a JSON list is read as schema 1. Stored entry prices are not rewritten. Gold 1-minute and 3-minute data stay unavailable until a licence allows this desk to display them.
+Paper orders live in the users volume at `paper/{user}.json`. A file that is still a JSON list is read as schema 1. Stored entry prices are not rewritten. Gold 3-minute data stays unavailable. Gold 1-minute, 15-minute and 1-hour Twelve Data candles stay off until `$AUREON_DATA/rights/twelve_data.json` validates. `TWELVE_DATA_API_KEY` belongs in the server environment only. A key, and a grant file, are not a substitute for the signed vendor add-on. This commit is not deployed.

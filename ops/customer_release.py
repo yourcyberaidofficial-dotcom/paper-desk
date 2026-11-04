@@ -44,17 +44,30 @@ def source_for(symbol, semantics=None):
     return "binance_spot_rest_klines"
 
 
+def _twelve_covers(capability, symbol, interval):
+    """A recorded gold grant releases only the named capability. 3m is never native."""
+    if symbol != "XAUUSD" or interval == "3m":
+        return False
+    return verified("twelve_data", capability, symbol=symbol, interval=interval)
+
+
 def candles_released(symbol, interval, semantics=None):
+    if _twelve_covers("candle_display", symbol, interval):
+        return True
     source = source_for(symbol, semantics)
     capability = "sampled_reference_display" if source == "xaus_spot_samples" else "candle_display"
     return verified(source, capability, symbol=symbol, interval=interval)
 
 
 def reading_released(symbol, interval, semantics=None):
+    if _twelve_covers("customer_reading", symbol, interval):
+        return True
     return verified(source_for(symbol, semantics), "customer_reading", symbol=symbol, interval=interval)
 
 
 def opportunity_released(symbol, interval, semantics=None):
+    if _twelve_covers("opportunity_generation", symbol, interval):
+        return True
     return verified(source_for(symbol, semantics), "opportunity_generation", symbol=symbol, interval=interval)
 
 
@@ -221,7 +234,9 @@ def present_card(card):
     interval = str(card.get("interval") or "")
     semantics = card.get("candle_semantics") or card.get("quote")
     sampled = semantics == "spot_sample_not_bid_ask"
-    if symbol == "XAUUSD" and interval in {"1m", "3m"}:
+    if symbol == "XAUUSD" and interval == "3m":
+        return unavailable_card(symbol, interval)
+    if symbol == "XAUUSD" and interval == "1m" and not candles_released(symbol, interval):
         return unavailable_card(symbol, interval)
     sample = "spot_sample_not_bid_ask" if sampled else None
     price_ok = candles_released(symbol, interval, sample)
@@ -238,16 +253,24 @@ def present_card(card):
             card["decision_label"] = "WAIT"
         card["direction"] = "neutral"
         card["direction_label"] = "neutral"
-        card["message"] = STATUS
-        card["explanation"] = STATUS
-        card["reason"] = STATUS
-        card["customer_status"] = "reading_unavailable"
         card["manual_paper"] = False
-        card["source_id"] = None
-        card["provider"] = None
-        card["snapshot_id"] = None
-        card["reading_class"] = "unavailable"
-        card["status"] = "unavailable"
+        if price_ok:
+            card["message"] = "Completed candle only. A derived reading is not released."
+            card["explanation"] = card["message"]
+            card["reason"] = card["message"]
+            card["customer_status"] = "candle_only"
+            card["reading_class"] = "observational"
+            card["status"] = "candle"
+        else:
+            card["message"] = STATUS
+            card["explanation"] = STATUS
+            card["reason"] = STATUS
+            card["customer_status"] = "reading_unavailable"
+            card["source_id"] = None
+            card["provider"] = None
+            card["snapshot_id"] = None
+            card["reading_class"] = "unavailable"
+            card["status"] = "unavailable"
         if card.get("scanner_state") in {None, "", "RIGHTS", "withheld"}:
             card["scanner_state"] = "WAIT"
     if not opportunity_ok or not reading_ok:

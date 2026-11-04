@@ -82,6 +82,7 @@ MARKET_SOURCE_IDS = frozenset({
     "xaus_spot_samples",
     "swissquote_public_bbo",
     "dukascopy_datafeed_bi5",
+    "twelve_data",
 })
 
 MARKET_PROVIDERS = frozenset({
@@ -90,6 +91,7 @@ MARKET_PROVIDERS = frozenset({
     "xaus.com",
     "swissquote-public-bbo",
     "dukascopy",
+    "twelve-data",
 })
 
 SOURCE_ALIAS = {
@@ -119,6 +121,8 @@ def _decision(allowed, status, reason, *, source_id, use, verified=False, operat
 def decide_use(source_id, use, *, symbol=None, interval=None):
     """Judge one capability. Never promotes unverified to verified."""
     source_id = SOURCE_ALIAS.get(source_id, source_id)
+    if source_id == "twelve_data":
+        return _twelve_decision(use, symbol, interval)
     if symbol == "XAUUSD" and interval in {"1m", "3m"}:
         return _decision(False, "unavailable", "xau_minute_unlicensed", source_id=source_id, use=use)
     if use not in CAPABILITIES:
@@ -151,6 +155,34 @@ def decide_use(source_id, use, *, symbol=None, interval=None):
     if use in PERSISTENCE_CAPABILITIES or not operational:
         return _decision(False, "unverified", "unverified", source_id=source_id, use=use)
     return _decision(False, "unverified", "unverified_observation", source_id=source_id, use=use, operational=True)
+
+
+def _twelve_decision(use, symbol, interval):
+    """Gold spot only, and only for a native interval named in a recorded grant."""
+    if use not in CAPABILITIES:
+        return _decision(False, "unverified", "missing_or_malformed_rights", source_id="twelve_data", use=use)
+    if interval == "3m":
+        return _decision(False, "unavailable", "native_3m_not_supplied", source_id="twelve_data", use=use)
+    if symbol not in (None, "XAUUSD"):
+        return _decision(False, "unavailable", "pair_not_listed", source_id="twelve_data", use=use)
+    if interval not in (None, "1m", "15m", "1h"):
+        return _decision(False, "unavailable", "native_interval_not_supplied", source_id="twelve_data", use=use)
+    if use == "quote_display":
+        return _decision(False, "unavailable", "bid_ask_not_supplied", source_id="twelve_data", use=use)
+    from ops.rights_evidence import recorded_grant
+
+    grant = recorded_grant("twelve_data")
+    if not grant or grant.get("provider") != "Twelve Data":
+        return _decision(False, "unverified", "commercial_use_unverified", source_id="twelve_data", use=use)
+    if use not in grant["capabilities"] or grant.get("product") not in {"time_series", "time_series+derived"}:
+        return _decision(False, "unverified", "capability_not_granted", source_id="twelve_data", use=use)
+    if use != "candle_display" and grant.get("product") != "time_series+derived":
+        return _decision(False, "unverified", "capability_not_granted", source_id="twelve_data", use=use)
+    if symbol and symbol not in grant["instruments"]:
+        return _decision(False, "unverified", "instrument_not_granted", source_id="twelve_data", use=use)
+    if interval and interval not in grant["timeframes"]:
+        return _decision(False, "unverified", "timeframe_not_granted", source_id="twelve_data", use=use)
+    return _decision(True, "verified", "recorded_grant", source_id="twelve_data", use=use, verified=True)
 
 
 def legacy_decision(source_id, use):
@@ -236,8 +268,25 @@ def scrub_levels(row):
     return clean
 
 
+def retention_granted(row):
+    """True only for a verified paper-ledger grant on this row's own source, instrument and timeframe."""
+    row = row or {}
+    source_id = row.get("source_id")
+    if source_id not in MARKET_SOURCE_IDS:
+        return False
+    decision = decide_use(
+        source_id,
+        "paper_ledger_persistence",
+        symbol=row.get("symbol"),
+        interval=row.get("interval"),
+    )
+    return decision.get("verified") is True and decision.get("allowed") is True
+
+
 def persistence_refusal(row):
     if not is_feed_derived(row):
+        return None
+    if retention_granted(row):
         return None
     return {
         "ok": False,

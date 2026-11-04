@@ -22,9 +22,27 @@ States: `verified`, `unverified`, `restricted`, `unavailable`. An unverified cap
 | XAUS `/chart` | Unavailable | Unverified | Unverified | Unverified | Unverified | Unverified | Unverified | Unverified | Unverified | Unverified | Unverified | Unverified |
 | Swissquote public BBO | Restricted | Restricted | Restricted | Restricted | Restricted | Restricted | Restricted | Restricted | Restricted | Restricted | Restricted | Restricted |
 | Dukascopy bi5 | Unverified | Unverified | Unverified | Unverified | Unverified | Unverified | Unverified | Unverified | Unverified | Unverified | Unverified | Unverified |
+| Twelve Data time_series, XAU/USD only | Unavailable. `/quote` returns an OHLC-style last price, not bid and ask | Not verified. Native 1m, 15m and 1h exist. 3m does not. Stays unverified until the owner records a grant | Not this source | Unverified until a derived grant | Unverified until a derived grant | Unverified until a derived grant | Unverified until a derived grant | Unverified until a derived grant names retention | Unverified | Unverified | Unverified | Unverified. AutoPilot still needs an approved strategy version |
 | Account-typed levels | Not a feed | Not a feed | Not a feed | Not a feed | Not a feed | Not a feed | The account's own plan | Allowed for those typed levels only | Not a feed | Not a feed | Not a feed | Still requires an approved strategy version |
 
-Gold 1-minute and 3-minute are `unavailable` on every source. Missing five-minute prints are not reconstructed.
+Gold 3-minute is `unavailable` on every source. Twelve Data documents 1min, 5min, 15min, 30min, 45min, 1h, 2h, 4h, 8h, 1day, 1week and 1month. It does not document 3min. A 3-minute bar is not built from 1-minute or 5-minute rows. Gold 1-minute stays unavailable until a recorded Twelve Data grant names XAU/USD 1m. Missing five-minute prints are not reconstructed.
+
+## Twelve Data, reviewed 2026-11-04
+
+No API key was created, no account was opened, and no terms were accepted. The public catalog was read without a key.
+
+- `symbol_search` for `BTC/USDT` and `ETH/USDT` returned count 0. `BTC/USD` and `ETH/USD` are listed on Coinbase Pro, Binance and Bitfinex as US Dollar markets. Those are different pairs from BTCUSDT and ETHUSDT and are not used.
+- `commodities?symbol=XAU/USD` returned one row: Gold Spot / US Dollar, exchange COMMODITY. That is the only Twelve Data instrument wired for this desk.
+- `/time_series` intervals include `1min`, `15min` and `1h`. There is no `3min`.
+- `/quote` returns an OHLC-style close. It does not supply bid and ask, so the 0.08 percent quote threshold stays unused.
+- A request without an API key returned HTTP 401. The key is not permission.
+- Public terms (https://twelvedata.com/terms) allow internal non-display use by default. External display and redistribution require a Redistribution Rights Add-On or a separate written agreement. The free tier is not a commercial grant. The public pricing pages disagree with each other (Venture has been listed at both $149/month and $499/month). Neither page is a signed grant, so neither price is treated as the contract cost.
+
+The adapter is `ops/twelve_data.py`. It fetches only after `candle_display` is verified for XAUUSD at 1m, 15m or 1h, and only when `TWELVE_DATA_API_KEY` is set in the server environment. A failed authorised read is not replaced with XAUS or with any other source. BTCUSDT and ETHUSDT are refused before a socket is opened. Customer responses still withhold numbers until the matching capability is verified. A `time_series` grant can release candles only. Derived readings, paper retention, notifications and AutoPilot each require `time_series+derived` and that capability by name.
+
+### The one owner action still required
+
+Sign the Twelve Data redistribution or external-display add-on that names XAU/USD, the intervals 1min, 15min and 1h, derived use if readings or paper levels will be stored, and the retention term. Then place `TWELVE_DATA_API_KEY` in the server environment, not in git, and write `$AUREON_DATA/rights/twelve_data.json` with `provider` exactly `Twelve Data` plus `product`, `instruments`, `timeframes`, `capabilities`, `terms_version`, `clause`, `verified_by`, `verified_on`, `review_due` and `redistribution`. Until that file validates, the adapter stays off and customer gold stays withheld. BTCUSDT and ETHUSDT still need a source whose catalog lists those exact pairs and whose licence allows this desk to display them. Binance spot REST has the pairs. It does not have that licence here.
 
 ## Adapter contract
 

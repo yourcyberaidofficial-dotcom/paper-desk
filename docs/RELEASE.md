@@ -49,3 +49,7 @@ docker compose up -d
 ```
 
 Restore a volume only from the backup copy above, and only if the new container cannot read the existing volume. Do not delete the live volume first.
+
+## This integration
+
+Do not deploy this SHA. `TWELVE_DATA_API_KEY` is read only by the server process and does nothing until `$AUREON_DATA/rights/twelve_data.json` validates. That file records an owner review. It is not the vendor contract. Health reports `reading_unavailable` while BTCUSDT and ETHUSDT candles are not released. That status is not an outage and not a fresh market. Rollback remains the previous image on the same `paper-desk_desk-data`, `paper-desk_desk-users` and `paper-desk_desk-shadow` volumes. Do not run `docker compose down -v`.

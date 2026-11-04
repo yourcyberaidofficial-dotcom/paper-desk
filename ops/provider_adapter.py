@@ -119,3 +119,34 @@ def xaus_sample_adapter():
             "paper_ledger_persistence",
         )},
     }
+
+
+def twelve_data_adapter():
+    """Prepared gold OHLC adapter. It does not open a socket and it is not approved by itself."""
+    from ops.entitlements import CAPABILITIES, decide_use
+
+    source = "twelve_data"
+    return {
+        "source_id": source,
+        "supplies": ("native_xauusd_ohlc",),
+        "does_not_supply": (
+            "bid",
+            "ask",
+            "native_3m",
+            "btcusdt",
+            "ethusdt",
+            "btcusd_as_btcusdt",
+            "ethusd_as_ethusdt",
+            "xaus_failover",
+        ),
+        "instruments": ("XAUUSD",),
+        "timeframes": ("1m", "15m", "1h"),
+        "candle_semantics": "native_xauusd_ohlc",
+        "quote_semantics": "bid_ask_not_supplied",
+        "source_timestamps": "vendor datetime interpreted as UTC open; close is open plus the native interval minus 1ms",
+        "freshness_policy": "completed bar only; close inside two intervals; forming bar dropped",
+        "completeness_policy": "duplicates and gaps are counted; gaps are not filled; 3m is not synthesized",
+        "failure_mode": "authorised_read_failed_no_failover",
+        "quote_threshold": QUOTE_THRESHOLD,
+        "capabilities": {name: decide_use(source, name, symbol="XAUUSD", interval="1h") for name in CAPABILITIES},
+    }

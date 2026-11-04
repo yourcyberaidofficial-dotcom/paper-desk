@@ -157,13 +157,25 @@ def _worker_public():
 
 @app.get("/health")
 def health():
-    markets = market_snapshot()
-    report = _market_report(markets)
+    from ops.customer_release import candles_released
+
     promoted = _promotion_state()
-    fresh = report["BTCUSDT"]["status"] == "fresh" and report["ETHUSDT"]["status"] == "fresh"
-    withheld = report["BTCUSDT"]["status"] == "withheld" or report["ETHUSDT"]["status"] == "withheld"
+    crypto_released = candles_released("BTCUSDT", "15m") or candles_released("ETHUSDT", "15m")
+    if crypto_released:
+        markets = market_snapshot()
+        report = _market_report(markets)
+        fresh = report["BTCUSDT"]["status"] == "fresh" and report["ETHUSDT"]["status"] == "fresh"
+        withheld = report["BTCUSDT"]["status"] == "withheld" or report["ETHUSDT"]["status"] == "withheld"
+        status = "rights_withheld" if withheld else ("ok" if fresh else "degraded")
+    else:
+        report = {
+            "BTCUSDT": _reading_not_shown(),
+            "ETHUSDT": _reading_not_shown(),
+            "XAUUSD": _gold_health_row(),
+        }
+        status = "reading_unavailable"
     return jsonify({
-        "status": "rights_withheld" if withheld else ("ok" if fresh else "degraded"),
+        "status": status,
         "process": "ok",
         "uptime_s": int(time.time() - STARTED),
         "market_data": report,
@@ -183,6 +195,31 @@ def health():
         "worker": _worker_public(),
         "qualification": _qualification_public(),
     })
+
+
+def _reading_not_shown():
+    from ops.customer_release import STATUS
+
+    return {
+        "status": "not_shown",
+        "last_close_time_ms": None,
+        "kind": "not_a_customer_reading",
+        "source": "not_shown",
+        "note": STATUS,
+    }
+
+
+def _gold_health_row():
+    from ops.customer_release import STATUS, candles_released
+
+    released = any(candles_released("XAUUSD", interval) for interval in ("1m", "15m", "1h"))
+    return {
+        "status": "source_authorised" if released else "not_shown",
+        "source_reachable": "not_checked",
+        "last_close_time_ms": None,
+        "kind": "not_a_customer_reading",
+        "note": "Twelve Data XAU/USD candle display is recorded. This health row is not a price." if released else STATUS,
+    }
 
 
 def _promotion_state():
@@ -235,14 +272,7 @@ def _market_report(snapshot):
             "desk_snapshot": False,
             "note": "Independent completed-kline check from the Binance spot REST klines endpoint. Not a quote and not the desk snapshot.",
         }
-    scan = getattr(worker, "last_monitor", None) or {}
-    gold = [row for row in (scan.get("evaluations") or []) if row.get("symbol") == "XAUUSD"]
-    out["XAUUSD"] = {
-        "status": "not_shown",
-        "source_reachable": "not_checked",
-        "rows": [{"interval": row.get("interval")} for row in gold],
-        "note": "A verified live reading is not available.",
-    }
+    out["XAUUSD"] = _gold_health_row()
     return out
 
 
@@ -1372,7 +1402,8 @@ def gold_candles():
     from ops.bars import to_chart_candles
 
     interval = request.args.get("interval", "1h")
-    if interval in {"1m", "3m"}:
+    from ops.customer_release import candles_released, unavailable_candles
+    if interval == "3m" or (interval == "1m" and not candles_released("XAUUSD", "1m")):
         return jsonify({
             "symbol": "XAUUSD",
             "interval": interval,
@@ -1382,35 +1413,45 @@ def gold_candles():
             "quote_semantics": "unavailable",
             "note": "Licensed spot minute data is unavailable. A quote was not drawn as a candle, and a longer candle was not substituted.",
         })
-    from ops.customer_release import candles_released, unavailable_candles
     sample = "spot_sample_not_bid_ask" if interval in {"15m", "1h"} else None
     if not candles_released("XAUUSD", interval, sample):
         return jsonify(unavailable_candles("XAUUSD", interval))
-    if interval in {"15m", "1h"}:
+    if interval in {"1m", "15m", "1h"}:
         from ops.desk_snapshot import observe
         snap = observe("XAUUSD", interval, int(time.time() * 1000))
         series = list(snap.get("_loaded") or [])
         semantics = snap.get("candle_semantics") or "ohlc_not_bid_ask"
-        sampled = semantics == "spot_sample_not_bid_ask"
+        provider = snap.get("provider") or "none"
+        sampled = semantics == "spot_sample_not_bid_ask" and provider != "twelve-data"
         if not series:
             return jsonify({
                 "symbol": "XAUUSD",
                 "interval": interval,
                 "candles": [],
+                "source": provider,
                 "error": snap.get("blocked_reason") or "GOLD_FEED_UNAVAILABLE",
                 "quote_semantics": semantics,
                 "snapshot_id": snap.get("snapshot_id"),
                 "reading_version": snap.get("reading_version"),
                 "kind": "sampled_reference" if sampled else "chart_ohlc",
-                "note": "No complete sampled reference bar was returned. Nothing was invented." if sampled else "No chart bar was returned. Nothing was invented.",
+                "note": "No bar was returned from the authorised source. Another source was not substituted." if provider == "twelve-data" else ("No complete sampled reference bar was returned. Nothing was invented." if sampled else "No chart bar was returned. Nothing was invented."),
             }), 502
         candles = to_chart_candles(series)[-180:]
+        if provider == "twelve-data":
+            note = "Native XAU/USD OHLC from Twelve Data. Not a bid or ask and not an execution price. A different source was not substituted."
+            kind = "chart_ohlc"
+        elif sampled:
+            note = "Sampled indicative reference bars from five-minute spot prints. Not exchange OHLC, not a bid or ask, and not an execution price. Reference quote unavailable."
+            kind = "sampled_reference"
+        else:
+            note = "Chart OHLC from xaus.com. Not a bid or ask and not an execution price. Reference quote unavailable."
+            kind = "chart_ohlc"
         return jsonify({
             "symbol": "XAUUSD",
             "instrument": "XAUUSD_SPOT",
             "interval": interval,
-            "source": "xaus.com",
-            "kind": "sampled_reference" if sampled else "chart_ohlc",
+            "source": provider,
+            "kind": kind,
             "quote_semantics": semantics,
             "count": len(candles),
             "candles": candles,
@@ -1419,7 +1460,7 @@ def gold_candles():
             "not_a_quote": True,
             "execution_grade": False,
             "reference_quote": "reference_quote_unavailable",
-            "note": "Sampled indicative reference bars from five-minute spot prints. Not exchange OHLC, not a bid or ask, and not an execution price. Reference quote unavailable." if sampled else "Chart OHLC from xaus.com. Not a bid or ask and not an execution price. Reference quote unavailable.",
+            "note": note,
         })
     series = _gold_bars(interval, int(time.time() * 1000))
     if series.get("reason") == "commercial_use_unverified" or series.get("rights_status"):
@@ -3274,7 +3315,9 @@ async function systemPage(){
   const workerStatus = h.worker && h.worker.status ? h.worker.status : "unknown";
   const workerHealthy = h.worker && h.worker.healthy === true ? "confirmed" : "not confirmed";
   const autoLine = bot ? autoSentence(bot) : "not signed in";
-  const rightsLine = h.status === "rights_withheld" ? `<p>${RIGHTS_MESSAGE}</p><p class="muted">The process is up. Market data is withheld because commercial use is not approved. That is not a provider outage and not a stale feed.</p>` : "";
+  const rightsLine = h.status === "rights_withheld"
+    ? `<p>${RIGHTS_MESSAGE}</p><p class="muted">The process is up. Market data is withheld because commercial use is not approved. That is not a provider outage and not a stale feed.</p>`
+    : (h.status === "reading_unavailable" ? `<p>A verified live reading is not available. This is not a fresh market and not a provider outage.</p>` : "");
   view.innerHTML = `<article class="card"><h2>System</h2>${rightsLine}${stateRows}${row("Process", h.process||"unknown")}${row("Overall", h.status||"unknown")}${row("BTC / ETH", market)}${row("Gold", gold||"not scanned")}${row("Notifications", note)}${row("Approved strategies", qual)}${row("Ledger", h.ledger||"unknown")}${row("Strategy", h.strategy_status||"unknown")}${row("Broker", String(h.broker))}${row("Build", h.build_commit||"unknown")}${row("Worker status", workerStatus + " · " + workerHealthy)}${row("This account AutoPilot", autoLine)}${row("Worker heartbeat", h.worker && h.worker.last_beat_ms ? new Date(h.worker.last_beat_ms).toISOString() : "unknown")}${row("Background scan", h.worker && h.worker.last_monitor_ms ? new Date(h.worker.last_monitor_ms).toISOString() : "not run yet")}${row("Last scan", watched)}</article><article class="card" id="data-coverage"><h2>Research data coverage</h2><p>Reading data rights.</p></article><p class="muted">A missing, stale or failed heartbeat is not a healthy worker. A rights withhold is not an outage. AutoPilot is not confirmed while the worker is unhealthy. The background scan uses the same decision as the terminal. It does not send Telegram. Gold 1m and 3m are unavailable without a licensed minute feed. AutoPilot is paper only and stays off until the account enables it.</p>`;
   fetch("/api/data-coverage", {credentials:"same-origin"}).then(r => r.json()).then(payload => {
     const box = document.getElementById("data-coverage");

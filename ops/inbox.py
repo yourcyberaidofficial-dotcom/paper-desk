@@ -432,8 +432,8 @@ def deliver_evaluation(user_id, user, result):
     opportunity_id = opportunity_identity(symbol, interval, family, direction, anchor)
     if opportunity_id is None:
         return {"stored": False, "duplicate": False, "reason": "incomplete"}
-    from ops.entitlements import ELIGIBILITY_NOTE, is_feed_derived
-    feed = is_feed_derived(result) or is_feed_derived(payload)
+    from ops.entitlements import ELIGIBILITY_NOTE, is_feed_derived, retention_granted
+    feed = (is_feed_derived(result) or is_feed_derived(payload)) and not (retention_granted(result) or retention_granted(payload))
     if feed:
         plan_version = f"eligibility:{opportunity_id}"
     else:
@@ -543,8 +543,8 @@ def record_desk_plan(user_id, user, result):
     if opportunity_id is None:
         return {"stored": False, "duplicate": False, "reason": "incomplete", "order_opened": False}
     plan_version_prices = f"plan:{entry}:{stop}:{target}"
-    from ops.entitlements import ELIGIBILITY_NOTE, is_feed_derived
-    feed = is_feed_derived(result)
+    from ops.entitlements import ELIGIBILITY_NOTE, is_feed_derived, retention_granted
+    feed = is_feed_derived(result) and not retention_granted(result)
     plan_version = f"eligibility:{result.get('snapshot_id') or opportunity_id}" if feed else plan_version_prices
     existing = find_open_opportunity(user_id, opportunity_id)
     if existing:

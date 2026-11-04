@@ -281,7 +281,17 @@ class Worker:
         interval = window.get("interval")
         bars = window.get("bars") or []
         delivered = 0
-        if symbol == "XAUUSD" and interval in {"1m", "3m"}:
+        if symbol == "XAUUSD" and interval in {"1m", "3m"} and not bars:
+            reason = window.get("reason") or "xau_minute_unlicensed"
+            if reason != "xau_minute_unlicensed":
+                evaluations.append({
+                    "symbol": symbol,
+                    "interval": interval,
+                    "decision": "DATA BLOCK",
+                    "reason": reason,
+                    "blocked": reason,
+                })
+                return 0
             evaluations.append({
                 "symbol": symbol,
                 "interval": interval,
@@ -355,13 +365,37 @@ class Worker:
 
         windows = []
         for symbol, interval in COVERAGE:
-            if symbol == "XAUUSD" and interval in {"1m", "3m"}:
+            if symbol == "XAUUSD" and interval == "3m":
                 windows.append({
                     "symbol": symbol,
                     "interval": interval,
                     "bars": [],
                     "reason": "xau_minute_unlicensed",
                     "blocked": "xau_minute_unlicensed",
+                })
+                continue
+            if symbol == "XAUUSD" and interval == "1m":
+                from ops.twelve_data import authorized_bars
+
+                authorised = authorized_bars(symbol, interval, now_ms)
+                if authorised is None:
+                    windows.append({
+                        "symbol": symbol,
+                        "interval": interval,
+                        "bars": [],
+                        "reason": "xau_minute_unlicensed",
+                        "blocked": "xau_minute_unlicensed",
+                    })
+                    continue
+                bars, provider, _source_name, _semantics, _quote = authorised
+                windows.append({
+                    "symbol": symbol,
+                    "interval": interval,
+                    "bars": bars,
+                    "reason": None if bars else "missing_bars",
+                    "blocked": None if bars else "missing_bars",
+                    "live_quote": None,
+                    "provider": provider,
                 })
                 continue
             if symbol == "XAUUSD":

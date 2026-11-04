@@ -82,17 +82,25 @@ def test_a_quote_does_not_replace_the_completed_close_or_the_snapshot():
 
 def test_health_names_its_own_completed_kline_and_not_the_desk_snapshot(monkeypatch):
     from ops.app import app
-    monkeypatch.setattr("ops.app.market_snapshot", lambda: {
-        "BTCUSDT": {"close_time_ms": NOW - 1000, "checked_at_ms": NOW, "source": "binance-public"},
-        "ETHUSDT": {"close_time_ms": NOW - 1000, "checked_at_ms": NOW, "source": "binance-public"},
-    })
+    called = {"market": 0}
+
+    def snapshot():
+        called["market"] += 1
+        return {
+            "BTCUSDT": {"close_time_ms": NOW - 1000, "checked_at_ms": NOW, "source": "binance-public"},
+            "ETHUSDT": {"close_time_ms": NOW - 1000, "checked_at_ms": NOW, "source": "binance-public"},
+        }
+
+    monkeypatch.setattr("ops.app.market_snapshot", snapshot)
     body = app.test_client().get("/health").get_json()
     row = body["market_data"]["BTCUSDT"]
-    assert row["kind"] == "completed_kline"
-    assert row["not_a_quote"] is True
-    assert row["desk_snapshot"] is False
-    assert "quote" not in row["note"] or "Not a quote" in row["note"]
-    assert row["last_close_time_ms"] == NOW - 1000
+    assert body["status"] == "reading_unavailable"
+    assert body["process"] == "ok"
+    assert called["market"] == 0
+    assert row["kind"] == "not_a_customer_reading"
+    assert row["status"] == "not_shown"
+    assert row["last_close_time_ms"] is None
+    assert "fresh" not in row["note"]
 
 
 def test_klines_and_the_snapshot_are_the_same_reading(monkeypatch):

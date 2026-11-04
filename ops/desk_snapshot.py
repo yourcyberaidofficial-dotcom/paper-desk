@@ -28,6 +28,7 @@ ENDPOINTS = {
     "swissquote_public_bbo": "https://forex-data-feed.swissquote.com/public-quotes/bboquotes/instrument/XAU/USD",
     "binance_vision_klines": "https://data.binance.vision/data/spot/",
     "dukascopy_datafeed_bi5": "https://datafeed.dukascopy.com/datafeed/XAUUSD",
+    "twelve_data": "https://api.twelvedata.com/time_series",
 }
 
 
@@ -39,8 +40,20 @@ def quote_alignment(close, mid):
     return ("diverged" if gap > QUOTE_LIMIT else "aligned"), gap
 
 
-def permission_for(symbol, interval):
-    if symbol == "XAUUSD" and interval in {"1m", "3m"}:
+def _minute_closed(symbol, interval, source_id=None):
+    """Gold minutes stay closed unless a recorded grant names native XAU/USD 1m. 3m is never native."""
+    if symbol != "XAUUSD" or interval not in {"1m", "3m"}:
+        return False
+    if interval != "1m" or source_id != "twelve_data":
+        return True
+    from ops.entitlements import decide_use
+
+    decision = decide_use("twelve_data", "candle_display", symbol="XAUUSD", interval="1m")
+    return not (decision.get("verified") is True and decision.get("allowed") is True)
+
+
+def permission_for(symbol, interval, source_id=None):
+    if _minute_closed(symbol, interval, source_id):
         closed = {
             "allowed": False,
             "status": "xau_minute_unlicensed",
@@ -48,6 +61,26 @@ def permission_for(symbol, interval):
             "evidence": "No licensed one-minute XAUUSD source. A five-minute sample is not split into a 1-minute or 3-minute candle.",
         }
         return {use: dict(closed) for use in _USES}
+    if source_id == "twelve_data":
+        from ops.entitlements import decide_use
+
+        mapping = {
+            "display": "candle_display",
+            "indicators": "indicator_calculation",
+            "strategy": "customer_reading",
+            "retention": "paper_ledger_persistence",
+            "research": "research_backtest",
+        }
+        out = {}
+        for use, capability in mapping.items():
+            decision = decide_use("twelve_data", capability, symbol=symbol, interval=interval)
+            out[use] = {
+                "allowed": decision.get("verified") is True and decision.get("allowed") is True,
+                "status": decision.get("status"),
+                "reason": decision.get("reason"),
+                "evidence": "Recorded grant only. An API key is not permission.",
+            }
+        return out
     source_id = "xaus_public_chart" if symbol == "XAUUSD" else "binance_spot_rest_klines"
     row = source(source_id) or {}
     out = {}
@@ -130,8 +163,8 @@ def _quote_view(payload):
     }
 
 
-def _quality(symbol, interval, bars, now_ms):
-    if symbol == "XAUUSD" and interval in {"1m", "3m"}:
+def _quality(symbol, interval, bars, now_ms, source_id=None):
+    if _minute_closed(symbol, interval, source_id):
         return "unlicensed", "xau_minute_unlicensed", {"ok": False, "errors": ["xau_minute_unlicensed"], "duplicates": 0, "gaps": 0, "unsorted": 0}
     if _substituted(interval, bars):
         return "degraded", "timeframe_mismatch", {"ok": False, "errors": ["timeframe_mismatch"], "duplicates": 0, "gaps": 0, "unsorted": 0}
@@ -154,9 +187,9 @@ def assemble(symbol, interval, now_ms, bars=None, quote=None, provider=None, sou
     """Build one snapshot from bars already in hand. Does not fetch and does not invent a close."""
     now_ms = int(now_ms)
     bars = list(bars or [])
-    if symbol == "XAUUSD" and interval in {"1m", "3m"}:
+    if _minute_closed(symbol, interval, source_id):
         bars = []
-    quality, blocked, report = _quality(symbol, interval, bars, now_ms)
+    quality, blocked, report = _quality(symbol, interval, bars, now_ms, source_id)
     show_last = bool(bars) and quality not in {"unlicensed"} and not _substituted(interval, bars)
     last = bars[-1] if show_last else None
     candle = _candle_from(last)
@@ -167,7 +200,7 @@ def assemble(symbol, interval, now_ms, bars=None, quote=None, provider=None, sou
     alignment, gap = (None, None)
     if candle and candle.get("close") is not None and quote_view:
         alignment, gap = quote_alignment(candle["close"], quote_view["price"])
-    if symbol == "XAUUSD" and interval in {"1m", "3m"}:
+    if _minute_closed(symbol, interval, source_id):
         source_name = "none"
         provider = "none"
         semantics = "unavailable"
@@ -206,7 +239,7 @@ def assemble(symbol, interval, now_ms, bars=None, quote=None, provider=None, sou
         "provider": provider,
         "source_id": source_name,
         "endpoint": ENDPOINTS.get(source_name),
-        "permission": permission_for(symbol, interval),
+        "permission": permission_for(symbol, interval, source_name),
         "quote": quote_view,
         "candle": candle,
         "source_timestamp_ms": (candle or {}).get("close_time_ms"),
@@ -251,9 +284,14 @@ def assemble(symbol, interval, now_ms, bars=None, quote=None, provider=None, sou
 
 
 def _load_bars(symbol, interval, now_ms):
-    if symbol == "XAUUSD" and interval in {"1m", "3m"}:
-        return [], "none", "none", "unavailable", None
     if symbol == "XAUUSD":
+        from ops.twelve_data import authorized_bars
+
+        authorised = authorized_bars(symbol, interval, now_ms)
+        if authorised is not None:
+            return authorised
+        if interval in {"1m", "3m"}:
+            return [], "none", "none", "unavailable", None
         from ops.terminal_route import load_gold_ohlc
         loaded = load_gold_ohlc(interval, now_ms)
         from ops.provider_adapter import independent_reference_quote
@@ -341,7 +379,14 @@ def classify(card, snap):
     label = card.get("decision_label") or card.get("decision") or "WAIT"
     decision = card.get("decision")
     message = card.get("message") or card.get("reason") or ""
-    if quality == "unlicensed" or card.get("blocked") == "xau_minute_unlicensed" or label == "UNAVAILABLE":
+    authorised_gold = quality == "ok" and snap.get("source_id") == "twelve_data"
+    if authorised_gold:
+        card["blocked"] = None
+        close = (snap.get("candle") or {}).get("close")
+        if close is not None:
+            card["price"] = close
+            card["close"] = close
+    if (quality == "unlicensed" or card.get("blocked") == "xau_minute_unlicensed" or label == "UNAVAILABLE") and not authorised_gold:
         reading_class, setup_state, direction = "unavailable", "unavailable", "neutral"
     elif quality in {"unavailable", "incomplete", "stale", "degraded"}:
         reading_class, setup_state, direction = "insufficient", "unavailable", "neutral"

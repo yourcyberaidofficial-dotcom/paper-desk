@@ -234,21 +234,28 @@ def _evaluate(symbol, interval, strategy, bars, now_ms, user, prior=None, live_q
         "evaluated_ms": int(now_ms),
     }
     if symbol == "XAUUSD" and interval in {"1m", "3m"}:
-        return {
-            **base,
-            "strategy": "xau-minute-unlicensed",
-            "version": "xau-minute-unlicensed",
-            "decision": "WAIT",
-            "reason": "XAUUSD 1-minute and 3-minute plans stay off until a licensed spot feed is confirmed. These bars were not turned into an entry, stop or target.",
-            "blocked": "xau_minute_unlicensed",
-            "blockers": ["xau_minute_unlicensed"],
-            "entry": None,
-            "stop": None,
-            "target": None,
-            "fresh": False,
-            "reference_price": None,
-            "validation_status": "BLOCKED",
-        }
+        allowed = False
+        if interval == "1m":
+            from ops.entitlements import decide_use
+
+            decision = decide_use("twelve_data", "customer_reading", symbol="XAUUSD", interval="1m")
+            allowed = decision.get("verified") is True and decision.get("allowed") is True
+        if not allowed:
+            return {
+                **base,
+                "strategy": "xau-minute-unlicensed",
+                "version": "xau-minute-unlicensed",
+                "decision": "WAIT",
+                "reason": "XAUUSD 1-minute and 3-minute plans stay off until a licensed spot feed is confirmed. These bars were not turned into an entry, stop or target.",
+                "blocked": "xau_minute_unlicensed",
+                "blockers": ["xau_minute_unlicensed"],
+                "entry": None,
+                "stop": None,
+                "target": None,
+                "fresh": False,
+                "reference_price": None,
+                "validation_status": "BLOCKED",
+            }
     if symbol not in AUTO:
         return {**base, "decision": "WAIT", "reason": "This market is not supported.", "fresh": False, "reference_price": None}
     if chosen not in RULES or symbol not in (spec.get("instruments") or []):
@@ -546,15 +553,16 @@ def stamp(user_id, result):
     result["user_id"] = user_id
     result["id"] = ":".join(str(result.get(key)) for key in ("symbol", "interval", "strategy", "bar_close_ms", "decision"))
     result["requested_ms"] = int(time.time() * 1000)
-    from ops.entitlements import is_feed_derived, scrub_levels
+    from ops.entitlements import is_feed_derived, retention_granted, scrub_levels
 
-    stored = scrub_levels(result) if is_feed_derived(result) else dict(result)
+    derived = is_feed_derived(result) and not retention_granted(result)
+    stored = scrub_levels(result) if derived else dict(result)
     stored["id"] = result["id"]
     stored["user_id"] = result["user_id"]
     stored["requested_ms"] = result["requested_ms"]
     saved = save_result(user_id, stored)
     result["duplicate"] = saved.get("duplicate", False)
-    result["levels_persisted"] = False if is_feed_derived(result) else True
+    result["levels_persisted"] = False if derived else True
     return result
 
 
