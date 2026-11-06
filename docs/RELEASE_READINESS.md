@@ -15,7 +15,8 @@ Phase 2 closed the backend defects that were FAIL in the previous report. It did
 | Repository | `yourcyberaidofficial-dotcom/paper-desk` |
 | Branch | `product/recovery` |
 | Previous report commit | `5960ff78325e5d84431d54ba90ccb1b84be81fef` |
-| Implementation commit | Recorded below after the code commit. This line is updated in the following commit and does not by itself change behaviour. |
+| Implementation commit | `3660e3e3f07086a387bc7c98e8a3cceaeb3f4960` |
+| Report commit | The commit that records this SHA. It does not change behaviour. |
 | Working tree | Phase 2 was applied on the existing `product/recovery` checkout at `/tmp/aureon-lab`. No other checkout was reset. |
 
 ## 2. Verdict
