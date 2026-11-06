@@ -5,12 +5,13 @@
 | Item | Value |
 | --- | --- |
 | Base | `eaf78b1bc246d2c47dd3cff72b576cfb71721aea` on `product/recovery` |
+| Implementation | `5b1c77c475798e55c6c913041cb74d417c1562cc` on `product/experience-transformation` |
 | Work branch | `product/experience-transformation` |
 | Production | Not deployed, not restarted, not reconfigured. Still the reported release `eaf78b1`. |
 | PR #97 | Left OPEN. Head remains `product/recovery` at `eaf78b1`. This branch was not merged into it. |
 | Recovery worktree | `/tmp/aureon-lab` stayed clean at `eaf78b1`. |
 
-The final commit SHA is recorded in the commit that adds this report. It is not `eaf78b1`.
+The implementation commit is `5b1c77c475798e55c6c913041cb74d417c1562cc`. It is not `eaf78b1`. A later docs-only commit may record this SHA. Production is unchanged.
 
 ## 2. Roles and entitlements
 
