@@ -73,7 +73,8 @@ def test_autopilot_facing_does_not_say_running_when_disabled_or_unhealthy():
     assert stale["facing"] == "Health not confirmed"
     assert stale["entries_available"] is False
     live = presentation({"enabled": True, "status": "running"}, True)
-    assert live["facing"] == "Enabled" and live["entries_available"] is True
+    assert live["facing"] == "Operational" and live["entries_available"] is True
+    assert live["execution"] == "eligible"
     waiting = presentation({"enabled": True, "status": "running"}, True, open_positions=0)
     assert waiting["facing"] == "Waiting"
     assert waiting["entries_available"] is True
@@ -84,7 +85,7 @@ def test_autopilot_facing_does_not_say_running_when_disabled_or_unhealthy():
         open_positions=0,
         gates={"market_data": "rights_withheld", "approved_for_paper": 0},
     )
-    assert gated["facing"] == "Enabled — new entries blocked"
+    assert gated["facing"] == "Permission on — not operational"
     assert gated["entries_available"] is False
     assert gated["state_kind"] == "blocked"
     assert set(gated["blockers"]) == {"market_data_rights", "no_approved_strategy"}
@@ -199,7 +200,10 @@ def test_autopilot_facing_is_shared_and_off_is_not_called_running(tmp_path, monk
         worker.last_beat_ms = int(__import__("time").time() * 1000)
         waiting = client.get("/api/autopilot").get_json()
         assert waiting["status"] == "running"
-        assert waiting["facing"] == "Enabled — no approved strategy"
+        assert waiting["facing"] == "Permission on — not operational"
+        assert waiting["permission"] == "granted"
+        assert waiting["strategy_approval"] == "absent"
+        assert waiting["execution"] == "not_eligible"
         assert waiting["health"] == "confirmed"
         assert waiting["entries_available"] is False
         assert waiting["blockers"] == ["no_approved_strategy"]

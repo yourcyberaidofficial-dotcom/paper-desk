@@ -613,6 +613,25 @@ def record_desk_plan(user_id, user, result):
         "persistence_capability": "paper_ledger_persistence" if feed else None,
         "persistence_state": "unverified" if feed else None,
     })
+    if saved.get("stored"):
+        try:
+            from ops.activity import record
+            record(
+                "paper_plan_created",
+                account_id=user_id,
+                entity=opportunity_id,
+                component="inbox",
+                detail={
+                    "symbol": symbol,
+                    "interval": interval,
+                    "decision": decision,
+                    "provenance": result.get("provenance") or "account",
+                    "note": "Plan recorded. Not an order and not an AutoPilot signal.",
+                },
+                now_ms=int(result.get("reading_at_ms") or time.time() * 1000),
+            )
+        except Exception:
+            pass
     return {
         "stored": bool(saved.get("stored")),
         "duplicate": bool(saved.get("duplicate")),

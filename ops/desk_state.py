@@ -39,7 +39,7 @@ def pair_board():
             rights, source, latest, evaluation = "Gold minute unlicensed", "No licensed minute source", "Not read", "Unavailable"
         else:
             source = "Gold chart" if row["symbol"] == "XAUUSD" else "Binance spot"
-            rights, latest, evaluation = "Unverified", "Not shown", "Waiting"
+            rights, latest, evaluation = "Data unavailable", "Not shown", "Not run"
         rows.append({
             "instrument": row["symbol"],
             "timeframe": row["interval"],
@@ -48,7 +48,10 @@ def pair_board():
             "history": "No retained historical data",
             "latest_read": latest,
             "evaluation": evaluation,
-            "approval": "Not a promoted strategy",
+            "approval": "Research separate — not promoted",
+            "observation": "data_unavailable",
+            "research": "not_promoted",
+            "execution": "not_eligible",
         })
     return rows
 

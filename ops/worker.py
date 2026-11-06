@@ -152,6 +152,12 @@ class Worker:
     def evaluate(self, now_ms: int | None = None, sender=send_alert) -> list[dict]:
         now_ms = int(now_ms if now_ms is not None else time.time() * 1000)
         self.last_beat_ms = now_ms
+        try:
+            from ops.activity import record
+            record("worker_started", component="worker", entity="desk", detail={"note": "Worker loop reached an evaluation. This is not a market reading."}, now_ms=now_ms)
+            record("worker_heartbeat", component="worker", entity="desk", detail={"note": "Heartbeat only. Not a market retrieval."}, now_ms=now_ms)
+        except Exception:
+            pass
         if PRODUCTION == "WAIT_DEFAULT":
             sender = None
         prefs = self.prefs()
@@ -281,6 +287,13 @@ class Worker:
         interval = window.get("interval")
         bars = window.get("bars") or []
         delivered = 0
+        try:
+            from ops.customer_release import candles_released, reading_released
+            from ops.signal_ledger import note_unavailable
+            if not (candles_released(symbol, interval) or reading_released(symbol, interval)):
+                note_unavailable(symbol, interval, window.get("reason") or window.get("blocked") or "reading_unavailable", now_ms)
+        except Exception:
+            pass
         if symbol == "XAUUSD" and interval in {"1m", "3m"} and not bars:
             reason = window.get("reason") or "xau_minute_unlicensed"
             if reason != "xau_minute_unlicensed":
@@ -316,6 +329,13 @@ class Worker:
             evaluations.append({"symbol": symbol, "interval": interval, "decision": "DATA BLOCK", "reason": window.get("reason") or "missing_bars"})
             return 0
         result = decide(symbol, interval, "auto", bars, now_ms, None, live_quote=window.get("live_quote"))
+        try:
+            from ops.customer_release import candles_released, reading_released
+            if candles_released(symbol, interval) or reading_released(symbol, interval):
+                from ops.signal_ledger import record_observations
+                record_observations([result], now_ms=now_ms, component="worker")
+        except Exception:
+            pass
         evaluations.append({
             "symbol": result.get("symbol"),
             "interval": result.get("interval"),

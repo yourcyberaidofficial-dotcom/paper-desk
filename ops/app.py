@@ -174,6 +174,17 @@ def health():
             "XAUUSD": _gold_health_row(),
         }
         status = "reading_unavailable"
+    if status == "reading_unavailable":
+        try:
+            from ops.activity import record
+            record(
+                "source_unavailable",
+                component="health",
+                entity="desk",
+                detail={"note": "No authorised customer reading. Not a worker failure and not a research result."},
+            )
+        except Exception:
+            pass
     return jsonify({
         "status": status,
         "process": "ok",
@@ -534,6 +545,65 @@ def paper_close():
     body = request.json or {}
     result = close_order(user_id, body.get("order_id"), body.get("exit_price"), int(time.time() * 1000))
     return jsonify(result), (200 if result.get("ok") else 409)
+
+
+@app.get("/api/activity")
+def activity_api():
+    user_id, _user = _session_user()
+    if not user_id:
+        return jsonify({"error": "unauthorized"}), 401
+    from ops.activity import read
+    rows = read(account_id=user_id)
+    return jsonify({"events": rows, "count": len(rows), "truncated": False, "broker": False})
+
+
+@app.get("/api/signals/lifecycle")
+def signal_lifecycle():
+    """Observations stay even when research or AutoPilot cannot act. No price is invented."""
+    from ops.customer_release import any_customer_display, empty_desk, release_scan
+    from ops.signal_continuity import classify_card
+
+    if not any_customer_display():
+        cards = empty_desk().get("markets") or []
+    else:
+        from ops.desk_snapshot import desk_scan
+        try:
+            cards = release_scan(desk_scan(int(time.time() * 1000))).get("markets") or []
+        except Exception:
+            cards = empty_desk().get("markets") or []
+    classified = [classify_card(card) for card in cards]
+    try:
+        from ops.signal_ledger import read as read_signals, record_observations
+        record_observations(classified, component="lifecycle")
+        history = read_signals()
+    except Exception:
+        history = []
+    return jsonify({
+        "markets": classified,
+        "history": history,
+        "history_count": len(history),
+        "truncated": False,
+        "broker": False,
+        "note": "A failed study or a blocked AutoPilot does not remove an observation. Missing data stays missing.",
+    })
+
+
+@app.get("/api/ai")
+def ai_status():
+    from ops.ollama import health
+    return jsonify(health())
+
+
+@app.post("/api/explain")
+def explain_api():
+    user_id, _user = _session_user()
+    if not user_id:
+        return jsonify({"error": "unauthorized"}), 401
+    from ops.ollama import explain
+    body = request.get_json(silent=True) or {}
+    result = explain(body.get("evidence") if isinstance(body.get("evidence"), dict) else {})
+    result["order_opened"] = False
+    return jsonify(result)
 
 
 @app.get("/api/autopilot")
@@ -2073,21 +2143,24 @@ def _auth_page(kind, nxt):
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>{title} · Aureon Trading Lab</title>
 <style>
+html,body{{max-width:100%;overflow-x:hidden}}
 body{{margin:0;font-family:system-ui;background:#0b1220;color:#e8eef7}}
-header{{display:flex;justify-content:space-between;align-items:center;padding:16px 24px;border-bottom:1px solid #1e293b}}
+header{{display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;padding:16px;border-bottom:1px solid #1e293b}}
 a{{color:#99f6e4;text-decoration:none}}
 .brand{{font-weight:700;color:#e8eef7}}
 .muted{{color:#94a3b8;font-size:12px}}
-main{{max-width:420px;margin:48px auto;padding:0 24px}}
-form{{background:#111827;border:1px solid #1e293b;border-radius:12px;padding:20px;display:grid;gap:12px}}
-label{{display:grid;gap:6px;font-size:14px}}
-input{{background:#0b1220;color:#e8eef7;border:1px solid #334155;border-radius:8px;padding:10px}}
-button{{background:#0f766e;color:white;border:0;padding:10px 16px;border-radius:8px;cursor:pointer}}
+main{{max-width:420px;margin:24px auto;padding:0 16px}}
+h1{{font-size:1.6rem;line-height:1.2}}
+form{{background:#111827;border:1px solid #1e293b;border-radius:12px;padding:20px;display:grid;gap:12px;min-width:0}}
+label{{display:grid;gap:6px;font-size:14px;min-width:0}}
+input{{width:100%;max-width:100%;box-sizing:border-box;background:#0b1220;color:#e8eef7;border:1px solid #334155;border-radius:8px;padding:12px;font-size:16px}}
+button{{background:#0f766e;color:white;border:0;padding:12px 16px;border-radius:8px;cursor:pointer;font-size:16px}}
 button:disabled{{opacity:.6}}
 .err{{color:#fda4af;min-height:1.2em}}
-.pw{{display:flex;gap:8px;align-items:center}}
-.pw input{{flex:1}}
-.pw button{{background:#152033;border:1px solid #334155}}
+.pw{{display:flex;gap:8px;align-items:center;min-width:0}}
+.pw input{{flex:1;min-width:0}}
+.pw button{{flex:0 0 auto;background:#152033;border:1px solid #334155}}
+@media(max-width:360px){{header{{padding:12px}}main{{margin:12px auto;padding:0 12px}}form{{padding:16px}}}}
 </style>
 </head>
 <body>
@@ -2136,7 +2209,7 @@ form.onsubmit = async (event) => {{
       body: JSON.stringify({{name, password}})
     }});
     if (!response.ok) {{
-      msg.textContent = "{fail}";
+      msg.textContent = (response.status === 401 || response.status === 400) ? "{fail}" : "The request could not be completed. Try again.";
       btn.disabled = false;
       btn.textContent = label;
       return;
@@ -2179,7 +2252,7 @@ h1{font-size:clamp(36px,5vw,58px);line-height:1.05;margin:8px 0 12px;letter-spac
 .card{background:#101826;border:1px solid #1d2a3d;border-radius:14px;padding:16px}
 .card h3{margin:0 0 8px}
 footer a{color:#99f6e4}
-@media(max-width:800px){header{flex-wrap:wrap;gap:10px}.hero,.grid{grid-template-columns:1fr}nav{width:100%}}
+@media(max-width:800px){header{flex-wrap:wrap;gap:10px;padding:16px}.hero,.grid{grid-template-columns:1fr}.hero{padding:28px 16px 16px}h1{font-size:2rem}nav{width:100%;flex-wrap:wrap}.wrap{padding:8px 16px 32px}}
 </style>
 </head>
 <body>
@@ -2232,6 +2305,7 @@ DASHBOARD = """<!doctype html>
 <style>
 :root{--bg:#07090d;--panel:#12161d;--line:#242b36;--text:#f4f7fb;--muted:#93a0b4;--teal:#2dd4bf;--ok:#3dd68c;--bad:#ff6b7a;--warn:#e7b85a}
 *{box-sizing:border-box}
+html,body{max-width:100%;overflow-x:hidden}
 body{margin:0;font-family:Inter,system-ui,-apple-system,Segoe UI,sans-serif;background:var(--bg);color:var(--text)}
 .shell{display:grid;grid-template-columns:248px 1fr;min-height:100vh}
 aside{background:#0c1016;border-right:1px solid var(--line);padding:18px 12px 24px}
@@ -2312,7 +2386,28 @@ th,td{text-align:left;padding:10px 12px;border-bottom:1px solid #222a36;white-sp
 th{color:#93a0b4;font-weight:600;font-size:.75rem;letter-spacing:.04em;text-transform:uppercase}
 tr:last-child td{border-bottom:0}
 @media(max-width:1100px){.desk,.split{grid-template-columns:1fr}.kpis.five{grid-template-columns:repeat(2,minmax(0,1fr))}}
-@media(max-width:900px){header{flex-direction:column;align-items:flex-start}.shell{grid-template-columns:1fr}#menu{display:inline-block}aside{display:none;position:fixed;inset:0 auto 0 0;width:min(260px,88vw);z-index:20;overflow:auto}aside.open{display:block}.markets,.courses,.workspace,.empty-grid,.sections,.desk,.split,.kpis,.kpis.five{grid-template-columns:1fr}button,select{min-height:40px}main{padding:12px 12px 28px}}
+@media(max-width:900px){
+header{flex-direction:column;align-items:flex-start;min-width:0}
+.shell{grid-template-columns:1fr}
+#menu{display:inline-block;position:sticky;top:8px;z-index:30}
+aside{display:none;position:fixed;inset:0 auto 0 0;width:min(280px,88vw);z-index:40;overflow:auto;padding-bottom:32px;box-shadow:8px 0 24px rgba(0,0,0,.35)}
+aside.open{display:block}
+aside a{min-height:44px}
+.markets,.courses,.workspace,.empty-grid,.sections,.desk,.split,.kpis,.kpis.five{grid-template-columns:1fr}
+button,select{min-height:44px;max-width:100%}
+main{padding:12px 12px 32px;min-width:0}
+.pills{min-width:0}
+.pill{max-width:100%}
+#view input,#view select{max-width:100%;font-size:16px}
+.field,#planform > label{max-width:none}
+.tablewrap{overflow:visible;border:0}
+#view table,#view table tbody,#view table tr,#view table td,table.matrix,table.matrix tbody,table.matrix tr,table.matrix td{display:block;width:100%;max-width:100%;white-space:normal}
+#view table thead,table.matrix thead{display:none}
+#view table tr,table.matrix tr{border:1px solid var(--line);border-radius:12px;margin:0 0 10px;padding:8px 0;background:#10151c}
+#view table td,table.matrix td{border:0;padding:6px 12px}
+#view table td::before,table.matrix td::before{content:attr(data-label);display:block;color:var(--muted);font-size:.72rem;letter-spacing:.04em;text-transform:uppercase;margin-bottom:2px}
+}
+@media(max-width:430px){.price{font-size:1.35rem}.card{padding:14px}h1,h2{overflow-wrap:anywhere}}
 </style>
 </head>
 <body data-path="{{PAGE_PATH}}">
@@ -2382,7 +2477,8 @@ fetch("/health").then(r => r.ok ? r.json() : null).then(health => {
   const badge = document.getElementById("feedbadge");
   if (!badge || !health) return;
   const worker = health.worker || {};
-  badge.textContent = "Worker " + (worker.status || "unknown");
+  const workerLabel = worker.status === "beating" ? "heartbeat" : (worker.status || "unknown");
+  badge.textContent = health.status === "reading_unavailable" ? "No verified reading" : ("Worker " + workerLabel);
 }).catch(() => {
   const badge = document.getElementById("feedbadge");
   if (badge) badge.textContent = "Health not confirmed";
@@ -3051,7 +3147,7 @@ async function scannerPage(){
         if (again) again.onclick = () => loadCoverage();
         return;
       }
-      const lines = platform.pairs.map(pair => `<tr><td>${pair.instrument}</td><td>${pair.timeframe}</td><td><span class="badge${pair.evaluation === "Unavailable" ? " block" : ""}">${pair.rights}</span></td><td>${pair.source}</td><td>${pair.history}</td><td>${pair.latest_read}</td><td>${pair.evaluation}</td><td>${pair.approval}</td></tr>`).join("");
+      const lines = platform.pairs.map(pair => `<tr><td data-label="Instrument">${pair.instrument}</td><td data-label="Time">${pair.timeframe}</td><td data-label="Status"><span class="badge${pair.evaluation === "Unavailable" ? " block" : ""}">${pair.rights}</span></td><td data-label="Source">${pair.source}</td><td data-label="History">${pair.history}</td><td data-label="Latest read">${pair.latest_read}</td><td data-label="Evaluation">${pair.evaluation}</td><td data-label="Research">${pair.approval}</td></tr>`).join("");
       box.innerHTML = `<h2>Market coverage</h2><p class="muted">Gold one-minute and three-minute are not offered. A verified live reading is not available for the other pairs. A row is not an order.</p><div class="tablewrap"><table class="matrix"><thead><tr><th>Instrument</th><th>Time</th><th>Status</th><th>Source</th><th>History</th><th>Latest read</th><th>Evaluation</th><th>Note</th></tr></thead><tbody>${lines}</tbody></table></div>`;
     });
   };
@@ -3247,14 +3343,15 @@ async function load(){
 async function liveActivities(){
   const bot = await fetch("/api/autopilot", {credentials:"same-origin"}).then(r => r.ok ? r.json() : null).catch(()=>null);
   const autoLine = bot ? autoSentence(bot) : "Sign in to read this account's AutoPilot state.";
-  const notes = await fetch("/api/notifications", {credentials:"same-origin"}).then(r => r.ok ? r.json() : {items:[]}).catch(()=>({items:[]}));
-  const coverage = await fetch("/api/coverage", {credentials:"same-origin"}).then(r => r.ok ? r.json() : {}).catch(()=>({}));
-  const age = coverage.evaluated_at_ms ? Math.max(0, Math.round((Date.now() - coverage.evaluated_at_ms) / 1000)) : null;
-  const rows = (notes.items || []).filter(item => item.decision === "BUY" || item.decision === "SELL");
+  const activity = await fetch("/api/activity", {credentials:"same-origin"}).then(r => r.ok ? r.json() : {events:[]}).catch(()=>({events:[]}));
   const book = await fetch("/api/paper/book", {credentials:"same-origin"}).then(r => r.ok ? r.json() : {open:[], orders:[]}).catch(()=>({open:[], orders:[]}));
   const positions = (book.open||[]).concat(book.ambiguous||[]).map(row => `<article class="card"><h2>${row.opened_by === "autopilot" ? "AutoPilot paper" : "Account paper"} · ${row.exit_kind||row.status} · ${row.symbol} ${row.direction}</h2><p>Entry ${priceText(row.symbol, row.entry)}. Stop ${priceText(row.symbol, row.stop)}. Target ${priceText(row.symbol, row.target)}. ${row.exit_price==null?"No paper exit.":"Paper exit "+priceText(row.symbol, row.exit_price)+"."}</p><p class="muted">${(row.events&&row.events.length)?row.events[row.events.length-1].note:row.note||""} This is not a broker fill.</p></article>`).join("");
-  const list = rows.map(item => `<article class="card"><h2>${item.lifecycle || "active"} · ${item.decision} · ${item.symbol} ${item.interval}</h2><p>${item.lifecycle_note || "Active means the plan is still the visible one. It does not mean an order was opened."}</p><div class="row"><span>Entry ${priceText(item.symbol, item.entry)}</span><span>Stop ${priceText(item.symbol, item.stop)}</span><span>Target ${priceText(item.symbol, item.target)}</span></div><p class="muted">${item.family || item.strategy || ""}</p></article>`).join("");
-  view.innerHTML = `<article class="card"><h2>Live Activities</h2><p>AutoPilot ${autoLine}</p><p>Plans come from the inbox. Open positions come from the paper record. Neither is a second signal, and neither is a broker fill.</p><p>Completed candles are judged when the background worker runs, about once a minute. A refresh of this page does not make that scan faster. Last scan ${age==null?"has no recorded time":age+" seconds ago"}.</p></article>${positions}${list || "<article class='card'><p>No open experimental plan for this account.</p></article>"}`;
+  const events = (activity.events || []).slice().reverse().map(item => {
+    const when = item.created_ms ? new Date(item.created_ms).toISOString() : "time unknown";
+    const note = (item.detail && item.detail.note) || "";
+    return `<article class="card"><div class="row"><span>${item.event_type}</span><span class="muted">${when}</span></div><p>${item.component || "desk"}${item.entity ? " · " + item.entity : ""}</p><p class="muted">${note} A heartbeat is not a market reading. A blocked notification does not delete this event.</p></article>`;
+  }).join("");
+  view.innerHTML = `<article class="card"><h2>Live Activities</h2><p>AutoPilot ${autoLine}</p><p class="muted">Permission, an approved strategy, and execution eligibility are three different facts. This page lists events that actually happened. It does not invent scans or fills.</p></article>${positions}${events || "<article class='card'><p>No system event is stored yet. An empty list is not a fictional scan.</p></article>"}`;
 }
 async function paperPages(){
   const response = await fetch("/api/paper/book", {credentials:"same-origin"});
@@ -3276,7 +3373,7 @@ async function paperPages(){
     }; });
     return;
   }
-  const rows = (book.orders||[]).map(row => `<tr><td>${row.status||""}</td><td>${row.symbol||""} ${row.direction||""}</td><td>${row.opened_by === "autopilot" ? "AutoPilot" : "Account"}</td><td>${row.entry==null?"—":row.entry}</td><td>${row.exit_kind||"no exit"}</td><td>${row.exit_price==null?"—":money(row.pnl_usd)+" USD"}</td></tr>`).join("");
+  const rows = (book.orders||[]).map(row => `<tr><td data-label="Status">${row.status||""}</td><td data-label="Market">${row.symbol||""} ${row.direction||""}</td><td data-label="Opened by">${row.opened_by === "autopilot" ? "AutoPilot" : "Account"}</td><td data-label="Entry">${row.entry==null?"—":row.entry}</td><td data-label="Exit">${row.exit_kind||"no exit"}</td><td data-label="Paper result">${row.exit_price==null?"—":money(row.pnl_usd)+" USD"}</td></tr>`).join("");
   view.innerHTML = `<article class="card"><h2>Journal</h2><p class="muted">Only paper orders recorded for this account. An empty book stays empty. These are not broker fills.</p>${rows ? `<div class="tablewrap"><table><thead><tr><th>Status</th><th>Market</th><th>Opened by</th><th>Entry</th><th>Exit</th><th>Paper result</th></tr></thead><tbody>${rows}</tbody></table></div>` : "<p>No paper orders. Opening one is a separate action from receiving a plan.</p>"}<p class="muted">${book.note||""}</p></article>`;
 }
 async function riskPage(){
@@ -3318,7 +3415,16 @@ async function systemPage(){
   const rightsLine = h.status === "rights_withheld"
     ? `<p>${RIGHTS_MESSAGE}</p><p class="muted">The process is up. Market data is withheld because commercial use is not approved. That is not a provider outage and not a stale feed.</p>`
     : (h.status === "reading_unavailable" ? `<p>A verified live reading is not available. This is not a fresh market and not a provider outage.</p>` : "");
-  view.innerHTML = `<article class="card"><h2>System</h2>${rightsLine}${stateRows}${row("Process", h.process||"unknown")}${row("Overall", h.status||"unknown")}${row("BTC / ETH", market)}${row("Gold", gold||"not scanned")}${row("Notifications", note)}${row("Approved strategies", qual)}${row("Ledger", h.ledger||"unknown")}${row("Strategy", h.strategy_status||"unknown")}${row("Broker", String(h.broker))}${row("Build", h.build_commit||"unknown")}${row("Worker status", workerStatus + " · " + workerHealthy)}${row("This account AutoPilot", autoLine)}${row("Worker heartbeat", h.worker && h.worker.last_beat_ms ? new Date(h.worker.last_beat_ms).toISOString() : "unknown")}${row("Background scan", h.worker && h.worker.last_monitor_ms ? new Date(h.worker.last_monitor_ms).toISOString() : "not run yet")}${row("Last scan", watched)}</article><article class="card" id="data-coverage"><h2>Research data coverage</h2><p>Reading data rights.</p></article><p class="muted">A missing, stale or failed heartbeat is not a healthy worker. A rights withhold is not an outage. AutoPilot is not confirmed while the worker is unhealthy. The background scan uses the same decision as the terminal. It does not send Telegram. Gold 1m and 3m are unavailable without a licensed minute feed. AutoPilot is paper only and stays off until the account enables it.</p>`;
+  view.innerHTML = `<article class="card"><h2>System</h2>${rightsLine}${stateRows}${row("Process", h.process||"unknown")}${row("Overall", h.status||"unknown")}${row("BTC / ETH", market)}${row("Gold", gold||"not scanned")}${row("Notifications", note)}${row("Approved strategies", qual)}${row("Ledger", h.ledger||"unknown")}${row("Strategy", h.strategy_status||"unknown")}${row("Broker", String(h.broker))}${row("Build", h.build_commit||"unknown")}${row("Worker status", workerStatus + " · " + workerHealthy)}${row("This account AutoPilot", autoLine)}${row("Worker heartbeat", h.worker && h.worker.last_beat_ms ? new Date(h.worker.last_beat_ms).toISOString() : "unknown")}${row("Background scan", h.worker && h.worker.last_monitor_ms ? new Date(h.worker.last_monitor_ms).toISOString() : "not run yet")}${row("Last scan", watched)}</article><article class="card" id="ai-status"><h2>Local AI</h2><p>Checking whether a local model is configured.</p></article><article class="card" id="data-coverage"><h2>Research data coverage</h2><p>Reading data rights.</p></article><p class="muted">A missing, stale or failed heartbeat is not a healthy worker. A rights withhold is not an outage. AutoPilot is not confirmed while the worker is unhealthy. The background scan uses the same decision as the terminal. It does not send Telegram. Gold 1m and 3m are unavailable without a licensed minute feed. AutoPilot permission is not the same as an approved strategy or an eligible entry. Local AI cannot approve a strategy or place an order.</p>`;
+  fetch("/api/ai").then(r => r.ok ? r.json() : null).then(ai => {
+    const box = document.getElementById("ai-status");
+    if (!box) return;
+    const ready = ai && ai.available === true;
+    box.innerHTML = `<h2>Local AI</h2><p>${ready ? "Available" : "Offline"} · ${ai && ai.model ? ai.model : "no model configured"}</p><p class="muted">${ready ? "Explanations use evidence the desk supplies." : "The desk keeps running. No reading is invented while the model is offline."} Reason: ${(ai && ai.reason) || "none"}.</p>`;
+  }).catch(() => {
+    const box = document.getElementById("ai-status");
+    if (box) box.innerHTML = `<h2>Local AI</h2><p>Offline</p><p class="muted">The status check failed. Trading did not stop.</p>`;
+  });
   fetch("/api/data-coverage", {credentials:"same-origin"}).then(r => r.json()).then(payload => {
     const box = document.getElementById("data-coverage");
     if (box) box.outerHTML = dataCoverageCard(payload);

@@ -364,17 +364,20 @@ def derived_withheld(symbol, interval=None):
 
 
 def diagnostic_monitor(monitor):
-    """System status may name a decision. It does not receive prices."""
+    """A customer status may say a check ran. It does not receive prices or an unreleased direction."""
     if not isinstance(monitor, dict):
         return None
     rows = []
     for row in monitor.get("evaluations") or []:
         if not isinstance(row, dict):
             continue
+        symbol = row.get("symbol")
+        interval = row.get("interval")
+        released = candles_released(symbol, interval) or reading_released(symbol, interval)
         rows.append({
-            "symbol": row.get("symbol"),
-            "interval": row.get("interval"),
-            "decision": row.get("decision"),
+            "symbol": symbol,
+            "interval": interval,
+            "decision": row.get("decision") if released else "not_shown",
             "blocked": row.get("blocked"),
         })
     return {"evaluations": rows, "error": monitor.get("error")}

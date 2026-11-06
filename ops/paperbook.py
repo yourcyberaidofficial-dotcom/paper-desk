@@ -237,6 +237,26 @@ def open_order(user, opportunity, now_ms, commit=True, opened_by="account", auto
     if not admitted or not admitted.get("ok"):
         return admitted or {"ok": False, "reason": "record_unreadable"}
     _remember_count(user_id, now_ms)
+    if admitted.get("ok") and isinstance(admitted.get("order"), dict):
+        try:
+            from ops.activity import record
+            order = admitted["order"]
+            record(
+                "paper_opened",
+                account_id=user_id,
+                entity=order.get("id"),
+                component="paperbook",
+                detail={
+                    "symbol": order.get("symbol"),
+                    "direction": order.get("direction"),
+                    "entry": order.get("entry"),
+                    "opened_by": order.get("opened_by"),
+                    "note": "Paper order recorded. Not a broker fill.",
+                },
+                now_ms=int(now_ms),
+            )
+        except Exception:
+            pass
     return admitted
 
 
@@ -367,6 +387,24 @@ def close_order(user_id, order_id, exit_price, now_ms):
             "note": "Closed by the account at a stated price. The original entry, stop and target were not changed. This is not a broker fill.",
         })
         save(user_id, book)
+        try:
+            from ops.activity import record
+            record(
+                "paper_closed",
+                account_id=user_id,
+                entity=order.get("id"),
+                component="paperbook",
+                detail={
+                    "symbol": order.get("symbol"),
+                    "direction": order.get("direction"),
+                    "entry": order.get("entry"),
+                    "exit_price": exit_price,
+                    "note": "Closed by the account. The original entry was not rewritten. Not a broker fill.",
+                },
+                now_ms=int(now_ms),
+            )
+        except Exception:
+            pass
         return {"ok": True, "reason": "closed", "order": order}
     return {"ok": False, "reason": "missing"}
 

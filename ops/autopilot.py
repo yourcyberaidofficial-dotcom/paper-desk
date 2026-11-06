@@ -26,12 +26,15 @@ def default_state():
 
 
 def presentation(state, worker_healthy, open_positions=None, gates=None):
-    """One account-facing label. Stored status is unchanged and is not shown as Running."""
+    """One account-facing label. Stored status is unchanged and is not shown as Running.
+
+    Permission, strategy approval, and execution eligibility stay separate.
+    """
     status = (state or {}).get("status") or "off"
     enabled = bool((state or {}).get("enabled")) and status != "off"
     updated = (state or {}).get("updated_ms")
 
-    def pack(facing, entries, note, kind, blockers=None):
+    def pack(facing, entries, note, kind, blockers=None, approval="not_checked"):
         body = {
             "facing": facing,
             "entries_available": entries,
@@ -39,11 +42,14 @@ def presentation(state, worker_healthy, open_positions=None, gates=None):
             "state_kind": kind,
             "updated_ms": updated,
             "blockers": list(blockers or []),
+            "permission": "granted" if enabled else "not_granted",
+            "strategy_approval": approval,
+            "execution": "eligible" if entries else "not_eligible",
         }
         return body
 
     if not enabled:
-        return pack("Disabled", False, "Permission is not active. New automated entries are blocked.", "disabled")
+        return pack("Disabled", False, "Permission is not active. New automated entries are blocked.", "disabled", approval="not_checked")
     if status == "paused":
         return pack("Paused", False, "New entries are blocked. Open paper positions stay open and are not closed.", "paused")
     if status == "stopped":
@@ -52,47 +58,55 @@ def presentation(state, worker_healthy, open_positions=None, gates=None):
         return pack(
             "Health not confirmed",
             False,
-            "Automation is enabled, but worker health is not confirmed. New entries are not treated as available.",
+            "Permission is on, but worker health is not confirmed. New entries are not treated as available.",
             "unhealthy",
         )
     blockers = []
+    approved = None
     if isinstance(gates, dict):
         if gates.get("market_data") == "rights_withheld":
             blockers.append("market_data_rights")
         if gates.get("approved_for_paper") == 0:
             blockers.append("no_approved_strategy")
+            approved = "absent"
+        elif gates.get("approved_for_paper"):
+            approved = "present"
     if blockers:
         parts = []
         if "market_data_rights" in blockers:
             parts.append("Market data rights are unconfirmed.")
         if "no_approved_strategy" in blockers:
             parts.append("No strategy is approved for paper.")
-        if blockers == ["market_data_rights"]:
-            facing = "Enabled — new entries blocked by data rights"
-        elif blockers == ["no_approved_strategy"]:
-            facing = "Enabled — no approved strategy"
-        else:
-            facing = "Enabled — new entries blocked"
-        return pack(facing, False, " ".join(parts) + " Existing paper positions stay monitored.", "blocked", blockers)
+        facing = "Permission on — not operational"
+        return pack(
+            facing,
+            False,
+            " ".join(parts) + " Existing paper positions stay monitored. Permission is not execution.",
+            "blocked",
+            blockers,
+            approval=approved or "absent",
+        )
     if open_positions == 0:
         if gates is not None:
             return pack(
-                "Enabled — waiting for an eligible opportunity",
+                "Operational — waiting for an eligible opportunity",
                 True,
-                "Automation is enabled. Market data and strategy approval both allow a new paper entry, and none is open. Nothing is entered until a plan passes every check.",
+                "Permission, worker health, and strategy approval all allow a new paper entry, and none is open. Nothing is entered until a plan passes every check.",
                 "waiting",
+                approval="present",
             )
         return pack(
             "Waiting",
             True,
-            "Automation is enabled and the worker heartbeat is current. No qualifying paper opportunity is open. Nothing is entered until a plan passes every check.",
+            "Permission is on and the worker heartbeat is current. No qualifying paper opportunity is open. Nothing is entered until a plan passes every check.",
             "waiting",
         )
     return pack(
-        "Enabled",
+        "Operational",
         True,
-        "Automation is enabled and the worker heartbeat is current. Open paper positions stay monitored. A new plan is opened only when it qualifies.",
+        "Permission is on and the worker heartbeat is current. Open paper positions stay monitored. A new plan is opened only when it qualifies.",
         "enabled",
+        approval="present" if approved == "present" else "not_checked",
     )
 
 

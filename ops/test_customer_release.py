@@ -148,6 +148,7 @@ def test_unverified_feeds_are_not_called_and_the_sentinel_is_absent(tmp_path, mo
     for row in (health["worker"]["last_monitor"] or {}).get("evaluations") or []:
         assert "entry" not in row
         assert "price" not in row
+        assert row["decision"] == "not_shown"
 
 
 def test_a_cached_sentinel_is_not_served_as_current(tmp_path, monkeypatch):
