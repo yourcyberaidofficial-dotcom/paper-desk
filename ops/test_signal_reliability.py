@@ -143,3 +143,21 @@ def test_explanation_quotes_the_stored_observation_and_drops_a_client_price(tmp_
     assert "424242" not in seen["body"]
     assert result["approved"] is False and result["order_opened"] is False
     assert result["explanation"]["not_an_order"] is True
+
+
+def test_a_gated_pair_is_not_described_as_a_live_signal(tmp_path, monkeypatch):
+    monkeypatch.setenv("AUREON_DATA", str(tmp_path))
+    monkeypatch.delenv("OLLAMA_MODEL", raising=False)
+    from ops.app import DASHBOARD
+    from ops.signal_engine import cycle
+
+    body = cycle(1_700_000_000_000, transport=lambda *_args: (_ for _ in ()).throw(AssertionError("network")))
+    gold = next(row for row in body["markets"] if row["symbol"] == "XAUUSD" and row["interval"] == "1h")
+    btc = next(row for row in body["markets"] if row["symbol"] == "BTCUSDT" and row["interval"] == "15m")
+    assert gold["observation"] == "data_unavailable" and gold["permission"] == "not_granted"
+    assert gold["price"] is None and "synthesized" in gold["note"]
+    assert btc["permission"] == "not_granted" and btc["price"] is None
+    assert "Forming setup — not confirmed" in DASHBOARD
+    assert "Data unavailable — not a zero-setup scan" in DASHBOARD
+    assert "Local AI offline" in DASHBOARD
+

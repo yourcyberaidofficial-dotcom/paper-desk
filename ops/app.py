@@ -2766,13 +2766,23 @@ async function loadDesk(){
   if (!host) return;
   const body = await fetch("/api/signals/lifecycle", {credentials:"same-origin"}).then(r => r.ok ? r.json() : null).catch(() => null);
   if (!body) { host.innerHTML = "<h2>Live desk</h2><p>The signal history could not be read. No reading was invented.</p>"; return; }
+  const ai = await fetch("/api/ai").then(r => r.ok ? r.json() : null).catch(() => null);
+  const aiLine = !ai ? "Local AI status could not be read." : (ai.available === true ? "Local AI online. It cannot approve or trade." : "Local AI offline. The signal engine does not wait on it.");
   const cards = (body.markets || []).map(row => {
     const unavailable = row.observation === "data_unavailable";
-    const title = unavailable ? "Data unavailable" : (row.observation || "observation");
-    return `<article class="card"><h3>${row.symbol || ""} ${row.interval || ""}</h3><p>${title}</p><p class="muted">Research ${row.research || "not recorded"}. AutoPilot ${row.execution || "not eligible"}. Source ${row.source_id || "not shown"}. Freshness ${row.freshness || "not a current reading"}.</p><p class="muted">${row.note || ""}</p><p class="muted">${row.conditions || ""} ${row.higher_timeframe || ""}</p></article>`;
+    const stale = row.freshness === "stale";
+    const title = stale ? "Stale candle — not a current signal"
+      : unavailable ? "Data unavailable — not a zero-setup scan"
+      : row.observation === "forming" ? "Forming setup — not confirmed"
+      : row.observation === "active_signal" ? "Confirmed signal — not an approval"
+      : row.observation === "invalidated" ? "Invalidated — earlier row kept"
+      : row.observation === "expired" ? "Expired — earlier row kept"
+      : "Market observation — not a signal";
+    const shown = unavailable || stale || row.price == null ? "—" : row.price;
+    return `<article class="card"><h3>${row.symbol || ""} ${row.interval || ""}</h3><p>${title}</p><p class="muted">Permission ${row.permission || "not granted"}. Research ${row.research || "not recorded"}. AutoPilot ${row.execution || "not eligible"}. Source ${row.source_id || "not shown"}. Freshness ${row.freshness || "not retrieved"}. Reading ${shown}.</p><p class="muted">${row.note || ""}</p><p class="muted">${row.conditions || ""} ${row.higher_timeframe || ""}</p></article>`;
   }).join("");
   const history = (body.history || []).map(row => `<div class="row"><span>${row.symbol || ""} ${row.interval || ""}</span><span>${row.observation || ""}</span></div><p class="muted">${row.note || row.conditions || ""}</p>`).join("");
-  host.innerHTML = `<h2>Live desk</h2><p class="muted">A signal, a research result and an AutoPilot decision are three different facts. Data unavailable is not a signal and not a claim that the scan found no setup.</p>${cards}<h3>History</h3><p class="muted">Every stored row is listed. A later state is appended. Earlier rows stay.</p>${history || "<p>No observation is stored yet.</p>"}`;
+  host.innerHTML = `<h2>Live desk</h2><p class="muted">${aiLine} A signal, a research result and an AutoPilot decision are three different facts.</p>${cards}<h3>History</h3><p class="muted">Every stored row is listed. A later state is appended. Earlier rows stay.</p>${history || "<p>No observation is stored yet.</p>"}`;
 }
 async function signals(){
   view.innerHTML = `<article class="card" id="live-desk"><h2>Live desk</h2><p role="status">Loading signal history. No price is invented while this loads.</p></article><article class="card" id="live-now"><h2>Live signals</h2><p role="status">Loading today's readings. No price is invented while this loads.</p></article>${askCard()}<article class="card" id="live-hist"><h2>Historical research</h2><p class="muted">Separated from the live desk. Loading the saved record.</p></article>`;

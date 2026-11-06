@@ -29,6 +29,8 @@ Kraken was probed on 2026-11-06: `AssetPairs` returned `XBTUSDT` (`XBT/USDT`, on
 
 Ask Aureon reads stored observations and the account's paper book. The model cannot approve a strategy, change risk, or open an order. Offline, the stored sentence is returned and the engine keeps running.
 
+The Live Signals page lists permission, research and AutoPilot on separate lines. A missing grant says data unavailable. A stale candle is not called a current signal. No price is printed for either.
+
 ## Production
 
 Not executed.

@@ -246,6 +246,23 @@ def _observe(symbol, interval, bars, source_id, now_ms):
     return result
 
 
+def _gated(symbol, interval, reason):
+    card = classify_card(unavailable_card(symbol, interval))
+    card["permission"] = "not_granted"
+    card["freshness"] = "not_retrieved"
+    card["price"] = None
+    card["entry"] = None
+    card["stop"] = None
+    card["target"] = None
+    if symbol == "XAUUSD":
+        card["note"] = "Gold stays on its own adapter. No XAUUSD reading was synthesized from crypto."
+    elif reason == "source_failure":
+        card["note"] = "This pair's source failed. No other venue was used, and no candle was invented."
+    else:
+        card["note"] = "This pair has no display grant. Kraken and Binance are not substitutes for each other."
+    return card
+
+
 def cycle(now_ms=None, transport=None):
     """One pass across the desk. Each pair keeps its own result."""
     now_ms = int(now_ms if now_ms is not None else time.time() * 1000)
@@ -253,7 +270,7 @@ def cycle(now_ms=None, transport=None):
     for symbol, interval in DESK:
         if not _released(symbol, interval):
             note_unavailable(symbol, interval, "reading_unavailable", now_ms, component="signal_engine")
-            markets.append(classify_card(unavailable_card(symbol, interval)))
+            markets.append(_gated(symbol, interval, "reading_unavailable"))
             continue
         try:
             loaded = _load(symbol, interval, now_ms, transport)
@@ -262,13 +279,13 @@ def cycle(now_ms=None, transport=None):
         bars = (loaded or {}).get("bars") or []
         if not bars:
             note_unavailable(symbol, interval, (loaded or {}).get("reason") or "source_failure", now_ms, component="signal_engine")
-            markets.append(classify_card(unavailable_card(symbol, interval)))
+            markets.append(_gated(symbol, interval, "source_failure"))
             continue
         try:
             card = _observe(symbol, interval, bars, loaded.get("source_id"), now_ms)
         except Exception:
             note_unavailable(symbol, interval, "evaluation_failed", now_ms, component="signal_engine")
-            markets.append(classify_card(unavailable_card(symbol, interval)))
+            markets.append(_gated(symbol, interval, "source_failure"))
             continue
         stored = record_observations([card], now_ms=now_ms, component="signal_engine")
         follow = _expire_or_invalidate(card, now_ms)
@@ -278,6 +295,13 @@ def cycle(now_ms=None, transport=None):
         classified["conditions"] = card.get("conditions")
         classified["higher_timeframe"] = card.get("higher_timeframe")
         classified["freshness"] = card.get("freshness")
+        classified["permission"] = "granted"
+        if card.get("freshness") == "stale" or card.get("quality") == "stale":
+            classified["price"] = None
+            classified["entry"] = None
+            classified["stop"] = None
+            classified["target"] = None
+            classified["note"] = "The candle is stale. It is not a current signal and it is not a missing licence."
         if stored.get("rows"):
             classified = {**classified, "persisted": True}
         markets.append(classified)
