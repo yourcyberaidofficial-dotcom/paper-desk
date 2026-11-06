@@ -63,7 +63,7 @@ def build(user_id, task, symbol=None, interval=None, signal_id=None, lesson_id=N
     refs = []
     unavailable = []
     for index, row in enumerate(rows[-8:]):
-        ref = f"obs:{index}:{row.get('symbol')}:{row.get('interval')}:{row.get('observation')}"
+        ref = f"ledger:{index}:{row.get('symbol')}:{row.get('interval')}:{row.get('observation')}"
         refs.append(ref)
         if row.get("observation") == "data_unavailable" or row.get("freshness") in {"stale", "not_retrieved"}:
             unavailable.append(ref)

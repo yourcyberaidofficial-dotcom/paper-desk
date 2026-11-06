@@ -127,12 +127,17 @@ def ask(user_id, task, symbol=None, interval=None, transport=None, now_ms=None, 
             now_ms=stamp,
         )
         summary = ((phrased.get("explanation") or {}).get("summary") if phrased.get("ok") else None)
+        used = ""
+        if isinstance(phrased.get("explanation"), dict):
+            used = " ".join(item for item in (phrased["explanation"].get("evidence_used") or []) if isinstance(item, str))
+        blob = f"{summary or ''}\n{used}"
         base["model_status"] = "online" if phrased.get("ok") else "rejected"
         base["model"] = status.get("model")
         base["reason"] = None if phrased.get("ok") else phrased.get("reason")
         base["explanation"] = phrased.get("explanation")
-        if summary and (order_language(summary) or invented_numbers(summary, lines)):
+        if phrased.get("ok") and (order_language(blob) or invented_numbers(blob, lines)):
             base["explanation"]["summary"] = fallback
+            base["explanation"]["evidence_used"] = list(bundle["refs"])
             base["explanation"]["approved"] = False
             base["reason"] = "ungrounded"
             summary = fallback

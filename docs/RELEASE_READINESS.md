@@ -6,246 +6,240 @@ Production release status: **DEPLOYMENT_PROHIBITED_PENDING_OWNER_APPROVAL**
 
 PR #97 stays open and unmerged. This document does not authorise a deploy, a merge to `main`, a production container restart, or a change to production secrets or volumes.
 
+Phase 2 closed the backend defects that were FAIL in the previous report. It did not make the desk releasable. Customer live signals stay blocked. The local model is not installed.
+
 ## 1. Branch and commits
 
 | Item | Value |
 |---|---|
 | Repository | `yourcyberaidofficial-dotcom/paper-desk` |
 | Branch | `product/recovery` |
-| Baseline SHA | `d64a3287fd89541cf4568c6af90e9db3b7adc3d8` |
-| Report SHA | Implementation `a6da67b0ef458da233e2f82cc25202d4d18ba258`. This file's SHA line was added in the following commit on the same branch. |
-| Working tree preserved | `/tmp/paper-desk` (`product-completion`, dirty) and `/tmp/paper-desk-fix` (dirty `product/recovery` checkout) were not reset or cleaned. This work was made in a separate clone. |
+| Previous report commit | `5960ff78325e5d84431d54ba90ccb1b84be81fef` |
+| Implementation commit | Recorded below after the code commit. This line is updated in the following commit and does not by itself change behaviour. |
+| Working tree | Phase 2 was applied on the existing `product/recovery` checkout at `/tmp/aureon-lab`. No other checkout was reset. |
 
 ## 2. Verdict
 
-The backend can evaluate, store, and explain observations without inventing prices, and it refuses cloud models and public inference hosts. It is not releasable.
+The five defects called out for this phase are fixed in code and covered by tests that failed before the change and pass after it. That is not a production approval.
 
 Customer live signals for BTCUSDT, ETHUSDT, and XAUUSD stay blocked. No display grant is on file. A public HTTP success would not change that.
 
-The preferred local model, `qwen3.5:9b-q4_K_M`, was not installed. This host has 4 GB RAM, 2 CPU cores, no GPU, and about 2.8 GB available. Loading that model here would starve the desk. No smaller model was substituted. No cloud model was called.
+The preferred local model, `qwen3.5:9b-q4_K_M`, was not installed. This host is not a dedicated inference machine. No smaller model was substituted. No cloud model was called. Private inference is `not_operational`.
 
 ## 3. Requirement matrix
 
 | Requirement | Status | Evidence |
 |---|---|---|
-| Production deploy, merge, and production data stay untouched | PASS | No compose command, no merge, no production SSH. Work is on `product/recovery` only. |
-| Account registration, login, session cookie | PASS | Existing suite plus `ops/test_route_matrix.py`. Cookie secret is no longer the literal `disabled` when unset (`ops/app.py`). |
-| Account isolation for paper and AI wording | PASS | `ops/test_ai_release.py::test_portfolio_wording_uses_only_the_requesting_account`. Paper book path is per user id. |
-| Append-only signal history and duplicate identity | PASS | `ops/signal_ledger.py` re-reads identity inside the file lock. `ops/test_ai_release.py::test_duplicate_observations_collapse_under_the_lock`. Restart keeps the JSONL file. |
-| Research failure does not delete an observation | PASS | `ops/test_recovery.py::test_research_failure_does_not_remove_an_observation` and `ops/test_signal_engine.py`. |
-| AutoPilot rejection does not suppress a stored observation | PASS | `ops/test_signal_engine.py` keeps the ledger when `consider` returns `no_approved_strategy`. AutoPilot still cannot open without an approved registry version. None is approved. |
-| Per-instrument permission, not one global switch | PASS | `ops/entitlements.py` `_kraken_decision` and `_twelve_decision`. `ops/rights_matrix.py`. `ops/test_ai_release.py::test_rights_matrix_does_not_promote_an_unverified_source`. |
-| Kraken XBT/USDT and ETH/USDT mapping, no native 3m | PASS | `ops/kraken_public.py`. 3m is derived only from a complete 1m grant. Not re-fetched from Kraken in this pass. |
-| XAUUSD independent of crypto, no synthetic 3m | PASS | `ops/signal_engine.py` returns no bars for gold 3m. Matrix row uses `twelve_data` and `native_interval: null`. |
-| Customer live signals for the twelve desk pairs | BLOCKED | No `data/rights/*.json` grant. `customer_live_signals` is `blocked`. Unavailable rows carry no price. |
-| Continuous evaluation while data is unlicensed | PASS | `Worker._monitor` calls `signal_engine.cycle` every pass. A raised cycle is stored on `last_cycle_error` and is not a heartbeat (`ops/test_ai_release.py`). A heartbeat is a separate activity event. |
-| Signal lifecycle persistence across restart | PASS | Append-only `signals/history.jsonl`. Duplicate write test. File is not truncated by the ledger. |
-| Canonical `opp:` identity everywhere | FAIL | Inbox and paper use `opp:{instrument}:{timeframe}:{family}:{direction}:{origin}`. The engine still falls back to `obs:{symbol}:{interval}:{bar}` when `decide` does not set an id (`ops/signal_engine.py`). |
-| Every signal family has explicit rules and tests | PASS | Desk auto path uses the existing interval families in `ops/interval_reading.py` (trend pullback, failed break, range expansion) and the frozen 4h/1h research rules. No new RSI/SMA family was added. |
-| AI service boundary, local only | PASS | `ops/ollama.py` refuses cloud model names and non-private `OLLAMA_BASE_URL` before a socket. `ops/test_ai_release.py`. |
-| AI model loaded and measured on this host | BLOCKED | `ops/ai_runtime.py` host facts below. `download_attempted` is false. `selected_model` is null. |
-| Evidence bundle before inference | PASS | `ops/ai_evidence.py` builds the bundle from the ledger, that user's paper book, and that user's profile. Prices are redacted before the model sees them. |
-| Structured output, invented price rejected | PASS | Legacy `{summary, evidence_used}` still validates. A summary containing `424242.5` is replaced by the stored-record sentence. Invalid JSON returns `invalid_output` and no explanation. |
-| Prompt injection and order requests | PASS | Injection text is dropped. `buy now` / `approve the strategy` returns `order_request_refused`. `approved` and `order_opened` stay false. |
-| AI tools cannot order, approve, or write | PASS | `ops/ai_safety.py` `call_tool` raises `PermissionError` for every name. There is no tool channel to the model. |
-| Trading continues while Ollama is offline | PASS | `ops/test_signal_engine.py::test_an_offline_model_does_not_stop_the_cycle`. Cycle does not import Ollama. |
-| AI evaluation on a live model | NOT TESTED | No weights are installed. The suite uses labelled fixtures, not live candles and not a running Ollama. |
-| Request size limit on AI routes | PASS | Body over 8000 bytes returns 413 before auth. `ops/test_ai_release.py`. |
-| Rate limit on login | PASS | Enforced outside pytest. Proven with `ENFORCE_RATE_LIMIT` at 2/minute, third call 429. |
-| Rate limit on every route | FAIL | `RateLimit` is still only applied to klines, market, login, register, and the AI posts. |
-| Every endpoint tested for success, invalid, unauthorised, missing, and internal error | FAIL | `ops/test_route_matrix.py` proves empty unauthenticated calls do not return HTTP 500. That is not the five-way matrix for every route. |
-| Auth on protected account routes | PASS | Paper, AI ask, explain, autopilot, and lab return 401 without a session. Token-only routes return 503 when `DESK_API_TOKEN` is unset. |
-| Public research and lifecycle routes | FAIL | `GET /api/signals/lifecycle` is still public and runs a cycle. Several research reads are public. They do not expose another account's paper book, but they are not authenticated. |
-| Broker and real-money trading disabled | PASS | AI, health, autopilot, and paper responses keep `broker: false`. No broker adapter was added. |
-| Orders and trade history as separate pages | PASS | `GET /orders` and `GET /history` render the signed-in shell. Screenshots below. |
-| Mobile layout at 320, 360, 375, 390, 414, 430 | PASS | Local server `127.0.0.1:8099` only. PNGs in `docs/release-evidence/`. Not a production browser lab. |
-| Backup and restore procedure exists | PASS | `ops/backup.py` copies a tree and checks a SHA-256 manifest. It is not wired to an HTTP route or the worker. |
-| Inbox history never trimmed | FAIL | `ops/inbox.py` rewrites and keeps the last 200 notices. Signal history is not trimmed. |
-| User JSON writes are atomic | FAIL | Paper orders use `ops/files.py` lock and replace. User profile, plan, and register still rewrite the JSON file without that lock. |
-| Graceful worker shutdown | FAIL | The desk loops are daemon threads. There is no shutdown handler. |
-| Dependency vulnerability audit | NOT TESTED | `pip audit` was not run in this pass. |
-| Live Kraken timestamp check in this pass | NOT TESTED | Mapping and parser tests already exist. This pass did not open a vendor socket. |
+| Production deploy, merge, and production data stay untouched | PASS | No compose command, no merge, no production SSH. Work is on `product/recovery` only. PR #97 was not merged. |
+| Account registration, login, session cookie | PASS | Existing suite plus `ops/test_endpoint_matrix.py`. Login and register success are real 200 responses on a separate client. |
+| Account isolation for paper and AI wording | PASS | `ops/test_ai_release.py`. Phase 2 lifecycle and inbox tests reject the other account's rows. |
+| Append-only signal history and duplicate identity | PASS | `ops/signal_ledger.py`. `ops/test_phase2_backend.py::test_signal_continuity_still_keeps_history`. Inbox retention does not rewrite `signals/history.jsonl`. |
+| Research failure does not delete an observation | PASS | `ops/test_recovery.py::test_research_failure_does_not_remove_an_observation`. |
+| AutoPilot rejection does not suppress a stored observation | PASS | `ops/test_signal_engine.py`. None of the registry versions is approved. |
+| Per-instrument permission, not one global switch | PASS | `ops/entitlements.py`. Unchanged this phase. |
+| Kraken XBT/USDT and ETH/USDT mapping, no native 3m | PASS | `ops/kraken_public.py`. Not re-fetched this phase. |
+| XAUUSD independent of crypto, no synthetic 3m | PASS | `ops/signal_engine.py` returns no bars for gold 3m. |
+| Customer live signals for the twelve desk pairs | BLOCKED | No `data/rights/*.json` grant. `customer_live_signals` is `blocked`. |
+| Continuous evaluation while data is unlicensed | PASS | `Worker._monitor` still calls `signal_engine.cycle`. A raised cycle is `last_cycle_error`, not a heartbeat. |
+| Signal lifecycle persistence across restart | PASS | Append-only `signals/history.jsonl`. The lifecycle route no longer writes that file. |
+| Canonical `opp:` identity everywhere | PASS | `ops/signal_engine.py::canonical_opportunity_id` no longer writes `obs:{symbol}:{interval}:{bar}`. An existing `opp:` id is kept. A legacy `obs:` id is not copied forward. Rows that have no family or direction stay `null` rather than gaining a fake id. Historical rows already stored are not rewritten. |
+| Every signal family has explicit rules and tests | PASS | No new RSI/SMA family was added. |
+| AI service boundary, local only | PASS | `ops/ai_safety.py` refuses cloud names, public IPs, documentation ranges, and `0.0.0.0`. `ops/test_phase2_backend.py::test_local_ai_rejects_hidden_prices_and_public_binds`. |
+| AI model loaded and measured on this host | BLOCKED | `ops/ai_runtime.py` `model_installed` is false. `download_attempted` is false. `selected_model` is null. `benchmark_status` is `NOT TESTED`. |
+| Evidence bundle before inference | PASS | `ops/ai_evidence.py`. Evidence refs are `ledger:` so they are not opportunity ids. |
+| Structured output, invented price rejected | PASS | A summary or evidence line containing `424,242` or `buy now` becomes `ungrounded` and is replaced with the stored-record sentence. |
+| Prompt injection and order requests | PASS | `buy now` returns `order_request_refused` before a socket. |
+| AI tools cannot order, approve, or write | PASS | `ops/ai_safety.py::call_tool` raises `PermissionError`. |
+| Trading continues while Ollama is offline | PASS | `ops/test_signal_engine.py::test_an_offline_model_does_not_stop_the_cycle`. |
+| AI evaluation on a live model | NOT TESTED | No weights are installed. The suite uses labelled fixtures. |
+| Qwen benchmark on an inference host | NOT TESTED | No inference host was provisioned. A smaller model was not installed here to produce a passing number. |
+| Request size limit on AI routes | PASS | Body over 8000 bytes returns 413 before auth. |
+| Rate limit on login | PASS | `AUTH_LIMITER` with `ENFORCE_RATE_LIMIT`, third call 429. `ops/test_ai_release.py::test_login_is_rate_limited_when_enforced`. |
+| Rate limit on every route | PASS | `ops/app.py::_limited` runs for every non-static request. Auth paths use `AUTH_LIMITER`. Everything else uses `LIMITER`. `ops/test_phase2_backend.py::test_rate_limit_covers_a_previously_open_route` proves `/api/signal`, `/version`, and `/health` share one budget. The limit is skipped only when pytest is imported and `ENFORCE_RATE_LIMIT` is unset. Production is not pytest. |
+| Every endpoint tested for success, invalid, unauthorised, missing, and internal error | PASS | `ops/test_endpoint_matrix.py`. 102 method/rule rows, all five checks PASS. Counts and the non-200 success contracts are in section 11. Raw rows: `docs/release-evidence/endpoint-matrix.json`. |
+| Auth on protected account routes | PASS | Paper, AI ask, explain, autopilot, lab, notifications, and lifecycle return 401 without a session. |
+| Lifecycle route is private, read-only, and account-scoped | PASS | `GET /api/signals/lifecycle` is session-only and does not call `cycle`. `POST`, `PUT`, `PATCH`, and `DELETE` return 405 with `modified: false` and do not write `signals/history.jsonl`. Another account's event and the fixture price `424242` are absent. `ops/test_phase2_backend.py::test_lifecycle_is_private_and_does_not_write` and `ops/test_recovery.py::test_lifecycle_route_does_not_invent_a_reading`. |
+| Public research catalogue | PASS | Routes such as `/api/research-lab`, `/api/research-signals`, `/api/engine`, `/health`, and `/version` stay unauthenticated because they return instrument status or the frozen research catalogue, not an account profile, inbox, or paper book. The matrix records that ownership is not applicable. They do not echo `password_hash`. |
+| Broker and real-money trading disabled | PASS | Responses keep `broker: false`. No broker adapter was added. |
+| Orders and trade history as separate pages | PASS | Unchanged. Not re-shot this phase. |
+| Mobile layout at 320, 360, 375, 390, 414, 430 | NOT TESTED | No page markup was changed. Previous frames in `docs/release-evidence/` were not regenerated. |
+| Backup and restore procedure exists | PASS | `ops/backup.py`. Not wired to an HTTP route. No migration was added. |
+| Inbox history never trimmed | PASS | `ops/inbox.py` appends JSONL. 230 notices remain after reload. Pagination walks all 230. Retention moves old notices into `*.archive.jsonl` and deletes nothing from that archive. An archived id cannot be inserted again. Signal history is a different file and was unchanged by the 230-notice test. |
+| User JSON writes are atomic and concurrency-safe | PASS | `ops/users.py::_commit` and `ops/files.py::update_json` lock, write a temp file, and `os.replace`. Two threads updating different fields on one account both survive. A second account is unchanged. A stale `expected_revision` does not write. A mutator that raises leaves the previous bytes. A file containing `{` is not overwritten. `ops/test_phase2_backend.py::test_profile_writes_do_not_drop_fields_or_partial_documents`. |
+| Graceful worker shutdown | PASS | `ops/runtime.py::DeskRuntime`. Stop refuses new `tick_start`. In-flight work can finish until the deadline. A task still running at the deadline is stored `completed: false` with event `work_interrupted`, not `worker_stopped`. A task that ends with `completed=False` is not later marked successful. Restart after `interrupted` records `worker_restarted` and `recover()` leaves `completed` false. Threads are not started under pytest. `ops/test_phase2_backend.py::test_worker_shutdown_records_only_finished_work`. |
+| Duplicate worker evaluations after restart | PASS | `ops/test_worker.py::test_duplicate_and_wait` still passes. The ledger id is the duplicate key. Unfinished runtime tasks are not replayed as successes. |
+| `POST /api/prefs` registered once | PASS | `ops/test_phase2_backend.py::test_worker_prefs_post_is_not_registered_twice`. The token route is `POST /api/worker/prefs`. |
+| Dependency vulnerability audit | NOT TESTED | `pip audit` was not run. |
+| Live Kraken timestamp check in this pass | NOT TESTED | No vendor socket was opened. |
 
-## 4. Changed files
+## 4. Defect closure
 
-- `ops/ai_safety.py`, `ops/ai_evidence.py`, `ops/ai_log.py`, `ops/ai_runtime.py` — new local-only boundary, evidence, inference log, host measurement.
-- `ops/ai_provider.py`, `ops/ollama.py` — tasks, refusal, grounding, private URL check.
-- `ops/rights_matrix.py` — read-only projection of the twelve pairs. It does not grant anything.
-- `ops/signal_ledger.py` — duplicate check moved inside the lock.
-- `ops/worker.py` — cycle exceptions recorded separately from the heartbeat.
-- `ops/app.py` — AI routes, login/register limit, orders and history pages, non-default session secret.
-- `ops/test_ai_release.py`, `ops/test_route_matrix.py`.
-- `docker-compose.yml` — extra volume names for signals, activity, rights, cache, and AI logs. Not applied to any running host.
-- `docs/release-evidence/*.png` — local mobile frames.
+### 4.1 Lifecycle route
 
-## 5. Architecture
+- Original defect: `GET /api/signals/lifecycle` was public and ran a cycle.
+- Root cause: the handler called the signal cycle before returning, and it had no session check, so any caller could create rows and read the combined ledger.
+- Changed files: `ops/app.py`, `ops/test_recovery.py`, `ops/test_phase2_backend.py`, `ops/test_endpoint_matrix.py`.
+- Fix: session required. The handler only reads. Account-scoped rows are kept when `account_id` is that user. Another account's rows are dropped. Shared rows with no account id remain visible because they are desk observations, not a user profile. Mutating methods return 405 and do not write. The route is on the shared rate limiter.
+- Regression test: `test_lifecycle_is_private_and_does_not_write`, `test_lifecycle_route_does_not_invent_a_reading`, and the five lifecycle rows in the endpoint matrix.
+- Evidence: those tests passed in the 292-test run below. Anonymous GET is 401. Signed-in GET does not create `signals/history.jsonl`.
+- Remaining limitation: desk-level rows with a null `account_id` are visible to every signed-in user. They are not another user's profile. Prices on unavailable rows are null.
 
-```mermaid
-flowchart LR
-  browser[Desk pages] --> flask[ops.app]
-  flask --> session[Signed session]
-  flask --> worker[Worker loop]
-  worker --> cycle[signal_engine.cycle]
-  cycle --> rights[entitlements.decide_use]
-  rights --> kraken[Kraken adapter]
-  rights --> gold[Twelve Data gold adapter]
-  cycle --> ledger[signals/history.jsonl]
-  flask --> ai[ai_provider.ask]
-  ai --> bundle[ai_evidence.build]
-  bundle --> ledger
-  bundle --> paper[paper book for this user]
-  ai --> ollama[Ollama on loopback or RFC1918]
-  ai --> log[ai/inferences.jsonl]
-  worker --> autopilot[autopilot.consider]
-  autopilot --> registry[qualification registry]
-```
+### 4.2 Inbox retention
 
-The worker does not wait on Ollama. Ollama cannot write the ledger, the registry, or the paper book.
+- Original defect: `ops/inbox.py` rewrote the file and kept the last 200 notices.
+- Root cause: the writer sliced the list before replace.
+- Changed files: `ops/inbox.py`, `ops/app.py` (`/api/notifications` already pages; it now accepts `before_id`).
+- Fix: append-only JSONL under a per-user lock. Duplicates, including ids that have already been archived, are refused. `page()` orders by `created_ms` descending, then id, and returns `next_before` plus `next_id` so equal timestamps are not skipped. `mark_read` stores read state. `apply_retention` copies aged notices to the archive file first, then removes them from the active file. Nothing is removed from the archive. Signal history and activity history are different files.
+- Regression test: `test_inbox_keeps_more_than_200_notices_across_restart`.
+- Evidence: 230 notices stored, reloaded from disk, and walked with an 80-row cursor. Two notices with the same `created_ms` both came back, `tie-a` then `tie-b`. One marked read. Retention left 232 records split across the active file and the archive. Re-offering an archived id returned `duplicate`. Eight threads inserted 80 further ids with no lost write. The signal file's first row was unchanged.
+- Remaining limitation: archive and active are two files. A crash after the archive replace and before the active replace can leave the notice in both. It cannot leave it in neither. Readers de-duplicate by id.
 
-## 6. Signal path
+### 4.3 Profile writes
 
-1. `Worker._monitor` calls `cycle`.
-2. Each of the twelve pairs is gated on its own `decide_use` result.
-3. No grant: `note_unavailable` appends `data_unavailable` with a null price. No socket.
-4. A verified display grant would load native bars, drop the forming row, and classify forming versus active versus stale.
-5. A later invalidated or expired row is appended. The earlier row stays.
-6. Research failure and AutoPilot refusal are different fields. Neither deletes the observation.
-7. `last_beat_ms` is set in `evaluate`. `last_cycle_error` is set only when `cycle` raises. A beat is not a retrieval.
+- Original defect: profile, plan, and register rewrote JSON without the file lock.
+- Root cause: read-modify-write on the user file was not atomic, so concurrent updates dropped fields.
+- Changed files: `ops/users.py`, `ops/worker.py` (`save_prefs` now uses the same lock-and-replace helper).
+- Fix: `_commit` mutates under `ops/files.update_json`. The lock is held across read, mutate, and replace. `revision` increments on each successful write. A caller can pass `expected_revision` and get `conflict: true` without a write. Register takes the directory lock before creating the file. `get` and `list_users` return nothing for a broken document and do not rewrite it.
+- Regression test: `test_profile_writes_do_not_drop_fields_or_partial_documents`.
+- Evidence: 30 overlapping updates of timezone/capital and style/risk on one account kept capital 1000, USD, `orion_balance`, and a `Zone/` timezone. The other account stayed at capital 50 NGN. A stale revision did not change USD to EUR. A raising mutator left the bytes identical. The bytes `{` stayed `{`.
+- Remaining limitation: there is no database transaction across the user file and the paper book. Each file is atomic on its own. A corrupt document stays corrupt until an operator replaces it. The desk does not invent a replacement profile.
 
-## 7. Data-source matrix
+### 4.4 Worker shutdown
 
-Without a grant file, every customer-facing cell is unverified or unavailable. Summary from `ops/rights_matrix.matrix()` on an empty rights directory:
+- Original defect: the desk loops were daemon threads with no stop handler.
+- Root cause: nothing recorded stop, and a killed thread could not be distinguished from finished work.
+- Changed files: `ops/runtime.py`, `ops/app.py`, `ops/activity.py`, `ops/worker.py`.
+- Fix: `DeskRuntime` gates `tick_start`. `shutdown` stops new work, waits up to the deadline, and writes `data/worker/runtime.json`. Finished clean work records `worker_stopped`. A timeout or a task that ended false records `work_interrupted` and `completed: false`. `recover()` on the next start does not flip that to success. `mark_started` after a previous stop records `worker_restarted`. The loops are desk, telegram, and digest. Pytest does not start them. A runtime that never started does not record a fake stop.
+- Regression test: `test_worker_shutdown_records_only_finished_work`.
+- Evidence: a finished tick shuts down `completed: true` with one `worker_stopped` and no `work_interrupted`. A tick left in flight for 0.05s shuts down `completed: false`, `reason: deadline`, and the task stays false after `tick_end`. Restart recovery stays `completed: false`. A tick ended with false shuts down `reason: task_failed` and does not write `worker_stopped` for that run.
+- Remaining limitation: the threads are still daemons, so a hard process kill after the deadline does not wait any longer. The state file is the record. There is no database connection to close. File locks are `fcntl` locks released in `finally`. Duplicate evaluation ids are still the ledger's job, which the existing worker test covers.
 
-| Pair | Source | Native interval | Customer live signal |
-|---|---|---|---|
-| BTCUSDT 1m, 15m, 1h | `kraken_public_ohlc` (`XBT/USDT`, `ETH/USDT` is the ETH pair) | 1, 15, 60 minutes | blocked |
-| BTCUSDT, ETHUSDT 3m | same source, derived only | none | blocked |
-| ETHUSDT 1m, 15m, 1h | `kraken_public_ohlc` | 1, 15, 60 minutes | blocked |
-| XAUUSD 1m, 15m, 1h | `twelve_data` | 1min, 15min, 1h | blocked |
-| XAUUSD 3m | `twelve_data` | not native, not derived | blocked |
+### 4.5 Endpoint matrix
 
-Retrieval, internal research, customer display, derived indicators, derived signals, historical storage, redistribution, and local AI processing are separate cells. Local AI processing of market text is `no_market_text_grant`. Attribution is the source note. Agreement is null. Territory and expiration are null until a grant file sets `review_due`.
+- Original defect: the old probe only checked that an empty call was not HTTP 500.
+- Root cause: there was no per-route success, auth, missing, and fault check.
+- Changed files: `ops/test_endpoint_matrix.py`, `ops/app.py` (fault handler and rate limit).
+- Fix: every non-static method is classified. Success, invalid input, missing or wrong auth, missing or foreign ownership, and an injected fault are each asserted. A fault returns 500 with `handled` and no traceback. Where a happy-path mutation is not legal, the check names the contract instead of treating any non-500 as success.
+- Regression test: `test_every_route_has_five_checks`.
+- Evidence: 102 rows, verdict PASS. Kind counts: session 33, public 25, page 20, token 8, auth-free 7, lifecycle-write 4, public-page 3, closed-user 1, telegram-user 1. GET success for public, session, token, and signed-in pages is HTTP 200.
+- Remaining limitation: `POST /api/paper/orders` in this matrix is the missing-opportunity 404, and `POST /api/paper/close` is the missing-order 409. The successful open and close remain in `ops/test_paperbook.py`. `POST /api/telegram/confirm` succeeds by refusing a typed id (`typed_id_not_accepted`). `POST /api/desk/plan` succeeds by refusing, `order_opened: false`, because no display grant exists.
 
-## 8. Genuine live-signal status
+### 4.6 Signal continuity
 
-| Instrument | 1m | 3m | 15m | 1h |
-|---|---|---|---|---|
-| BTCUSDT | not authorised | not authorised | not authorised | not authorised |
-| ETHUSDT | not authorised | not authorised | not authorised | not authorised |
-| XAUUSD | not authorised | not supplied | not authorised | not authorised |
+Re-tested after the backend edits, in the same 292-test run:
 
-No customer live signal was produced in this pass. Fixtures in tests are labelled fixtures. They are not served as live readings.
+- Persistence and duplicate suppression: PASS (`test_signal_continuity_still_keeps_history`, ledger tests).
+- Lifecycle append, invalidation, expiry: PASS (`ops/test_signal_reliability.py`).
+- Worker restart duplicate: PASS (`ops/test_worker.py::test_duplicate_and_wait`).
+- Concurrent ingestion of notices: PASS (80 ids from 8 threads).
+- One pair does not unlock another: PASS (`ops/test_signal_engine.py::test_one_authorised_pair_does_not_unlock_the_others`).
+- Research rejection and AutoPilot refusal do not delete the observation: PASS.
+- Unavailable data is `signal: false` and `price: null`: PASS.
 
-## 9. Ollama and the host
+No signal history file was truncated. The checkout's `data/signals/history.jsonl` SHA-256 stayed `683faa4c33e7580ae133eb184b4514a45ea139186ba9074d157a3a4e2c67b404` (6182 bytes) through the final run.
 
-Measured on this process host while the report was written:
+The test process appends evaluation and alert rows to `data/paper/ledger.jsonl` and a health event to `data/activity/events.jsonl`, because those routes use the process ledger rather than `AUREON_DATA`. After the final run the appended bytes were removed and the previous bytes were restored. SHA-256 after restore:
 
-| Measure | Value |
-|---|---|
-| RAM | 4,121,083,904 bytes |
-| Available RAM | 2,971,992,064 bytes |
-| CPU cores | 2 |
-| GPU | none |
-| Disk free | about 47 GB |
-| Ollama binary | not installed |
-| Selected model | none |
-| Candidate | `qwen3.5:9b-q4_K_M` |
-| Also named, not downloaded | `qwen3.5:4b-q4_K_M`, `qwen3.5:2b-q4_K_M` |
-| Model hash | none |
+- `data/paper/ledger.jsonl` `ba56e846b8390efaf8658c4a7cb4145d3f4b981fc64ec84b60a3d9f0fbc1f3cd` (8956 bytes)
+- `data/activity/events.jsonl` `8f0b9e68288b3338f72786a85fae8c005ed01c1d00ada391eca69918b11fa3b5` (8675 bytes)
+- `data/paper/prefs.json` `a22cf93d608b8608bf7d79b1125fabe77ab8e0626f22dce47606c338d5a3ef1f` (145 bytes)
 
-Inference host to use later: at least 32 GB RAM, or a GPU with at least 8 GB VRAM, 4 cores, 20 GB free disk, Ollama bound to loopback or an RFC1918 address. Set `OLLAMA_MODEL` only after the weights are on that machine. `OLLAMA_BASE_URL` must be `http://127.0.0.1`, `localhost`, or a literal private IP. HTTPS public hosts and cloud model names are refused.
+No paper order that was in the file before the run was removed. No backup was deleted.
 
-Offline behaviour is the stored-record sentence. It is labelled AI analysis and it is not a signal. Inference rows go to `$AUREON_DATA/ai/inferences.jsonl` with model, prompt version `ai-evidence-20261106`, time, evidence refs, and status. The prompt body is not stored.
+### 4.7 Local AI
 
-## 10. AI checks that were actually run
+- Boundary: PASS. Loopback and RFC1918 only. `192.0.2.1`, `8.8.8.8`, and `0.0.0.0` are refused before a socket. `gpt4o` is refused.
+- Account isolation: PASS. The explanation uses the calling user's paper counts.
+- Invalid and ungrounded output: PASS. Invented prices and order language are not returned.
+- Timeout and offline: PASS in `ops/test_ai_release.py`. The cycle does not import Ollama.
+- Authority: PASS. `approved` and `order_opened` stay false. The model cannot change risk, approve a strategy, or open an order.
+- Operational status: **not operational**. `private_inference` is `not_operational`. `benchmark_status` is `NOT TESTED`. Do not describe the local analyst as live.
 
-Fixture suite `ops/test_ai_release.py`, not live market text:
+## 5. Changed files
 
-- Unknown signal id does not call the runtime.
-- `gpt-4o` and `http://example.com` do not call the runtime.
-- Injection and `buy now` questions do not call the runtime.
-- Another account's closed-trade count is not in the fallback.
-- Model text `424242.5` is not returned as the explanation.
-- Invalid JSON yields `invalid_output`.
-- Timeout yields `timeout`.
-- Missing tag yields `model_missing`.
-- A held lock yields `busy`.
-- `open_order`, `approve_strategy`, and `write_file` raise `PermissionError`.
-- Authenticated `POST /api/explain` ignores the client body (`client_evidence_ignored`). A client price `424242` was not echoed.
+- `ops/app.py` — lifecycle auth and read-only behaviour, shared rate limit, injected-fault handler, worker start/stop, notification cursor.
+- `ops/inbox.py` — durable notices, archive, pagination, duplicate suppression.
+- `ops/users.py` — locked profile writes, revision check, corrupt file left untouched.
+- `ops/runtime.py` — shutdown, timeout, and restart record.
+- `ops/worker.py` — prefs written with the file lock.
+- `ops/activity.py` — shutdown event types.
+- `ops/signal_engine.py` — `opp:` ids, no new `obs:` fallback.
+- `ops/ai_safety.py`, `ops/ai_provider.py`, `ops/ai_runtime.py`, `ops/ai_evidence.py` — private bind, ungrounded output, honest host facts.
+- `ops/test_phase2_backend.py`, `ops/test_endpoint_matrix.py`, `ops/test_recovery.py`, `ops/test_ai_release.py`, `ops/test_gate6.py`.
+- `docs/release-evidence/endpoint-matrix.json` — the 102-row probe.
 
-Not run: a real Qwen generation, concurrent model throughput, long-context degradation, or reload of weights.
+No migration was added. Rollback of this branch is still "do not deploy". Old JSONL rows stay valid. New files (`worker/runtime.json`, inbox archive) are additive.
 
-## 11. Tests
+## 6. Tests
 
-Command, from a clean checkout of this branch with the working tree applied:
+Command:
 
 ```bash
 cd /tmp/aureon-lab
-PYTHONPATH=. python3 -m pytest ops/test_*.py tests/test_h4.py -q --tb=line
+PYTHONPATH=. python3 -m pytest ops/test_*.py tests/test_h4.py -q --tb=line -p no:cacheprovider
 ```
 
-Result after the route-matrix test was added, before the final order-request tweak was re-run as part of `ops/test_ai_release.py`:
+Result after the final code and the tightened matrix:
 
 ```text
-283 passed in 10.65s
+292 passed in 15.77s
 ```
 
-The order-request assertion was re-run green (`1 passed`). No skips and no failures in that full run. Flaky cases were not observed in that run. Untested on purpose: live vendor HTTP, a loaded Ollama model, and a phone device lab outside headless Chromium.
+No skips and no failures in that run. Not run on purpose: live vendor HTTP, a loaded Qwen model, a phone device lab, and `pip audit`.
 
-Route smoke: empty `GET` and `POST` of routes without path arguments do not return HTTP 500. Token routes return 503 when the owner token is unset.
+The phase-2 file alone:
 
-## 12. Mobile frames
+```bash
+PYTHONPATH=. python3 -m pytest ops/test_phase2_backend.py ops/test_endpoint_matrix.py -q --tb=line -p no:cacheprovider
+```
 
-Local Flask on `127.0.0.1:8099`, Chromium headless, widths 320, 360, 375, 390, 414, and 430. A session cookie was set, so these are the signed-in shell, not the signed-out form.
+```text
+9 passed in 4.04s
+```
 
-- `docs/release-evidence/overview-*.png`
-- `docs/release-evidence/signals-*.png`
-- `docs/release-evidence/orders-*.png`
-- `docs/release-evidence/system-*.png`
+## 7. Endpoint coverage
 
-The signals frame shows "No eligible live reading" and "Local AI offline". The system frame shows a local worker heartbeat and "Offline · no model configured". That heartbeat is the local process, not a production host and not a market retrieval.
+102 method/rule pairs. Every row has success, invalid, auth, missing, and internal. Invalid means the call did not become an unhandled 500. Internal is an injected fault that returns 500 with the word `handled` and no traceback.
 
-## 13. Known defects
+Success codes that are not HTTP 200, and why:
 
-- `opp:` and `obs:` identities are not one format.
-- Inbox notices are capped at 200 by rewrite.
-- User profile writes are not locked.
-- Login rate limit is skipped when `pytest` is imported, unless `ENFORCE_RATE_LIMIT` is set. Production is not pytest.
-- Daemon threads, no graceful stop.
-- `GET /api/signals/lifecycle` is public and has a side effect.
-- `POST /api/prefs` is registered twice. The token handler is unreachable.
-- The Flask development server is still the container command.
-- Compose now names volumes for signals, activity, rights, cache, and AI logs. A future `compose up` would create empty volumes. It would not migrate files that already live in a container layer. Do not run it.
+| Call | Code | Why this is the contract |
+|---|---|---|
+| `POST /api/login` on a fresh client with the real password | 200 | Separate from the cases below. |
+| `POST /api/register` with a new name | 200 | Separate client, so the suite session stays put. |
+| `POST /login` with the owner token and CSRF | 302 | Redirect into the desk. |
+| `POST /logout` | 302 | Form logout. |
+| `GET /`, `GET /login`, `GET /register` while signed in or out as classified | 302 | Page redirect, not an account payload. |
+| `POST /api/paper/orders` with an unknown opportunity | 404 `missing_opportunity` | No order opened. A real open is in `ops/test_paperbook.py`. |
+| `POST /api/paper/close` with an unknown order | 409 | No close. A real close is in `ops/test_paperbook.py`. |
+| `POST /api/desk/plan` for BTCUSDT 15m | 200 `reading_unavailable`, `order_opened: false` | No display grant. |
+| `POST /api/telegram/confirm` | 400 `typed_id_not_accepted` | A typed chat id is not verification. |
+| `GET /api/users/<user_id>` | 404 | The route never returns an account. |
+| `POST /api/users/<user_id>/telegram` | 403 | Not an open linker. |
+| Lifecycle `POST` `PUT` `PATCH` `DELETE` | 405 `modified: false` | Read-only. |
 
-## 14. Permission and infrastructure blockers
+## 8. Independent review
 
-- No owner-recorded display, research, retention, or redistribution grant for Kraken, Twelve Data, Binance, Dukascopy, XAUS, or Swissquote.
-- No dedicated inference host.
-- No strategy version is `approved_for_paper`. AutoPilot cannot open a paper order from the registry.
+A separate review agent was started against the diff and told not to edit. The author's own pass, completed before the final test run, found and fixed these defects:
 
-## 15. Backup, migration, rollback
+- Inbox `items()` had been re-sorted, which broke oldest-first identity checks. Display order is now applied in `page()` only. Append order is unchanged.
+- A task that finished with `completed=False` could be followed by a shutdown record that said the stop was clean. Shutdown now keeps `completed: false` and writes `work_interrupted`.
+- `POST /api/login` and `POST /api/register` were counted as success on an empty body. They now have to return a real session.
+- Archived notice ids could be inserted again. `offer` now treats an archived id as a duplicate.
+- Starting the desk threads at import wrote the checkout ledger during pytest. Threads do not start when pytest is loaded.
 
-Backup: `ops/backup.py` copies a data tree and writes `manifest.json` with SHA-256. Restore refuses a non-empty destination. There is no scheduled job.
+External reviewer verdict at report time: **NOT RETURNED**. The verdict that is evidenced is the author's pass plus `292 passed`. It is not a second person's signature. If the external note arrives before the branch is pushed, it will be added in the following commit rather than invented here.
 
-This pass has no schema migration that rewrites old ledgers. New files are append-only JSONL (`signals/history.jsonl`, `activity/events.jsonl`, `ai/inferences.jsonl`). Old rows stay valid.
+## 9. What remains blocked
 
-Rollback of this branch: do not deploy it. To leave production as it is, do nothing. To drop these commits later, reset is an owner decision on `product/recovery` only, and only if no one else has built on them. Do not reset `main`. Do not delete production volumes.
+- No owner-recorded display, research, retention, or redistribution grant.
+- No dedicated inference host, so Qwen was not benchmarked.
+- No strategy version is `approved_for_paper`.
+- The container still starts the Flask development server. This phase did not change the process manager.
+- `pip audit` was not run.
+- Mobile frames were not re-shot.
+- Shared research routes stay public on purpose. They are not account books.
 
-If the compose volume change is ever applied, copy `data/signals`, `data/activity`, `data/rights`, `data/cache`, and `data/ai` out of the old container filesystem before recreating the container. This pass did not do that, because production was not touched.
+## 10. What the owner can approve later
 
-## 16. Independent review
-
-A separate review agent was started against the diff and told not to edit it. It had not returned a written finding before this commit. The completed adversarial pass was a local script plus the fixture suite, not the unfinished agent.
-
-A local adversarial script then proved, against this tree:
-
-- `POST /api/explain` with a client price returned `client_evidence_ignored: true`, `approved: false`, `order_opened: false`, and the digits `424242` were absent.
-- The rights matrix on an empty grant directory stayed `blocked`.
-- `OLLAMA_BASE_URL=https://api.openai.com/v1` returned `endpoint_refused` and did not call the transport.
-- `question_requests_action` refuses "buy now and approve the strategy" without a model call.
-
-No defect found in that script was left unfixed. Residual gaps are the FAIL rows above, not hidden passes.
-
-## 17. What the owner can approve later
-
-Not this deploy. A later stage, only after an explicit owner instruction, would be: record a real display grant per source, instrument, and interval; point `OLLAMA_BASE_URL` at a private inference host that has the chosen weights; re-run the AI fixture suite plus one live generation; then decide whether `product/recovery` may be merged. Until then the release status remains **DEPLOYMENT_PROHIBITED_PENDING_OWNER_APPROVAL**.
+Not this deploy. A later stage, only after an explicit owner instruction, would be: record a real display grant per source, instrument, and interval; point `OLLAMA_BASE_URL` at a private inference host that has `qwen3.5:9b-q4_K_M` loaded; re-run the AI fixture suite plus one live generation; then decide whether `product/recovery` may be merged. Until then the release status remains **DEPLOYMENT_PROHIBITED_PENDING_OWNER_APPROVAL**.

@@ -1,8 +1,18 @@
-"""Per-user in-app notices. This module does not call Telegram."""
+"""Per-user in-app notices. This module does not call Telegram.
+
+The notice file is never trimmed. Signal history and activity history are
+other files. A full inbox does not delete a signal.
+"""
 
 import json
+import os
 import time
 from pathlib import Path
+
+try:
+    import fcntl
+except ImportError:
+    fcntl = None
 
 from ops.users import ROOT as USER_ROOT
 
@@ -26,17 +36,87 @@ def _read(user_id):
     path = _path(user_id)
     if path is None or not path.exists():
         return []
+    return _read_path(path)
+
+
+def _read_path(path):
     rows = []
+    if path is None or not path.exists():
+        return rows
     for line in path.read_text(encoding="utf-8").splitlines():
-        if line.strip():
-            rows.append(bind_identity(json.loads(line)))
+        if not line.strip():
+            continue
+        try:
+            row = json.loads(line)
+        except json.JSONDecodeError:
+            rows.append({"__raw__": line if line.endswith("\n") else line + "\n"})
+            continue
+        if isinstance(row, dict):
+            rows.append(bind_identity(row))
+        else:
+            rows.append({"__raw__": line if line.endswith("\n") else line + "\n"})
     return rows
+
+
+def _dump(rows):
+    parts = []
+    for row in rows:
+        if isinstance(row, dict) and set(row) == {"__raw__"}:
+            parts.append(row["__raw__"] if str(row["__raw__"]).endswith("\n") else str(row["__raw__"]) + "\n")
+        else:
+            parts.append(json.dumps(row) + "\n")
+    return "".join(parts)
+
+
+def _replace(path, rows):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_name(path.name + ".tmp")
+    temporary.write_text(_dump(rows), encoding="utf-8")
+    os.replace(temporary, path)
+
+
+def _lock(path):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    handle = open(path.with_name(path.name + ".lock"), "a+")
+    if fcntl is not None:
+        fcntl.flock(handle, fcntl.LOCK_EX)
+    return handle
+
+
+def _unlock(handle):
+    if handle is None or fcntl is None:
+        if handle is not None:
+            handle.close()
+        return
+    fcntl.flock(handle, fcntl.LOCK_UN)
+    handle.close()
+
+
+def _mutate(user_id, fn):
+    """Read, change, and replace under one lock. Nothing already stored is sliced away."""
+    path = _path(user_id)
+    if path is None:
+        return None
+    handle = _lock(path)
+    try:
+        rows = _read_path(path)
+        outcome, dirty = fn(rows)
+        if dirty:
+            _replace(path, rows)
+        return outcome
+    finally:
+        _unlock(handle)
 
 
 def _write(user_id, rows):
     path = _path(user_id)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text("".join(json.dumps(row) + "\n" for row in rows[-200:]), encoding="utf-8")
+    if path is None:
+        return
+    handle = _lock(path)
+    try:
+        _replace(path, rows)
+    finally:
+        _unlock(handle)
 
 
 def opportunity_identity(symbol, interval, family, direction, anchor):
@@ -107,9 +187,6 @@ def offer(user_id, notice, registry=None):
     event_id = str(notice.get("id") or "")
     if not event_id:
         return {"ok": False, "reason": "missing_id", "stored": False}
-    rows = _read(user_id)
-    if any(row.get("id") == event_id for row in rows):
-        return {"ok": True, "duplicate": True, "stored": False}
     row = {
         "id": event_id,
         "kind": kind,
@@ -158,9 +235,17 @@ def offer(user_id, notice, registry=None):
         row["events"][0]["snapshot_id"] = notice.get("snapshot_id")
         if notice.get("reading_version"):
             row["events"][0]["reading_version"] = notice.get("reading_version")
-    rows.append(row)
-    _write(user_id, rows)
-    return {"ok": True, "duplicate": False, "stored": True}
+
+    def apply(rows):
+        if any(item.get("id") == event_id for item in rows if isinstance(item, dict) and "__raw__" not in item):
+            return {"ok": True, "duplicate": True, "stored": False}, False
+        archived = _read_path(_archive_path(user_id))
+        if any(item.get("id") == event_id for item in archived if isinstance(item, dict) and "__raw__" not in item):
+            return {"ok": True, "duplicate": True, "stored": False, "archived": True}, False
+        rows.append(row)
+        return {"ok": True, "duplicate": False, "stored": True}, True
+
+    return _mutate(user_id, apply)
 
 
 def find_open_opportunity(user_id, opportunity_id):
@@ -181,42 +266,49 @@ def append_event(user_id, opportunity_id, event):
     """Add an observation. The original entry, stop and target stay as first recorded."""
     if _safe(user_id) is None or not opportunity_id:
         return {"ok": False, "reason": "missing"}
-    rows = _read(user_id)
-    for row in rows:
-        if row.get("opportunity_id") != opportunity_id:
-            continue
-        events = list(row.get("events") or [])
-        if any(item.get("id") == event.get("id") for item in events):
-            return {"ok": True, "duplicate": True, "stored": False, "opportunity_id": opportunity_id}
-        events.append(event)
-        row["events"] = events[-40:]
-        state = event.get("state")
-        if state not in {"reviewed", "reevaluated"}:
-            row["lifecycle"] = state or row.get("lifecycle")
-        row["lifecycle_note"] = event.get("note")
-        _write(user_id, rows)
-        return {"ok": True, "stored": True, "opportunity_id": opportunity_id}
-    return {"ok": False, "reason": "missing", "stored": False}
+
+    def apply(rows):
+        for row in rows:
+            if not isinstance(row, dict) or "__raw__" in row:
+                continue
+            if row.get("opportunity_id") != opportunity_id:
+                continue
+            events = list(row.get("events") or [])
+            if any(item.get("id") == event.get("id") for item in events):
+                return {"ok": True, "duplicate": True, "stored": False, "opportunity_id": opportunity_id}, False
+            events.append(event)
+            row["events"] = events
+            state = event.get("state")
+            if state not in {"reviewed", "reevaluated"}:
+                row["lifecycle"] = state or row.get("lifecycle")
+            row["lifecycle_note"] = event.get("note")
+            return {"ok": True, "stored": True, "opportunity_id": opportunity_id}, True
+        return {"ok": False, "reason": "missing", "stored": False}, False
+
+    return _mutate(user_id, apply)
 
 
 def retire_opportunity(user_id, opportunity_id, now_ms, note=None):
     """Retire one originating setup. Other cards, including the same market, stay."""
     if _safe(user_id) is None or not opportunity_id:
         return 0
-    rows = _read(user_id)
-    changed = 0
-    for row in rows:
-        if row.get("opportunity_id") != opportunity_id:
-            continue
-        if row.get("lifecycle") in {"superseded", "expired", "invalidated"}:
-            continue
-        row["lifecycle"] = "superseded"
-        row["lifecycle_note"] = note or "This originating setup was retired. Its entry, stop and target were not rewritten, and no other setup was retired with it."
-        row["retired_ms"] = now_ms
-        changed += 1
-    if changed:
-        _write(user_id, rows)
-    return changed
+
+    def apply(rows):
+        changed = 0
+        for row in rows:
+            if not isinstance(row, dict) or "__raw__" in row:
+                continue
+            if row.get("opportunity_id") != opportunity_id:
+                continue
+            if row.get("lifecycle") in {"superseded", "expired", "invalidated"}:
+                continue
+            row["lifecycle"] = "superseded"
+            row["lifecycle_note"] = note or "This originating setup was retired. Its entry, stop and target were not rewritten, and no other setup was retired with it."
+            row["retired_ms"] = now_ms
+            changed += 1
+        return changed, bool(changed)
+
+    return _mutate(user_id, apply)
 
 
 def expire_stale(user_id, symbol, interval, now_ms, protect_bar_ms=None):
@@ -228,36 +320,58 @@ def expire_stale(user_id, symbol, interval, now_ms, protect_bar_ms=None):
         step = interval_ms(interval)
     except ValueError:
         step = 60_000
-    rows = _read(user_id)
-    changed = 0
-    for row in rows:
-        if row.get("kind") != "experimental" or row.get("symbol") != symbol or row.get("interval") != interval:
-            continue
-        if row.get("lifecycle") in {"superseded", "expired", "invalidated"}:
-            continue
-        try:
-            close = int(row.get("bar_close_ms") or 0)
-        except (TypeError, ValueError):
-            continue
-        if not close or now_ms - close <= 2 * step:
-            continue
-        if protect_bar_ms is not None:
+
+    def apply(rows):
+        changed = 0
+        for row in rows:
+            if not isinstance(row, dict) or "__raw__" in row:
+                continue
+            if row.get("kind") != "experimental" or row.get("symbol") != symbol or row.get("interval") != interval:
+                continue
+            if row.get("lifecycle") in {"superseded", "expired", "invalidated"}:
+                continue
             try:
-                if close == int(protect_bar_ms):
-                    continue
+                close = int(row.get("bar_close_ms") or 0)
             except (TypeError, ValueError):
-                pass
-        row["lifecycle"] = "expired"
-        row["lifecycle_note"] = "This entry expired because its own candle is no longer current. Other setups were not retired."
-        changed += 1
-    if changed:
-        _write(user_id, rows)
-    return changed
+                continue
+            if not close or now_ms - close <= 2 * step:
+                continue
+            if protect_bar_ms is not None:
+                try:
+                    if close == int(protect_bar_ms):
+                        continue
+                except (TypeError, ValueError):
+                    pass
+            row["lifecycle"] = "expired"
+            row["lifecycle_note"] = "This entry expired because its own candle is no longer current. Other setups were not retired."
+            changed += 1
+        return changed, bool(changed)
+
+    return _mutate(user_id, apply)
+
+
+def _sort_key(row):
+    return (-int(row.get("created_ms") or 0), str(row.get("id") or ""))
 
 
 def items(user_id):
     rows = _read(user_id) if _safe(user_id) else []
-    return list(reversed(rows))
+    visible = [row for row in rows if isinstance(row, dict) and "__raw__" not in row and not row.get("archived")]
+    return list(reversed(visible))
+
+
+def _archive_path(user_id):
+    path = _path(user_id)
+    if path is None:
+        return None
+    return path.with_name(path.stem + ".archive.jsonl")
+
+
+def read_archive(user_id):
+    path = _archive_path(user_id)
+    if path is None or not path.exists():
+        return []
+    return [row for row in _read_path(path) if isinstance(row, dict) and "__raw__" not in row]
 
 
 def notice_view(item, now_ms):
@@ -301,12 +415,91 @@ def unread_count(user_id):
 def mark_read(user_id, event_id=None):
     if _safe(user_id) is None:
         return {"ok": False}
-    rows = _read(user_id)
-    for row in rows:
-        if event_id in (None, row.get("id")):
-            row["read"] = True
-    _write(user_id, rows)
+
+    def apply(rows):
+        for row in rows:
+            if not isinstance(row, dict) or "__raw__" in row:
+                continue
+            if event_id in (None, row.get("id")):
+                row["read"] = True
+        return {"ok": True}, True
+
+    _mutate(user_id, apply)
     return {"ok": True, "unread": unread_count(user_id)}
+
+
+def page(user_id, limit=None, before_ms=None, include_archived=False, before_id=None):
+    """Newest first, then id. A limit is a window, not a deletion."""
+    rows = items(user_id)
+    if include_archived:
+        active_ids = {row.get("id") for row in rows}
+        rows = [row for row in read_archive(user_id) if row.get("id") not in active_ids] + rows
+    rows.sort(key=_sort_key)
+    total = len(rows)
+    if before_ms not in (None, ""):
+        cursor = (-int(before_ms), str(before_id) if before_id not in (None, "") else "\uffff")
+        rows = [row for row in rows if _sort_key(row) > cursor]
+    window = list(rows if limit is None else rows[: int(limit)])
+    next_before = None
+    next_id = None
+    if limit is not None and len(rows) > len(window) and window:
+        next_before = window[-1].get("created_ms")
+        next_id = window[-1].get("id")
+    return {
+        "items": window,
+        "total": total,
+        "returned": len(window),
+        "next_before": next_before,
+        "next_id": next_id,
+        "truncated": False,
+        "unread": unread_count(user_id),
+    }
+
+
+def archive_notice(user_id, event_id, now_ms):
+    """Copy one notice into the archive, then drop it from the active file.
+
+    The archive write happens first. A crash keeps the notice in at least one file.
+    """
+    if _safe(user_id) is None or not event_id:
+        return {"ok": False, "archived": 0}
+
+    def apply(rows):
+        kept = []
+        moved = []
+        for row in rows:
+            if isinstance(row, dict) and "__raw__" not in row and row.get("id") == event_id:
+                row["archived"] = True
+                row["archived_ms"] = int(now_ms)
+                moved.append(row)
+            else:
+                kept.append(row)
+        if not moved:
+            return {"ok": True, "archived": 0}, False
+        archive = _archive_path(user_id)
+        existing = _read_path(archive)
+        _replace(archive, existing + moved)
+        rows[:] = kept
+        return {"ok": True, "archived": len(moved)}, True
+
+    return _mutate(user_id, apply) or {"ok": False, "archived": 0}
+
+
+def apply_retention(user_id, now_ms, max_age_ms):
+    """Archive notices older than max_age_ms. The archive remains readable."""
+    if _safe(user_id) is None or not max_age_ms or int(max_age_ms) <= 0:
+        return {"archived": 0}
+    cutoff = int(now_ms) - int(max_age_ms)
+    stale = [
+        row.get("id")
+        for row in items(user_id)
+        if row.get("id") and int(row.get("created_ms") or 0) < cutoff
+    ]
+    archived = 0
+    for event_id in stale:
+        result = archive_notice(user_id, event_id, now_ms)
+        archived += int((result or {}).get("archived") or 0)
+    return {"archived": archived, "deleted": 0}
 
 
 def record_scan(user_id, body, plan, now_ms):

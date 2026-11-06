@@ -42,6 +42,9 @@ def host_facts():
         "compared_with": ["qwen3.5:4b-q4_K_M", "qwen3.5:2b-q4_K_M"],
         "comfortable_for_primary": comfortable_9b,
         "decision": "not_installed",
+        "benchmark_status": "NOT TESTED",
+        "benchmark_reason": "No Qwen weights are loaded. A smaller model was not installed to manufacture a passing benchmark.",
+        "private_inference": "not_operational",
         "reason": (
             "This host is not a dedicated inference machine. "
             "The 9B Q4 candidate is not installed. A smaller model was not selected in its place."

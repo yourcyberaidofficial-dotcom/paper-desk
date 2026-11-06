@@ -123,18 +123,23 @@ class Worker:
         return merged
 
     def save_prefs(self, payload: dict) -> dict:
-        current = self.prefs()
-        for key in ("assets", "interval", "quiet_hours_utc", "max_alerts_per_day", "alerts_enabled", "experimental_alerts"):
-            if key in payload:
-                current[key] = payload[key]
-        current["assets"] = [a for a in current.get("assets", []) if a in {"BTCUSDT", "ETHUSDT"}] or ["BTCUSDT"]
-        if current.get("interval") not in {"15m", "1h", "4h"}:
-            current["interval"] = "15m"
-        current["max_alerts_per_day"] = min(max(int(current.get("max_alerts_per_day", 24)), 0), 48)
-        current["quiet_hours_utc"] = [h for h in current.get("quiet_hours_utc") or [] if isinstance(h, int) and 0 <= h <= 23]
-        self.prefs_path.parent.mkdir(parents=True, exist_ok=True)
-        self.prefs_path.write_text(json.dumps(current, indent=2))
-        return current
+        from ops.files import update_json
+
+        def apply(current):
+            merged = dict(DEFAULT_PREFS)
+            if isinstance(current, dict):
+                merged.update({key: current[key] for key in DEFAULT_PREFS if key in current})
+            for key in ("assets", "interval", "quiet_hours_utc", "max_alerts_per_day", "alerts_enabled", "experimental_alerts"):
+                if key in (payload or {}):
+                    merged[key] = payload[key]
+            merged["assets"] = [item for item in merged.get("assets", []) if item in {"BTCUSDT", "ETHUSDT"}] or ["BTCUSDT"]
+            if merged.get("interval") not in {"15m", "1h", "4h"}:
+                merged["interval"] = "15m"
+            merged["max_alerts_per_day"] = min(max(int(merged.get("max_alerts_per_day", 24)), 0), 48)
+            merged["quiet_hours_utc"] = [hour for hour in merged.get("quiet_hours_utc") or [] if isinstance(hour, int) and 0 <= hour <= 23]
+            return merged
+
+        return update_json(self.prefs_path, apply, dict(DEFAULT_PREFS))
 
     def _seen(self, key: str) -> bool:
         return any(row.get("id") == key for row in self.ledger.read())

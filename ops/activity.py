@@ -32,6 +32,9 @@ TYPES = frozenset({
     "risk_rejected",
     "ollama_status",
     "ai_inference",
+    "worker_stopped",
+    "worker_restarted",
+    "work_interrupted",
 })
 
 THROTTLED = {

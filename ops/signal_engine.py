@@ -72,6 +72,27 @@ def derive_3m(bars, now_ms):
     return {"ok": True, "reason": "derived_from_native_1m", "bars": out, "incomplete": 0}
 
 
+def canonical_opportunity_id(symbol, interval, result, bars=None):
+    """Paper and inbox use opp:instrument:timeframe:family:direction:origin.
+
+    A stored id is kept. Missing fields are not filled with an obs: fallback.
+    """
+    from ops.inbox import opportunity_identity
+
+    result = result or {}
+    existing = result.get("opportunity_id")
+    if isinstance(existing, str) and existing.startswith("opp:"):
+        return existing
+    if isinstance(existing, str) and existing.strip() and not existing.startswith("obs:"):
+        return existing
+    family = result.get("family") or result.get("rule") or result.get("strategy")
+    direction = result.get("direction") or result.get("decision")
+    anchor = result.get("bar_close_ms")
+    if anchor in (None, "") and bars:
+        anchor = bars[-1].get("close_time_ms")
+    return opportunity_identity(symbol, interval, family, direction, anchor)
+
+
 def _released(symbol, interval):
     from ops.entitlements import decide_use
 
@@ -204,7 +225,7 @@ def _observe(symbol, interval, bars, source_id, now_ms):
     result["manual_paper"] = False
     result["validation_status"] = result.get("validation_status") or "FAIL"
     result["price"] = result.get("price") if result.get("price") is not None else result.get("reference_price")
-    result["opportunity_id"] = result.get("opportunity_id") or f"obs:{symbol}:{interval}:{result.get('bar_close_ms') or bars[-1].get('close_time_ms')}"
+    result["opportunity_id"] = canonical_opportunity_id(symbol, interval, result, bars)
     result["conditions"] = facts["evidence"]
     result["freshness"] = facts["freshness"]
     result["higher_timeframe"] = _higher(symbol, interval)

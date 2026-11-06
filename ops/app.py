@@ -5,6 +5,8 @@ import os
 import sys
 import time
 import urllib.request
+import atexit
+import threading
 from pathlib import Path
 
 from flask import Flask, jsonify, request, session, redirect, make_response
@@ -14,7 +16,6 @@ from ops.engine import PaperEngine
 from ops.ledger import Ledger
 from ops.signals import research_states
 from ops.experimental import ExperimentalBook, present_book
-from pathlib import Path
 from ops.replay import replay, yesterday_ms, period
 from ops.leaderboard import leaderboard
 from ops.deepboard import deep_board
@@ -23,12 +24,13 @@ from ops.notify import send_alert
 from ops.strategy import WaitStrategy
 from ops.build_id import build_commit, shadow_enabled
 from ops.worker import Worker
-import threading
+from ops.runtime import DeskRuntime
 
 ROOT = Path(__file__).resolve().parents[1]
 LEDGER_PATH = ROOT / "data" / "paper" / "ledger.jsonl"
 STARTED = time.time()
-LIMITER = RateLimit(60)
+LIMITER = RateLimit(300)
+AUTH_LIMITER = RateLimit(20)
 _FEED_CACHE = {}
 
 app = Flask(__name__)
@@ -41,6 +43,11 @@ app.config.update(
 ledger = Ledger(LEDGER_PATH)
 engine = PaperEngine(ledger, WaitStrategy())
 worker = Worker(ledger, LEDGER_PATH.parent / "prefs.json", shadow_path=ROOT / "data" / "shadow" / "observations.jsonl")
+desk_runtime = DeskRuntime(deadline_s=5)
+
+
+def _workers_enabled():
+    return "pytest" not in sys.modules and os.environ.get("AUREON_DISABLE_WORKERS") != "1"
 
 
 SESSION_TTL = 12 * 3600
@@ -87,7 +94,8 @@ def _csrf():
 def _limited():
     if "pytest" in sys.modules and not app.config.get("ENFORCE_RATE_LIMIT"):
         return None
-    if not LIMITER.allow(request.remote_addr or "local"):
+    limiter = AUTH_LIMITER if request.path in {"/login", "/api/login", "/api/register"} else LIMITER
+    if not limiter.allow(request.remote_addr or "local"):
         return jsonify({"error": "rate_limited"}), 429
     return None
 
@@ -102,6 +110,41 @@ def _expire():
         session.pop("user_exp", None)
     if "aureon_request_id" not in request.environ:
         request.environ["aureon_request_id"] = os.urandom(8).hex()
+    if request.endpoint == "static":
+        return None
+    return _limited()
+
+
+class InjectedFault(RuntimeError):
+    """Test-only fault. Production code does not raise this."""
+
+
+@app.before_request
+def _inject_fault():
+    fault = app.config.get("INJECT_FAULT")
+    method = app.config.get("INJECT_FAULT_METHOD")
+    if fault and request.path == fault and (method in (None, request.method)):
+        raise InjectedFault("injected")
+
+
+@app.errorhandler(InjectedFault)
+def _handle_injected(_exc):
+    if request.path.startswith("/api"):
+        return jsonify({"error": "internal", "handled": True}), 500
+    return make_response("internal handled", 500)
+
+
+@app.errorhandler(Exception)
+def _handle_unexpected(exc):
+    if isinstance(exc, InjectedFault):
+        return _handle_injected(exc)
+    from werkzeug.exceptions import HTTPException
+
+    if isinstance(exc, HTTPException):
+        return exc
+    if request.path.startswith("/api"):
+        return jsonify({"error": "internal", "handled": True}), 500
+    return make_response("internal handled", 500)
 
 
 @app.after_request
@@ -141,7 +184,7 @@ def _worker_public():
     heartbeat_age = None if not beat else max(0, int(time.time() * 1000) - beat)
     if not beat:
         worker_status = "unknown"
-    elif getattr(worker, "last_monitor_error", None):
+    elif getattr(worker, "last_monitor_error", None) or getattr(worker, "last_cycle_error", None):
         worker_status = "error"
     elif heartbeat_age > 180_000:
         worker_status = "stale"
@@ -304,9 +347,6 @@ def version():
 
 @app.get("/api/klines")
 def klines():
-    blocked = _limited()
-    if blocked:
-        return blocked
     symbol = request.args.get("symbol", "BTCUSDT")
     interval = request.args.get("interval", "15m")
     from ops.customer_release import candles_released, unavailable_candles
@@ -340,9 +380,6 @@ def klines():
 
 @app.get("/api/market")
 def market():
-    blocked = _limited()
-    if blocked:
-        return blocked
     from ops.customer_release import any_customer_display, unavailable_quote
     if not any_customer_display():
         return jsonify({symbol: unavailable_quote(symbol) for symbol in ("BTCUSDT", "ETHUSDT")})
@@ -402,7 +439,8 @@ def alert_test():
 
 @app.post("/login")
 def login():
-    if request.form.get("csrf") != session.get("csrf"):
+    posted = request.form.get("csrf")
+    if not posted or posted != session.get("csrf"):
         return redirect("/?login=failed")
     token = (request.form.get("token") or "").strip()
     expected = api_token()
@@ -416,7 +454,8 @@ def login():
 
 @app.post("/logout")
 def logout():
-    if request.form.get("csrf") != session.get("csrf"):
+    posted = request.form.get("csrf")
+    if not posted or posted != session.get("csrf"):
         return redirect("/")
     session.clear()
     return redirect("/")
@@ -456,7 +495,10 @@ def period_api():
     symbol = request.args.get("symbol", "BTCUSDT")
     interval = request.args.get("interval", "15m")
     at = request.args.get("at")
-    at_ms = yesterday_ms() if not at or at == "yesterday" else int(at)
+    try:
+        at_ms = yesterday_ms() if not at or at == "yesterday" else int(at)
+    except (TypeError, ValueError):
+        return jsonify({"error": "invalid_input"}), 400
     try:
         return jsonify(period(symbol, interval, at_ms))
     except PermissionError:
@@ -471,7 +513,10 @@ def replay_api():
     symbol = request.args.get("symbol", "BTCUSDT")
     interval = request.args.get("interval", "15m")
     at = request.args.get("at")
-    at_ms = yesterday_ms() if not at or at == "yesterday" else int(at)
+    try:
+        at_ms = yesterday_ms() if not at or at == "yesterday" else int(at)
+    except (TypeError, ValueError):
+        return jsonify({"error": "invalid_input"}), 400
     try:
         return jsonify(replay(symbol, interval, at_ms))
     except PermissionError:
@@ -576,31 +621,69 @@ def activity_api():
 
 @app.get("/api/signals/lifecycle")
 def signal_lifecycle():
-    """One result per instrument. A blocked pair does not blank the others."""
-    from ops.signal_engine import cycle
+    """Read the stored lifecycle. This request does not run a cycle or write history."""
+    user_id, _user = _session_user()
+    if not user_id:
+        return jsonify({"error": "unauthorized", "modified": False}), 401
+    return jsonify(_lifecycle_view(user_id))
+
+
+@app.route("/api/signals/lifecycle", methods=["POST", "PUT", "DELETE", "PATCH"])
+def signal_lifecycle_mutate():
+    user_id, _user = _session_user()
+    if not user_id:
+        return jsonify({"error": "unauthorized", "modified": False}), 401
+    return jsonify({"error": "method_not_allowed", "modified": False, "read_only": True}), 405
+
+
+def _lifecycle_view(user_id):
+    from ops.activity import read as read_activity
+    from ops.customer_release import unavailable_card
+    from ops.data_rights import DESK
+    from ops.signal_continuity import classify_card
     from ops.signal_ledger import read as read_signals
 
-    try:
-        body = cycle(int(time.time() * 1000))
-        markets = body.get("markets") or []
-    except Exception:
-        from ops.customer_release import empty_desk
-        from ops.signal_continuity import classify_card
-
-        markets = [classify_card(card) for card in empty_desk().get("markets") or []]
     history = []
-    try:
-        history = read_signals()
-    except Exception:
-        history = []
-    return jsonify({
+    for row in read_signals():
+        owner = row.get("account_id")
+        if owner not in (None, "", user_id):
+            continue
+        history.append({key: value for key, value in row.items() if key != "account_id" or value in (None, user_id)})
+    latest = {}
+    for row in history:
+        latest[(row.get("symbol"), row.get("interval"))] = row
+    markets = []
+    for symbol, interval in DESK:
+        row = latest.get((symbol, interval))
+        if row:
+            markets.append(row)
+            continue
+        card = classify_card(unavailable_card(symbol, interval))
+        card["permission"] = "not_granted"
+        card["freshness"] = "not_retrieved"
+        card["price"] = None
+        card["entry"] = None
+        card["stop"] = None
+        card["target"] = None
+        card["persisted"] = False
+        markets.append(card)
+    account_events = []
+    for row in read_activity(account_id=user_id):
+        if row.get("account_id") not in (None, user_id):
+            continue
+        account_events.append(row)
+    return {
         "markets": markets,
         "history": history,
         "history_count": len(history),
+        "account_events": account_events,
         "truncated": False,
         "broker": False,
-        "note": "A failed study or a blocked AutoPilot does not remove an observation. One unavailable instrument does not hide another.",
-    })
+        "read_only": True,
+        "modified": False,
+        "account_id": user_id,
+        "note": "This read does not create a signal. Another account's events are not included.",
+    }
 
 
 @app.get("/api/ai")
@@ -624,9 +707,6 @@ def ai_ask():
     user_id, _user = _session_user()
     if not user_id:
         return jsonify({"error": "unauthorized"}), 401
-    blocked = _limited()
-    if blocked:
-        return blocked
     from ops.ai_provider import ask
 
     body = request.get_json(silent=True) or {}
@@ -657,9 +737,6 @@ def explain_api():
     user_id, _user = _session_user()
     if not user_id:
         return jsonify({"error": "unauthorized"}), 401
-    blocked = _limited()
-    if blocked:
-        return blocked
     from ops.ai_provider import ask
 
     result = ask(user_id, "explain_signal")
@@ -720,6 +797,8 @@ def lab_state():
     user_id, user = _session_user()
     if not user_id:
         return jsonify({"error": "unauthorized"}), 401
+    if not user:
+        return jsonify({"error": "not_found"}), 404
     from ops.academy import catalog, courses, public_rules, suggestions
     from ops.autopilot import presentation, view
     from ops.desk_state import product_gates
@@ -1116,9 +1195,6 @@ def triad():
 
 @app.post("/api/register")
 def register():
-    blocked = _limited()
-    if blocked:
-        return blocked
     from ops.users import register as create_user
     body = request.json or {}
     user = create_user(str(body.get("name") or ""), str(body.get("password") or ""))
@@ -1130,9 +1206,6 @@ def register():
 
 @app.post("/api/login")
 def user_login():
-    blocked = _limited()
-    if blocked:
-        return blocked
     from ops.users import login as check_login
     body = request.json or {}
     user = check_login(str(body.get("name") or ""), str(body.get("password") or ""))
@@ -1154,7 +1227,13 @@ def save_profile():
     user_id = session.get("user_id")
     if not user_id:
         return jsonify({"error": "unauthorized"}), 401
-    user = update_profile(user_id, request.json or {})
+    body = request.get_json(silent=True)
+    if not isinstance(body, dict):
+        return jsonify({"error": "invalid_input"}), 400
+    expected = body.get("expected_revision")
+    user = update_profile(user_id, body, expected_revision=expected)
+    if isinstance(user, dict) and user.get("conflict"):
+        return jsonify({"error": "conflict", "revision": user.get("revision"), "profile": None}), 409
     if not user:
         return jsonify({"error": "not_found"}), 404
     return jsonify({"ok": True, "profile": user.get("profile")})
@@ -1414,6 +1493,8 @@ def get_user(user_id):
 
 @app.post("/api/users/<user_id>/telegram")
 def link_telegram(user_id):
+    if not session.get("user_id") or not _user_ok():
+        return jsonify({"error": "unauthorized"}), 401
     if session.get("user_id") != user_id:
         return jsonify({"error": "forbidden"}), 403
     return jsonify({"error": "typed_id_not_accepted"}), 400
@@ -1839,39 +1920,57 @@ def get_prefs():
     return jsonify(worker.prefs())
 
 
-@app.post("/api/prefs")
+@app.post("/api/worker/prefs")
 @require_token
 def set_prefs():
-    return jsonify(worker.save_prefs(request.get_json(force=True)))
+    body = request.get_json(silent=True)
+    if not isinstance(body, dict):
+        return jsonify({"error": "invalid_input"}), 400
+    return jsonify(worker.save_prefs(body))
 
 
 def _loop():
-    while True:
-        try:
-            worker.evaluate()
-        except Exception:
-            pass
-        try:
-            worker.monitor()
-        except Exception:
-            pass
-        time.sleep(60)
+    def work():
+        worker.evaluate()
+        worker.monitor()
+
+    _service(work, 60, "desk")
 
 
 def _telegram_loop():
-    while True:
+    def work():
+        from ops.telegram_in import poll_if_enabled
+        poll_if_enabled()
+
+    _service(work, 3, "telegram")
+
+
+def _service(work, pause_s, name):
+    while desk_runtime.tick_start(name):
+        completed = False
         try:
-            from ops.telegram_in import poll_if_enabled
-            poll_if_enabled()
+            work()
+            completed = True
         except Exception:
-            pass
-        time.sleep(3)
+            completed = False
+        finally:
+            desk_runtime.tick_end(name, completed)
+        if desk_runtime.wait(pause_s):
+            return
 
 
-threading.Thread(target=_telegram_loop, daemon=True).start()
+def _spawn(target, name):
+    if not _workers_enabled():
+        return None
+    thread = threading.Thread(target=target, name=name, daemon=True)
+    thread.start()
+    return thread
 
 
-threading.Thread(target=_loop, daemon=True).start()
+if _workers_enabled():
+    desk_runtime.mark_started()
+_spawn(_loop, "aureon-desk")
+_spawn(_telegram_loop, "aureon-telegram")
 
 
 @app.get("/")
@@ -2072,9 +2171,35 @@ def notifications_api():
     if not user_id:
         return jsonify({"error": "unauthorized"}), 401
     from ops.customer_release import redact_feed_view
-    from ops.inbox import items, notice_view, unread_count
+    from ops.inbox import notice_view, page as inbox_page
     now_ms = int(time.time() * 1000)
-    return jsonify({"items": [redact_feed_view(notice_view(item, now_ms)) for item in items(user_id)], "unread": unread_count(user_id)})
+    raw_limit = request.args.get("limit")
+    try:
+        limit = None if raw_limit in (None, "") else int(raw_limit)
+    except ValueError:
+        return jsonify({"error": "invalid_input"}), 400
+    if limit is not None and limit < 1:
+        return jsonify({"error": "invalid_input"}), 400
+    before = request.args.get("before")
+    try:
+        if before not in (None, ""):
+            int(before)
+    except ValueError:
+        return jsonify({"error": "invalid_input"}), 400
+    import os as _os
+    retain = _os.environ.get("AUREON_INBOX_ARCHIVE_AFTER_MS")
+    if retain and str(retain).isdigit() and int(retain) > 0:
+        from ops.inbox import apply_retention
+        apply_retention(user_id, now_ms, int(retain))
+    body = inbox_page(
+        user_id,
+        limit=limit,
+        before_ms=None if before in (None, "") else int(before),
+        before_id=request.args.get("before_id"),
+        include_archived=request.args.get("include_archived") == "1",
+    )
+    body["items"] = [redact_feed_view(notice_view(item, now_ms)) for item in body["items"]]
+    return jsonify(body)
 
 
 @app.post("/api/notifications/read")
@@ -3756,14 +3881,32 @@ def digest():
 
 
 def _digest_loop():
-    while True:
+    def work():
+        from ops.users import list_users
+        for user in list_users():
+            _deliver_digest(user)
+
+    while desk_runtime.tick_start("digest"):
+        completed = False
         try:
-            from ops.users import list_users
-            for user in list_users():
-                _deliver_digest(user)
+            work()
+            completed = True
         except Exception:
-            pass
-        time.sleep(3600)
+            completed = False
+        finally:
+            desk_runtime.tick_end("digest", completed)
+        if desk_runtime.wait(3600):
+            return
 
 
-threading.Thread(target=_digest_loop, daemon=True).start()
+_spawn(_digest_loop, "aureon-digest")
+
+
+def _shutdown_background():
+    try:
+        desk_runtime.shutdown(deadline_s=2)
+    except Exception:
+        return None
+
+
+atexit.register(_shutdown_background)

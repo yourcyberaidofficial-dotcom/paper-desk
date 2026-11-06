@@ -101,12 +101,17 @@ def test_an_old_worker_heartbeat_is_not_reported_as_healthy():
     app.config["TESTING"] = True
     client = app.test_client()
     try:
+        previous_cycle = worker.last_cycle_error
         worker.last_monitor_error = None
+        worker.last_cycle_error = None
         worker.last_beat_ms = int(time.time() * 1000) - 10 * 60 * 1000
         assert client.get("/health").get_json()["worker"]["status"] == "stale"
         worker.last_beat_ms = int(time.time() * 1000)
         assert client.get("/health").get_json()["worker"]["status"] == "beating"
         worker.last_monitor_error = "TimeoutError"
+        assert client.get("/health").get_json()["worker"]["status"] == "error"
+        worker.last_monitor_error = None
+        worker.last_cycle_error = "RuntimeError"
         assert client.get("/health").get_json()["worker"]["status"] == "error"
         text = __import__("pathlib").Path(__file__).with_name("app.py").read_text(encoding="utf-8")
         assert "Worker status" in text
@@ -117,6 +122,7 @@ def test_an_old_worker_heartbeat_is_not_reported_as_healthy():
     finally:
         worker.last_beat_ms = previous_beat
         worker.last_monitor_error = previous_error
+        worker.last_cycle_error = previous_cycle
 
 
 def test_worker_shadow_is_off_unless_enabled(tmp_path, monkeypatch):

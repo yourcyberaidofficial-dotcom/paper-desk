@@ -60,16 +60,30 @@ def test_research_failure_does_not_remove_an_observation():
 def test_lifecycle_route_does_not_invent_a_reading(tmp_path, monkeypatch):
     monkeypatch.setenv("AUREON_DATA", str(tmp_path))
     from ops.app import app
+    from ops.users import register
+
     app.config["TESTING"] = True
-    body = app.test_client().get("/api/signals/lifecycle").get_json()
+    client = app.test_client()
+    anonymous = client.get("/api/signals/lifecycle")
+    assert anonymous.status_code == 401
+    assert anonymous.get_json()["modified"] is False
+    assert not (tmp_path / "signals" / "history.jsonl").exists()
+    register("ada", "password-s")
+    assert client.post("/api/login", json={"name": "ada", "password": "password-s"}).status_code == 200
+    body = client.get("/api/signals/lifecycle").get_json()
     assert body["markets"]
+    assert body["read_only"] is True
+    assert body["modified"] is False
     assert all(row["observation"] == "data_unavailable" for row in body["markets"])
     assert all(row["price"] is None and row["entry"] is None for row in body["markets"])
     assert body["truncated"] is False
-    assert body["history_count"] == len(body["history"])
-    assert body["history"]
-    assert all(row["signal"] is False and row["price"] is None for row in body["history"])
+    assert body["history_count"] == len(body["history"]) == 0
     assert "424242" not in json.dumps(body)
+    assert not (tmp_path / "signals" / "history.jsonl").exists()
+    denied = client.post("/api/signals/lifecycle", json={"price": 424242})
+    assert denied.status_code == 405
+    assert denied.get_json()["modified"] is False
+    assert not (tmp_path / "signals" / "history.jsonl").exists()
 
 
 def test_local_ai_stays_offline_without_a_configured_model(monkeypatch):

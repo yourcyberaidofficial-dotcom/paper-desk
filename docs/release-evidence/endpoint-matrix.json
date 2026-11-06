@@ -1,0 +1,3073 @@
+[
+  {
+    "method": "GET",
+    "rule": "/api/coverage",
+    "kind": "public",
+    "checks": {
+      "success": {
+        "status": "PASS",
+        "code": 200
+      },
+      "invalid": {
+        "status": "PASS",
+        "code": 200,
+        "reason": "Invalid input did not become an internal error."
+      },
+      "auth": {
+        "status": "PASS",
+        "reason": "This route has no account payload. Authentication is not the access control.",
+        "code": 200
+      },
+      "missing": {
+        "status": "PASS",
+        "reason": "No account-owned record is addressed. Ownership is not applicable."
+      },
+      "internal": {
+        "status": "PASS",
+        "code": 500
+      }
+    },
+    "verdict": "PASS"
+  },
+  {
+    "method": "GET",
+    "rule": "/api/data-coverage",
+    "kind": "public",
+    "checks": {
+      "success": {
+        "status": "PASS",
+        "code": 200
+      },
+      "invalid": {
+        "status": "PASS",
+        "code": 200,
+        "reason": "Invalid input did not become an internal error."
+      },
+      "auth": {
+        "status": "PASS",
+        "reason": "This route has no account payload. Authentication is not the access control.",
+        "code": 200
+      },
+      "missing": {
+        "status": "PASS",
+        "reason": "No account-owned record is addressed. Ownership is not applicable."
+      },
+      "internal": {
+        "status": "PASS",
+        "code": 500
+      }
+    },
+    "verdict": "PASS"
+  },
+  {
+    "method": "GET",
+    "rule": "/health",
+    "kind": "public",
+    "checks": {
+      "success": {
+        "status": "PASS",
+        "code": 200
+      },
+      "invalid": {
+        "status": "PASS",
+        "code": 200,
+        "reason": "Invalid input did not become an internal error."
+      },
+      "auth": {
+        "status": "PASS",
+        "reason": "This route has no account payload. Authentication is not the access control.",
+        "code": 200
+      },
+      "missing": {
+        "status": "PASS",
+        "reason": "No account-owned record is addressed. Ownership is not applicable."
+      },
+      "internal": {
+        "status": "PASS",
+        "code": 500
+      }
+    },
+    "verdict": "PASS"
+  },
+  {
+    "method": "GET",
+    "rule": "/version",
+    "kind": "public",
+    "checks": {
+      "success": {
+        "status": "PASS",
+        "code": 200
+      },
+      "invalid": {
+        "status": "PASS",
+        "code": 200,
+        "reason": "Invalid input did not become an internal error."
+      },
+      "auth": {
+        "status": "PASS",
+        "reason": "This route has no account payload. Authentication is not the access control.",
+        "code": 200
+      },
+      "missing": {
+        "status": "PASS",
+        "reason": "No account-owned record is addressed. Ownership is not applicable."
+      },
+      "internal": {
+        "status": "PASS",
+        "code": 500
+      }
+    },
+    "verdict": "PASS"
+  },
+  {
+    "method": "GET",
+    "rule": "/api/klines",
+    "kind": "public",
+    "checks": {
+      "success": {
+        "status": "PASS",
+        "code": 200
+      },
+      "invalid": {
+        "status": "PASS",
+        "code": 200,
+        "reason": "Invalid input did not become an internal error."
+      },
+      "auth": {
+        "status": "PASS",
+        "reason": "This route has no account payload. Authentication is not the access control.",
+        "code": 200
+      },
+      "missing": {
+        "status": "PASS",
+        "reason": "No account-owned record is addressed. Ownership is not applicable."
+      },
+      "internal": {
+        "status": "PASS",
+        "code": 500
+      }
+    },
+    "verdict": "PASS"
+  },
+  {
+    "method": "GET",
+    "rule": "/api/market",
+    "kind": "public",
+    "checks": {
+      "success": {
+        "status": "PASS",
+        "code": 200
+      },
+      "invalid": {
+        "status": "PASS",
+        "code": 200,
+        "reason": "Invalid input did not become an internal error."
+      },
+      "auth": {
+        "status": "PASS",
+        "reason": "This route has no account payload. Authentication is not the access control.",
+        "code": 200
+      },
+      "missing": {
+        "status": "PASS",
+        "reason": "No account-owned record is addressed. Ownership is not applicable."
+      },
+      "internal": {
+        "status": "PASS",
+        "code": 500
+      }
+    },
+    "verdict": "PASS"
+  },
+  {
+    "method": "GET",
+    "rule": "/api/signal",
+    "kind": "public",
+    "checks": {
+      "success": {
+        "status": "PASS",
+        "code": 200
+      },
+      "invalid": {
+        "status": "PASS",
+        "code": 200,
+        "reason": "Invalid input did not become an internal error."
+      },
+      "auth": {
+        "status": "PASS",
+        "reason": "This route has no account payload. Authentication is not the access control.",
+        "code": 200
+      },
+      "missing": {
+        "status": "PASS",
+        "reason": "No account-owned record is addressed. Ownership is not applicable."
+      },
+      "internal": {
+        "status": "PASS",
+        "code": 500
+      }
+    },
+    "verdict": "PASS"
+  },
+  {
+    "method": "GET",
+    "rule": "/api/state",
+    "kind": "token",
+    "checks": {
+      "success": {
+        "status": "PASS",
+        "code": 200
+      },
+      "invalid": {
+        "status": "PASS",
+        "code": 200,
+        "reason": "Invalid input did not become an internal error."
+      },
+      "auth": {
+        "status": "PASS",
+        "code": 401,
+        "reason": "Unset owner token is 503. A wrong token is 401."
+      },
+      "missing": {
+        "status": "PASS",
+        "reason": "No account-owned record is addressed. Ownership is not applicable."
+      },
+      "internal": {
+        "status": "PASS",
+        "code": 500
+      }
+    },
+    "verdict": "PASS"
+  },
+  {
+    "method": "GET",
+    "rule": "/api/events",
+    "kind": "token",
+    "checks": {
+      "success": {
+        "status": "PASS",
+        "code": 200
+      },
+      "invalid": {
+        "status": "PASS",
+        "code": 200,
+        "reason": "Invalid input did not become an internal error."
+      },
+      "auth": {
+        "status": "PASS",
+        "code": 401,
+        "reason": "Unset owner token is 503. A wrong token is 401."
+      },
+      "missing": {
+        "status": "PASS",
+        "reason": "No account-owned record is addressed. Ownership is not applicable."
+      },
+      "internal": {
+        "status": "PASS",
+        "code": 500
+      }
+    },
+    "verdict": "PASS"
+  },
+  {
+    "method": "POST",
+    "rule": "/api/bar",
+    "kind": "token",
+    "checks": {
+      "success": {
+        "status": "PASS",
+        "code": 200
+      },
+      "invalid": {
+        "status": "PASS",
+        "code": 400,
+        "reason": "Invalid input did not become an internal error."
+      },
+      "auth": {
+        "status": "PASS",
+        "code": 401,
+        "reason": "Unset owner token is 503. A wrong token is 401."
+      },
+      "missing": {
+        "status": "PASS",
+        "reason": "No account-owned record is addressed. Ownership is not applicable."
+      },
+      "internal": {
+        "status": "PASS",
+        "code": 500
+      }
+    },
+    "verdict": "PASS"
+  },
+  {
+    "method": "POST",
+    "rule": "/api/alert-test",
+    "kind": "token",
+    "checks": {
+      "success": {
+        "status": "PASS",
+        "code": 200
+      },
+      "invalid": {
+        "status": "PASS",
+        "code": 200,
+        "reason": "Invalid input did not become an internal error."
+      },
+      "auth": {
+        "status": "PASS",
+        "code": 401,
+        "reason": "Unset owner token is 503. A wrong token is 401."
+      },
+      "missing": {
+        "status": "PASS",
+        "reason": "No account-owned record is addressed. Ownership is not applicable."
+      },
+      "internal": {
+        "status": "PASS",
+        "code": 500
+      }
+    },
+    "verdict": "PASS"
+  },
+  {
+    "method": "POST",
+    "rule": "/login",
+    "kind": "auth-free",
+    "checks": {
+      "success": {
+        "status": "PASS",
+        "code": 302,
+        "reason": "Owner token login redirected into the desk."
+      },
+      "invalid": {
+        "status": "PASS",
+        "code": 302,
+        "reason": "Invalid input did not become an internal error."
+      },
+      "auth": {
+        "status": "PASS",
+        "reason": "This route has no account payload. Authentication is not the access control.",
+        "code": 302
+      },
+      "missing": {
+        "status": "PASS",
+        "reason": "No account-owned record is addressed. Ownership is not applicable."
+      },
+      "internal": {
+        "status": "PASS",
+        "code": 500
+      }
+    },
+    "verdict": "PASS"
+  },
+  {
+    "method": "POST",
+    "rule": "/logout",
+    "kind": "auth-free",
+    "checks": {
+      "success": {
+        "status": "PASS",
+        "code": 302,
+        "reason": "Logout was checked on a separate client so the suite session stayed signed in."
+      },
+      "invalid": {
+        "status": "PASS",
+        "code": 302,
+        "reason": "Invalid input did not become an internal error."
+      },
+      "auth": {
+        "status": "PASS",
+        "reason": "This route has no account payload. Authentication is not the access control.",
+        "code": 302
+      },
+      "missing": {
+        "status": "PASS",
+        "reason": "No account-owned record is addressed. Ownership is not applicable."
+      },
+      "internal": {
+        "status": "PASS",
+        "code": 500
+      }
+    },
+    "verdict": "PASS"
+  },
+  {
+    "method": "GET",
+    "rule": "/api/evaluations",
+    "kind": "token",
+    "checks": {
+      "success": {
+        "status": "PASS",
+        "code": 200
+      },
+      "invalid": {
+        "status": "PASS",
+        "code": 200,
+        "reason": "Invalid input did not become an internal error."
+      },
+      "auth": {
+        "status": "PASS",
+        "code": 401,
+        "reason": "Unset owner token is 503. A wrong token is 401."
+      },
+      "missing": {
+        "status": "PASS",
+        "reason": "No account-owned record is addressed. Ownership is not applicable."
+      },
+      "internal": {
+        "status": "PASS",
+        "code": 500
+      }
+    },
+    "verdict": "PASS"
+  },
+  {
+    "method": "GET",
+    "rule": "/api/deep-board",
+    "kind": "public",
+    "checks": {
+      "success": {
+        "status": "PASS",
+        "code": 200
+      },
+      "invalid": {
+        "status": "PASS",
+        "code": 200,
+        "reason": "Invalid input did not become an internal error."
+      },
+      "auth": {
+        "status": "PASS",
+        "reason": "This route has no account payload. Authentication is not the access control.",
+        "code": 200
+      },
+      "missing": {
+        "status": "PASS",
+        "reason": "No account-owned record is addressed. Ownership is not applicable."
+      },
+      "internal": {
+        "status": "PASS",
+        "code": 500
+      }
+    },
+    "verdict": "PASS"
+  },
+  {
+    "method": "GET",
+    "rule": "/api/leaderboard",
+    "kind": "public",
+    "checks": {
+      "success": {
+        "status": "PASS",
+        "code": 200
+      },
+      "invalid": {
+        "status": "PASS",
+        "code": 200,
+        "reason": "Invalid input did not become an internal error."
+      },
+      "auth": {
+        "status": "PASS",
+        "reason": "This route has no account payload. Authentication is not the access control.",
+        "code": 200
+      },
+      "missing": {
+        "status": "PASS",
+        "reason": "No account-owned record is addressed. Ownership is not applicable."
+      },
+      "internal": {
+        "status": "PASS",
+        "code": 500
+      }
+    },
+    "verdict": "PASS"
+  },
+  {
+    "method": "GET",
+    "rule": "/api/period",
+    "kind": "public",
+    "checks": {
+      "success": {
+        "status": "PASS",
+        "code": 200
+      },
+      "invalid": {
+        "status": "PASS",
+        "code": 400,
+        "reason": "Invalid input did not become an internal error."
+      },
+      "auth": {
+        "status": "PASS",
+        "reason": "This route has no account payload. Authentication is not the access control.",
+        "code": 200
+      },
+      "missing": {
+        "status": "PASS",
+        "reason": "No account-owned record is addressed. Ownership is not applicable."
+      },
+      "internal": {
+        "status": "PASS",
+        "code": 500
+      }
+    },
+    "verdict": "PASS"
+  },
+  {
+    "method": "GET",
+    "rule": "/api/replay",
+    "kind": "public",
+    "checks": {
+      "success": {
+        "status": "PASS",
+        "code": 200
+      },
+      "invalid": {
+        "status": "PASS",
+        "code": 400,
+        "reason": "Invalid input did not become an internal error."
+      },
+      "auth": {
+        "status": "PASS",
+        "reason": "This route has no account payload. Authentication is not the access control.",
+        "code": 200
+      },
+      "missing": {
+        "status": "PASS",
+        "reason": "No account-owned record is addressed. Ownership is not applicable."
+      },
+      "internal": {
+        "status": "PASS",
+        "code": 500
+      }
+    },
+    "verdict": "PASS"
+  },
+  {
+    "method": "GET",
+    "rule": "/api/paper-status",
+    "kind": "public",
+    "checks": {
+      "success": {
+        "status": "PASS",
+        "code": 200
+      },
+      "invalid": {
+        "status": "PASS",
+        "code": 200,
+        "reason": "Invalid input did not become an internal error."
+      },
+      "auth": {
+        "status": "PASS",
+        "reason": "This route has no account payload. Authentication is not the access control.",
+        "code": 200
+      },
+      "missing": {
+        "status": "PASS",
+        "reason": "No account-owned record is addressed. Ownership is not applicable."
+      },
+      "internal": {
+        "status": "PASS",
+        "code": 500
+      }
+    },
+    "verdict": "PASS"
+  },
+  {
+    "method": "GET",
+    "rule": "/api/paper/book",
+    "kind": "session",
+    "checks": {
+      "success": {
+        "status": "PASS",
+        "code": 200
+      },
+      "invalid": {
+        "status": "PASS",
+        "code": 200,
+        "reason": "Invalid input did not become an internal error."
+      },
+      "auth": {
+        "status": "PASS",
+        "code": 401
+      },
+      "missing": {
+        "status": "PASS",
+        "reason": "A missing profile did not fall through to another account.",
+        "code": 200
+      },
+      "internal": {
+        "status": "PASS",
+        "code": 500
+      }
+    },
+    "verdict": "PASS"
+  },
+  {
+    "method": "POST",
+    "rule": "/api/paper/orders",
+    "kind": "session",
+    "checks": {
+      "success": {
+        "status": "PASS",
+        "code": 404,
+        "reason": "Authenticated, and no order was opened because the opportunity does not exist. A stored opportunity open is covered by ops/test_paperbook.py."
+      },
+      "invalid": {
+        "status": "PASS",
+        "code": 400,
+        "reason": "Invalid input did not become an internal error."
+      },
+      "auth": {
+        "status": "PASS",
+        "code": 401
+      },
+      "missing": {
+        "status": "PASS",
+        "reason": "A missing profile did not fall through to another account.",
+        "code": 401
+      },
+      "internal": {
+        "status": "PASS",
+        "code": 500
+      }
+    },
+    "verdict": "PASS"
+  },
+  {
+    "method": "POST",
+    "rule": "/api/paper/close",
+    "kind": "session",
+    "checks": {
+      "success": {
+        "status": "PASS",
+        "code": 409,
+        "reason": "Authenticated close of a missing order is refused. A real close is covered by ops/test_paperbook.py."
+      },
+      "invalid": {
+        "status": "PASS",
+        "code": 400,
+        "reason": "Invalid input did not become an internal error."
+      },
+      "auth": {
+        "status": "PASS",
+        "code": 401
+      },
+      "missing": {
+        "status": "PASS",
+        "reason": "A missing profile did not fall through to another account.",
+        "code": 409
+      },
+      "internal": {
+        "status": "PASS",
+        "code": 500
+      }
+    },
+    "verdict": "PASS"
+  },
+  {
+    "method": "GET",
+    "rule": "/api/activity",
+    "kind": "session",
+    "checks": {
+      "success": {
+        "status": "PASS",
+        "code": 200
+      },
+      "invalid": {
+        "status": "PASS",
+        "code": 200,
+        "reason": "Invalid input did not become an internal error."
+      },
+      "auth": {
+        "status": "PASS",
+        "code": 401
+      },
+      "missing": {
+        "status": "PASS",
+        "reason": "A missing profile did not fall through to another account.",
+        "code": 200
+      },
+      "internal": {
+        "status": "PASS",
+        "code": 500
+      }
+    },
+    "verdict": "PASS"
+  },
+  {
+    "method": "GET",
+    "rule": "/api/signals/lifecycle",
+    "kind": "session",
+    "checks": {
+      "success": {
+        "status": "PASS",
+        "code": 200
+      },
+      "invalid": {
+        "status": "PASS",
+        "code": 200,
+        "reason": "Invalid input did not become an internal error."
+      },
+      "auth": {
+        "status": "PASS",
+        "code": 401
+      },
+      "missing": {
+        "status": "PASS",
+        "reason": "A missing profile did not fall through to another account.",
+        "code": 200
+      },
+      "internal": {
+        "status": "PASS",
+        "code": 500
+      }
+    },
+    "verdict": "PASS"
+  },
+  {
+    "method": "DELETE",
+    "rule": "/api/signals/lifecycle",
+    "kind": "lifecycle-write",
+    "checks": {
+      "success": {
+        "status": "PASS",
+        "code": 405
+      },
+      "invalid": {
+        "status": "PASS",
+        "code": 405,
+        "reason": "Invalid input did not become an internal error."
+      },
+      "auth": {
+        "status": "PASS",
+        "code": 401
+      },
+      "missing": {
+        "status": "PASS",
+        "reason": "A missing profile did not fall through to another account.",
+        "code": 405
+      },
+      "internal": {
+        "status": "PASS",
+        "code": 500
+      }
+    },
+    "verdict": "PASS"
+  },
+  {
+    "method": "PATCH",
+    "rule": "/api/signals/lifecycle",
+    "kind": "lifecycle-write",
+    "checks": {
+      "success": {
+        "status": "PASS",
+        "code": 405
+      },
+      "invalid": {
+        "status": "PASS",
+        "code": 405,
+        "reason": "Invalid input did not become an internal error."
+      },
+      "auth": {
+        "status": "PASS",
+        "code": 401
+      },
+      "missing": {
+        "status": "PASS",
+        "reason": "A missing profile did not fall through to another account.",
+        "code": 405
+      },
+      "internal": {
+        "status": "PASS",
+        "code": 500
+      }
+    },
+    "verdict": "PASS"
+  },
+  {
+    "method": "POST",
+    "rule": "/api/signals/lifecycle",
+    "kind": "lifecycle-write",
+    "checks": {
+      "success": {
+        "status": "PASS",
+        "code": 405
+      },
+      "invalid": {
+        "status": "PASS",
+        "code": 405,
+        "reason": "Invalid input did not become an internal error."
+      },
+      "auth": {
+        "status": "PASS",
+        "code": 401
+      },
+      "missing": {
+        "status": "PASS",
+        "reason": "A missing profile did not fall through to another account.",
+        "code": 405
+      },
+      "internal": {
+        "status": "PASS",
+        "code": 500
+      }
+    },
+    "verdict": "PASS"
+  },
+  {
+    "method": "PUT",
+    "rule": "/api/signals/lifecycle",
+    "kind": "lifecycle-write",
+    "checks": {
+      "success": {
+        "status": "PASS",
+        "code": 405
+      },
+      "invalid": {
+        "status": "PASS",
+        "code": 405,
+        "reason": "Invalid input did not become an internal error."
+      },
+      "auth": {
+        "status": "PASS",
+        "code": 401
+      },
+      "missing": {
+        "status": "PASS",
+        "reason": "A missing profile did not fall through to another account.",
+        "code": 405
+      },
+      "internal": {
+        "status": "PASS",
+        "code": 500
+      }
+    },
+    "verdict": "PASS"
+  },
+  {
+    "method": "GET",
+    "rule": "/api/ai",
+    "kind": "public",
+    "checks": {
+      "success": {
+        "status": "PASS",
+        "code": 200
+      },
+      "invalid": {
+        "status": "PASS",
+        "code": 200,
+        "reason": "Invalid input did not become an internal error."
+      },
+      "auth": {
+        "status": "PASS",
+        "reason": "This route has no account payload. Authentication is not the access control.",
+        "code": 200
+      },
+      "missing": {
+        "status": "PASS",
+        "reason": "No account-owned record is addressed. Ownership is not applicable."
+      },
+      "internal": {
+        "status": "PASS",
+        "code": 500
+      }
+    },
+    "verdict": "PASS"
+  },
+  {
+    "method": "POST",
+    "rule": "/api/ai/ask",
+    "kind": "session",
+    "checks": {
+      "success": {
+        "status": "PASS",
+        "code": 200
+      },
+      "invalid": {
+        "status": "PASS",
+        "code": 200,
+        "reason": "Invalid input did not become an internal error."
+      },
+      "auth": {
+        "status": "PASS",
+        "code": 401
+      },
+      "missing": {
+        "status": "PASS",
+        "reason": "A missing profile did not fall through to another account.",
+        "code": 200
+      },
+      "internal": {
+        "status": "PASS",
+        "code": 500
+      }
+    },
+    "verdict": "PASS"
+  },
+  {
+    "method": "POST",
+    "rule": "/api/explain",
+    "kind": "session",
+    "checks": {
+      "success": {
+        "status": "PASS",
+        "code": 200
+      },
+      "invalid": {
+        "status": "PASS",
+        "code": 200,
+        "reason": "Invalid input did not become an internal error."
+      },
+      "auth": {
+        "status": "PASS",
+        "code": 401
+      },
+      "missing": {
+        "status": "PASS",
+        "reason": "A missing profile did not fall through to another account.",
+        "code": 200
+      },
+      "internal": {
+        "status": "PASS",
+        "code": 500
+      }
+    },
+    "verdict": "PASS"
+  },
+  {
+    "method": "GET",
+    "rule": "/api/autopilot",
+    "kind": "session",
+    "checks": {
+      "success": {
+        "status": "PASS",
+        "code": 200
+      },
+      "invalid": {
+        "status": "PASS",
+        "code": 200,
+        "reason": "Invalid input did not become an internal error."
+      },
+      "auth": {
+        "status": "PASS",
+        "code": 401
+      },
+      "missing": {
+        "status": "PASS",
+        "reason": "A missing profile did not fall through to another account.",
+        "code": 200
+      },
+      "internal": {
+        "status": "PASS",
+        "code": 500
+      }
+    },
+    "verdict": "PASS"
+  },
+  {
+    "method": "GET",
+    "rule": "/api/platform",
+    "kind": "public",
+    "checks": {
+      "success": {
+        "status": "PASS",
+        "code": 200
+      },
+      "invalid": {
+        "status": "PASS",
+        "code": 200,
+        "reason": "Invalid input did not become an internal error."
+      },
+      "auth": {
+        "status": "PASS",
+        "reason": "This route has no account payload. Authentication is not the access control.",
+        "code": 200
+      },
+      "missing": {
+        "status": "PASS",
+        "reason": "No account-owned record is addressed. Ownership is not applicable."
+      },
+      "internal": {
+        "status": "PASS",
+        "code": 500
+      }
+    },
+    "verdict": "PASS"
+  },
+  {
+    "method": "POST",
+    "rule": "/api/autopilot",
+    "kind": "session",
+    "checks": {
+      "success": {
+        "status": "PASS",
+        "code": 200,
+        "reason": "Enable and pause succeeded. Disable ran afterwards. No order was opened."
+      },
+      "invalid": {
+        "status": "PASS",
+        "code": 400,
+        "reason": "Invalid input did not become an internal error."
+      },
+      "auth": {
+        "status": "PASS",
+        "code": 401
+      },
+      "missing": {
+        "status": "PASS",
+        "reason": "A missing profile did not fall through to another account.",
+        "code": 409
+      },
+      "internal": {
+        "status": "PASS",
+        "code": 500
+      }
+    },
+    "verdict": "PASS"
+  },
+  {
+    "method": "GET",
+    "rule": "/api/lab",
+    "kind": "session",
+    "checks": {
+      "success": {
+        "status": "PASS",
+        "code": 200
+      },
+      "invalid": {
+        "status": "PASS",
+        "code": 200,
+        "reason": "Invalid input did not become an internal error."
+      },
+      "auth": {
+        "status": "PASS",
+        "code": 401
+      },
+      "missing": {
+        "status": "PASS",
+        "reason": "A missing profile did not fall through to another account.",
+        "code": 404
+      },
+      "internal": {
+        "status": "PASS",
+        "code": 500
+      }
+    },
+    "verdict": "PASS"
+  },
+  {
+    "method": "POST",
+    "rule": "/api/lab",
+    "kind": "session",
+    "checks": {
+      "success": {
+        "status": "PASS",
+        "code": 200
+      },
+      "invalid": {
+        "status": "PASS",
+        "code": 400,
+        "reason": "Invalid input did not become an internal error."
+      },
+      "auth": {
+        "status": "PASS",
+        "code": 401
+      },
+      "missing": {
+        "status": "PASS",
+        "reason": "A missing profile did not fall through to another account.",
+        "code": 200
+      },
+      "internal": {
+        "status": "PASS",
+        "code": 500
+      }
+    },
+    "verdict": "PASS"
+  },
+  {
+    "method": "GET",
+    "rule": "/api/markets",
+    "kind": "public",
+    "checks": {
+      "success": {
+        "status": "PASS",
+        "code": 200
+      },
+      "invalid": {
+        "status": "PASS",
+        "code": 200,
+        "reason": "Invalid input did not become an internal error."
+      },
+      "auth": {
+        "status": "PASS",
+        "reason": "This route has no account payload. Authentication is not the access control.",
+        "code": 200
+      },
+      "missing": {
+        "status": "PASS",
+        "reason": "No account-owned record is addressed. Ownership is not applicable."
+      },
+      "internal": {
+        "status": "PASS",
+        "code": 500
+      }
+    },
+    "verdict": "PASS"
+  },
+  {
+    "method": "GET",
+    "rule": "/api/triad",
+    "kind": "public",
+    "checks": {
+      "success": {
+        "status": "PASS",
+        "code": 200
+      },
+      "invalid": {
+        "status": "PASS",
+        "code": 200,
+        "reason": "Invalid input did not become an internal error."
+      },
+      "auth": {
+        "status": "PASS",
+        "reason": "This route has no account payload. Authentication is not the access control.",
+        "code": 200
+      },
+      "missing": {
+        "status": "PASS",
+        "reason": "No account-owned record is addressed. Ownership is not applicable."
+      },
+      "internal": {
+        "status": "PASS",
+        "code": 500
+      }
+    },
+    "verdict": "PASS"
+  },
+  {
+    "method": "POST",
+    "rule": "/api/register",
+    "kind": "auth-free",
+    "checks": {
+      "success": {
+        "status": "PASS",
+        "code": 200,
+        "reason": "Registration succeeded on a separate client."
+      },
+      "invalid": {
+        "status": "PASS",
+        "code": 400,
+        "reason": "Invalid input did not become an internal error."
+      },
+      "auth": {
+        "status": "PASS",
+        "reason": "This route has no account payload. Authentication is not the access control.",
+        "code": 400
+      },
+      "missing": {
+        "status": "PASS",
+        "reason": "No account-owned record is addressed. Ownership is not applicable."
+      },
+      "internal": {
+        "status": "PASS",
+        "code": 500
+      }
+    },
+    "verdict": "PASS"
+  },
+  {
+    "method": "POST",
+    "rule": "/api/login",
+    "kind": "auth-free",
+    "checks": {
+      "success": {
+        "status": "PASS",
+        "code": 200,
+        "reason": "A separate client logged in. The suite session was left signed in."
+      },
+      "invalid": {
+        "status": "PASS",
+        "code": 400,
+        "reason": "Invalid input did not become an internal error."
+      },
+      "auth": {
+        "status": "PASS",
+        "reason": "This route has no account payload. Authentication is not the access control.",
+        "code": 401
+      },
+      "missing": {
+        "status": "PASS",
+        "reason": "No account-owned record is addressed. Ownership is not applicable."
+      },
+      "internal": {
+        "status": "PASS",
+        "code": 500
+      }
+    },
+    "verdict": "PASS"
+  },
+  {
+    "method": "POST",
+    "rule": "/api/logout",
+    "kind": "auth-free",
+    "checks": {
+      "success": {
+        "status": "PASS",
+        "code": 200,
+        "reason": "Logout was checked on a separate client so the suite session stayed signed in."
+      },
+      "invalid": {
+        "status": "PASS",
+        "code": 200,
+        "reason": "Invalid input did not become an internal error."
+      },
+      "auth": {
+        "status": "PASS",
+        "reason": "This route has no account payload. Authentication is not the access control.",
+        "code": 200
+      },
+      "missing": {
+        "status": "PASS",
+        "reason": "No account-owned record is addressed. Ownership is not applicable."
+      },
+      "internal": {
+        "status": "PASS",
+        "code": 500
+      }
+    },
+    "verdict": "PASS"
+  },
+  {
+    "method": "POST",
+    "rule": "/api/profile",
+    "kind": "session",
+    "checks": {
+      "success": {
+        "status": "PASS",
+        "code": 200
+      },
+      "invalid": {
+        "status": "PASS",
+        "code": 400,
+        "reason": "Invalid input did not become an internal error."
+      },
+      "auth": {
+        "status": "PASS",
+        "code": 401
+      },
+      "missing": {
+        "status": "PASS",
+        "reason": "A missing profile did not fall through to another account.",
+        "code": 404
+      },
+      "internal": {
+        "status": "PASS",
+        "code": 500
+      }
+    },
+    "verdict": "PASS"
+  },
+  {
+    "method": "POST",
+    "rule": "/api/telegram/link",
+    "kind": "session",
+    "checks": {
+      "success": {
+        "status": "PASS",
+        "code": 200
+      },
+      "invalid": {
+        "status": "PASS",
+        "code": 400,
+        "reason": "Invalid input did not become an internal error."
+      },
+      "auth": {
+        "status": "PASS",
+        "code": 401
+      },
+      "missing": {
+        "status": "PASS",
+        "reason": "A missing profile did not fall through to another account.",
+        "code": 404
+      },
+      "internal": {
+        "status": "PASS",
+        "code": 500
+      }
+    },
+    "verdict": "PASS"
+  },
+  {
+    "method": "GET",
+    "rule": "/api/registry",
+    "kind": "session",
+    "checks": {
+      "success": {
+        "status": "PASS",
+        "code": 200
+      },
+      "invalid": {
+        "status": "PASS",
+        "code": 200,
+        "reason": "Invalid input did not become an internal error."
+      },
+      "auth": {
+        "status": "PASS",
+        "code": 401
+      },
+      "missing": {
+        "status": "PASS",
+        "reason": "A missing profile did not fall through to another account.",
+        "code": 200
+      },
+      "internal": {
+        "status": "PASS",
+        "code": 500
+      }
+    },
+    "verdict": "PASS"
+  },
+  {
+    "method": "GET",
+    "rule": "/api/qualification",
+    "kind": "session",
+    "checks": {
+      "success": {
+        "status": "PASS",
+        "code": 200
+      },
+      "invalid": {
+        "status": "PASS",
+        "code": 200,
+        "reason": "Invalid input did not become an internal error."
+      },
+      "auth": {
+        "status": "PASS",
+        "code": 401
+      },
+      "missing": {
+        "status": "PASS",
+        "reason": "A missing profile did not fall through to another account.",
+        "code": 200
+      },
+      "internal": {
+        "status": "PASS",
+        "code": 500
+      }
+    },
+    "verdict": "PASS"
+  },
+  {
+    "method": "GET",
+    "rule": "/api/plan",
+    "kind": "session",
+    "checks": {
+      "success": {
+        "status": "PASS",
+        "code": 200
+      },
+      "invalid": {
+        "status": "PASS",
+        "code": 200,
+        "reason": "Invalid input did not become an internal error."
+      },
+      "auth": {
+        "status": "PASS",
+        "code": 401
+      },
+      "missing": {
+        "status": "PASS",
+        "reason": "A missing profile did not fall through to another account.",
+        "code": 200
+      },
+      "internal": {
+        "status": "PASS",
+        "code": 500
+      }
+    },
+    "verdict": "PASS"
+  },
+  {
+    "method": "POST",
+    "rule": "/api/plan",
+    "kind": "session",
+    "checks": {
+      "success": {
+        "status": "PASS",
+        "code": 200
+      },
+      "invalid": {
+        "status": "PASS",
+        "code": 400,
+        "reason": "Invalid input did not become an internal error."
+      },
+      "auth": {
+        "status": "PASS",
+        "code": 401
+      },
+      "missing": {
+        "status": "PASS",
+        "reason": "A missing profile did not fall through to another account.",
+        "code": 404
+      },
+      "internal": {
+        "status": "PASS",
+        "code": 500
+      }
+    },
+    "verdict": "PASS"
+  },
+  {
+    "method": "POST",
+    "rule": "/api/size",
+    "kind": "session",
+    "checks": {
+      "success": {
+        "status": "PASS",
+        "code": 200
+      },
+      "invalid": {
+        "status": "PASS",
+        "code": 400,
+        "reason": "Invalid input did not become an internal error."
+      },
+      "auth": {
+        "status": "PASS",
+        "code": 401
+      },
+      "missing": {
+        "status": "PASS",
+        "reason": "A missing profile did not fall through to another account.",
+        "code": 200
+      },
+      "internal": {
+        "status": "PASS",
+        "code": 500
+      }
+    },
+    "verdict": "PASS"
+  },
+  {
+    "method": "POST",
+    "rule": "/api/telegram/update",
+    "kind": "auth-free",
+    "checks": {
+      "success": {
+        "status": "PASS",
+        "code": 200
+      },
+      "invalid": {
+        "status": "PASS",
+        "code": 200,
+        "reason": "Invalid input did not become an internal error."
+      },
+      "auth": {
+        "status": "PASS",
+        "reason": "This route has no account payload. Authentication is not the access control.",
+        "code": 200
+      },
+      "missing": {
+        "status": "PASS",
+        "reason": "No account-owned record is addressed. Ownership is not applicable."
+      },
+      "internal": {
+        "status": "PASS",
+        "code": 500
+      }
+    },
+    "verdict": "PASS"
+  },
+  {
+    "method": "POST",
+    "rule": "/api/telegram/unlink",
+    "kind": "session",
+    "checks": {
+      "success": {
+        "status": "PASS",
+        "code": 200
+      },
+      "invalid": {
+        "status": "PASS",
+        "code": 200,
+        "reason": "Invalid input did not become an internal error."
+      },
+      "auth": {
+        "status": "PASS",
+        "code": 401
+      },
+      "missing": {
+        "status": "PASS",
+        "reason": "A missing profile did not fall through to another account.",
+        "code": 200
+      },
+      "internal": {
+        "status": "PASS",
+        "code": 500
+      }
+    },
+    "verdict": "PASS"
+  },
+  {
+    "method": "POST",
+    "rule": "/api/telegram/confirm",
+    "kind": "auth-free",
+    "checks": {
+      "success": {
+        "status": "PASS",
+        "code": 400,
+        "reason": "A typed Telegram id is refused. That is the route contract."
+      },
+      "invalid": {
+        "status": "PASS",
+        "code": 400,
+        "reason": "Invalid input did not become an internal error."
+      },
+      "auth": {
+        "status": "PASS",
+        "reason": "This route has no account payload. Authentication is not the access control.",
+        "code": 400
+      },
+      "missing": {
+        "status": "PASS",
+        "reason": "No account-owned record is addressed. Ownership is not applicable."
+      },
+      "internal": {
+        "status": "PASS",
+        "code": 500
+      }
+    },
+    "verdict": "PASS"
+  },
+  {
+    "method": "POST",
+    "rule": "/api/prefs",
+    "kind": "session",
+    "checks": {
+      "success": {
+        "status": "PASS",
+        "code": 200
+      },
+      "invalid": {
+        "status": "PASS",
+        "code": 400,
+        "reason": "Invalid input did not become an internal error."
+      },
+      "auth": {
+        "status": "PASS",
+        "code": 401
+      },
+      "missing": {
+        "status": "PASS",
+        "reason": "A missing profile did not fall through to another account.",
+        "code": 404
+      },
+      "internal": {
+        "status": "PASS",
+        "code": 500
+      }
+    },
+    "verdict": "PASS"
+  },
+  {
+    "method": "GET",
+    "rule": "/api/me",
+    "kind": "session",
+    "checks": {
+      "success": {
+        "status": "PASS",
+        "code": 200
+      },
+      "invalid": {
+        "status": "PASS",
+        "code": 200,
+        "reason": "Invalid input did not become an internal error."
+      },
+      "auth": {
+        "status": "PASS",
+        "code": 401
+      },
+      "missing": {
+        "status": "PASS",
+        "reason": "A missing profile did not fall through to another account.",
+        "code": 404
+      },
+      "internal": {
+        "status": "PASS",
+        "code": 500
+      }
+    },
+    "verdict": "PASS"
+  },
+  {
+    "method": "GET",
+    "rule": "/api/profiles",
+    "kind": "public",
+    "checks": {
+      "success": {
+        "status": "PASS",
+        "code": 200
+      },
+      "invalid": {
+        "status": "PASS",
+        "code": 200,
+        "reason": "Invalid input did not become an internal error."
+      },
+      "auth": {
+        "status": "PASS",
+        "reason": "This route has no account payload. Authentication is not the access control.",
+        "code": 200
+      },
+      "missing": {
+        "status": "PASS",
+        "reason": "No account-owned record is addressed. Ownership is not applicable."
+      },
+      "internal": {
+        "status": "PASS",
+        "code": 500
+      }
+    },
+    "verdict": "PASS"
+  },
+  {
+    "method": "GET",
+    "rule": "/api/eligibility",
+    "kind": "session",
+    "checks": {
+      "success": {
+        "status": "PASS",
+        "code": 200
+      },
+      "invalid": {
+        "status": "PASS",
+        "code": 400,
+        "reason": "Invalid input did not become an internal error."
+      },
+      "auth": {
+        "status": "PASS",
+        "code": 401
+      },
+      "missing": {
+        "status": "PASS",
+        "reason": "A missing profile did not fall through to another account.",
+        "code": 200
+      },
+      "internal": {
+        "status": "PASS",
+        "code": 500
+      }
+    },
+    "verdict": "PASS"
+  },
+  {
+    "method": "GET",
+    "rule": "/api/users/<user_id>",
+    "kind": "closed-user",
+    "checks": {
+      "success": {
+        "status": "PASS",
+        "code": 404
+      },
+      "invalid": {
+        "status": "PASS",
+        "code": 404,
+        "reason": "Invalid input did not become an internal error."
+      },
+      "auth": {
+        "status": "PASS",
+        "reason": "The route never returns an account, signed in or not.",
+        "code": 404
+      },
+      "missing": {
+        "status": "PASS",
+        "reason": "A missing profile did not fall through to another account.",
+        "code": 404
+      },
+      "internal": {
+        "status": "PASS",
+        "code": 500
+      }
+    },
+    "verdict": "PASS"
+  },
+  {
+    "method": "POST",
+    "rule": "/api/users/<user_id>/telegram",
+    "kind": "telegram-user",
+    "checks": {
+      "success": {
+        "status": "PASS",
+        "code": 403
+      },
+      "invalid": {
+        "status": "PASS",
+        "code": 403,
+        "reason": "Invalid input did not become an internal error."
+      },
+      "auth": {
+        "status": "PASS",
+        "code": 401
+      },
+      "missing": {
+        "status": "PASS",
+        "reason": "A missing profile did not fall through to another account.",
+        "code": 403
+      },
+      "internal": {
+        "status": "PASS",
+        "code": 500
+      }
+    },
+    "verdict": "PASS"
+  },
+  {
+    "method": "GET",
+    "rule": "/api/council",
+    "kind": "public",
+    "checks": {
+      "success": {
+        "status": "PASS",
+        "code": 200
+      },
+      "invalid": {
+        "status": "PASS",
+        "code": 200,
+        "reason": "Invalid input did not become an internal error."
+      },
+      "auth": {
+        "status": "PASS",
+        "reason": "This route has no account payload. Authentication is not the access control.",
+        "code": 200
+      },
+      "missing": {
+        "status": "PASS",
+        "reason": "No account-owned record is addressed. Ownership is not applicable."
+      },
+      "internal": {
+        "status": "PASS",
+        "code": 500
+      }
+    },
+    "verdict": "PASS"
+  },
+  {
+    "method": "GET",
+    "rule": "/api/signal-history",
+    "kind": "public",
+    "checks": {
+      "success": {
+        "status": "PASS",
+        "code": 200
+      },
+      "invalid": {
+        "status": "PASS",
+        "code": 200,
+        "reason": "Invalid input did not become an internal error."
+      },
+      "auth": {
+        "status": "PASS",
+        "reason": "This route has no account payload. Authentication is not the access control.",
+        "code": 200
+      },
+      "missing": {
+        "status": "PASS",
+        "reason": "No account-owned record is addressed. Ownership is not applicable."
+      },
+      "internal": {
+        "status": "PASS",
+        "code": 500
+      }
+    },
+    "verdict": "PASS"
+  },
+  {
+    "method": "GET",
+    "rule": "/api/notify-history",
+    "kind": "public",
+    "checks": {
+      "success": {
+        "status": "PASS",
+        "code": 200
+      },
+      "invalid": {
+        "status": "PASS",
+        "code": 200,
+        "reason": "Invalid input did not become an internal error."
+      },
+      "auth": {
+        "status": "PASS",
+        "reason": "This route has no account payload. Authentication is not the access control.",
+        "code": 200
+      },
+      "missing": {
+        "status": "PASS",
+        "reason": "No account-owned record is addressed. Ownership is not applicable."
+      },
+      "internal": {
+        "status": "PASS",
+        "code": 500
+      }
+    },
+    "verdict": "PASS"
+  },
+  {
+    "method": "GET",
+    "rule": "/api/gold/signal",
+    "kind": "public",
+    "checks": {
+      "success": {
+        "status": "PASS",
+        "code": 200
+      },
+      "invalid": {
+        "status": "PASS",
+        "code": 200,
+        "reason": "Invalid input did not become an internal error."
+      },
+      "auth": {
+        "status": "PASS",
+        "reason": "This route has no account payload. Authentication is not the access control.",
+        "code": 200
+      },
+      "missing": {
+        "status": "PASS",
+        "reason": "No account-owned record is addressed. Ownership is not applicable."
+      },
+      "internal": {
+        "status": "PASS",
+        "code": 500
+      }
+    },
+    "verdict": "PASS"
+  },
+  {
+    "method": "GET",
+    "rule": "/api/gold/candles",
+    "kind": "public",
+    "checks": {
+      "success": {
+        "status": "PASS",
+        "code": 200
+      },
+      "invalid": {
+        "status": "PASS",
+        "code": 200,
+        "reason": "Invalid input did not become an internal error."
+      },
+      "auth": {
+        "status": "PASS",
+        "reason": "This route has no account payload. Authentication is not the access control.",
+        "code": 200
+      },
+      "missing": {
+        "status": "PASS",
+        "reason": "No account-owned record is addressed. Ownership is not applicable."
+      },
+      "internal": {
+        "status": "PASS",
+        "code": 500
+      }
+    },
+    "verdict": "PASS"
+  },
+  {
+    "method": "GET",
+    "rule": "/api/engine",
+    "kind": "public",
+    "checks": {
+      "success": {
+        "status": "PASS",
+        "code": 200
+      },
+      "invalid": {
+        "status": "PASS",
+        "code": 200,
+        "reason": "Invalid input did not become an internal error."
+      },
+      "auth": {
+        "status": "PASS",
+        "reason": "This route has no account payload. Authentication is not the access control.",
+        "code": 200
+      },
+      "missing": {
+        "status": "PASS",
+        "reason": "No account-owned record is addressed. Ownership is not applicable."
+      },
+      "internal": {
+        "status": "PASS",
+        "code": 500
+      }
+    },
+    "verdict": "PASS"
+  },
+  {
+    "method": "GET",
+    "rule": "/api/research-lab",
+    "kind": "public",
+    "checks": {
+      "success": {
+        "status": "PASS",
+        "code": 200
+      },
+      "invalid": {
+        "status": "PASS",
+        "code": 200,
+        "reason": "Invalid input did not become an internal error."
+      },
+      "auth": {
+        "status": "PASS",
+        "reason": "This route has no account payload. Authentication is not the access control.",
+        "code": 200
+      },
+      "missing": {
+        "status": "PASS",
+        "reason": "No account-owned record is addressed. Ownership is not applicable."
+      },
+      "internal": {
+        "status": "PASS",
+        "code": 500
+      }
+    },
+    "verdict": "PASS"
+  },
+  {
+    "method": "GET",
+    "rule": "/api/research-signals",
+    "kind": "public",
+    "checks": {
+      "success": {
+        "status": "PASS",
+        "code": 200
+      },
+      "invalid": {
+        "status": "PASS",
+        "code": 400,
+        "reason": "Invalid input did not become an internal error."
+      },
+      "auth": {
+        "status": "PASS",
+        "reason": "This route has no account payload. Authentication is not the access control.",
+        "code": 200
+      },
+      "missing": {
+        "status": "PASS",
+        "reason": "No account-owned record is addressed. Ownership is not applicable."
+      },
+      "internal": {
+        "status": "PASS",
+        "code": 500
+      }
+    },
+    "verdict": "PASS"
+  },
+  {
+    "method": "GET",
+    "rule": "/api/experimental",
+    "kind": "token",
+    "checks": {
+      "success": {
+        "status": "PASS",
+        "code": 200
+      },
+      "invalid": {
+        "status": "PASS",
+        "code": 200,
+        "reason": "Invalid input did not become an internal error."
+      },
+      "auth": {
+        "status": "PASS",
+        "code": 401,
+        "reason": "Unset owner token is 503. A wrong token is 401."
+      },
+      "missing": {
+        "status": "PASS",
+        "reason": "No account-owned record is addressed. Ownership is not applicable."
+      },
+      "internal": {
+        "status": "PASS",
+        "code": 500
+      }
+    },
+    "verdict": "PASS"
+  },
+  {
+    "method": "GET",
+    "rule": "/api/prefs",
+    "kind": "token",
+    "checks": {
+      "success": {
+        "status": "PASS",
+        "code": 200
+      },
+      "invalid": {
+        "status": "PASS",
+        "code": 200,
+        "reason": "Invalid input did not become an internal error."
+      },
+      "auth": {
+        "status": "PASS",
+        "code": 401,
+        "reason": "Unset owner token is 503. A wrong token is 401."
+      },
+      "missing": {
+        "status": "PASS",
+        "reason": "No account-owned record is addressed. Ownership is not applicable."
+      },
+      "internal": {
+        "status": "PASS",
+        "code": 500
+      }
+    },
+    "verdict": "PASS"
+  },
+  {
+    "method": "POST",
+    "rule": "/api/worker/prefs",
+    "kind": "token",
+    "checks": {
+      "success": {
+        "status": "PASS",
+        "code": 200
+      },
+      "invalid": {
+        "status": "PASS",
+        "code": 400,
+        "reason": "Invalid input did not become an internal error."
+      },
+      "auth": {
+        "status": "PASS",
+        "code": 401,
+        "reason": "Unset owner token is 503. A wrong token is 401."
+      },
+      "missing": {
+        "status": "PASS",
+        "reason": "No account-owned record is addressed. Ownership is not applicable."
+      },
+      "internal": {
+        "status": "PASS",
+        "code": 500
+      }
+    },
+    "verdict": "PASS"
+  },
+  {
+    "method": "GET",
+    "rule": "/",
+    "kind": "public-page",
+    "checks": {
+      "success": {
+        "status": "PASS",
+        "code": 302
+      },
+      "invalid": {
+        "status": "PASS",
+        "code": 302,
+        "reason": "Invalid input did not become an internal error."
+      },
+      "auth": {
+        "status": "PASS",
+        "reason": "This route has no account payload. Authentication is not the access control.",
+        "code": 200
+      },
+      "missing": {
+        "status": "PASS",
+        "reason": "No account-owned record is addressed. Ownership is not applicable."
+      },
+      "internal": {
+        "status": "PASS",
+        "code": 500
+      }
+    },
+    "verdict": "PASS"
+  },
+  {
+    "method": "GET",
+    "rule": "/login",
+    "kind": "public-page",
+    "checks": {
+      "success": {
+        "status": "PASS",
+        "code": 302
+      },
+      "invalid": {
+        "status": "PASS",
+        "code": 302,
+        "reason": "Invalid input did not become an internal error."
+      },
+      "auth": {
+        "status": "PASS",
+        "reason": "This route has no account payload. Authentication is not the access control.",
+        "code": 200
+      },
+      "missing": {
+        "status": "PASS",
+        "reason": "No account-owned record is addressed. Ownership is not applicable."
+      },
+      "internal": {
+        "status": "PASS",
+        "code": 500
+      }
+    },
+    "verdict": "PASS"
+  },
+  {
+    "method": "GET",
+    "rule": "/register",
+    "kind": "public-page",
+    "checks": {
+      "success": {
+        "status": "PASS",
+        "code": 302
+      },
+      "invalid": {
+        "status": "PASS",
+        "code": 302,
+        "reason": "Invalid input did not become an internal error."
+      },
+      "auth": {
+        "status": "PASS",
+        "reason": "This route has no account payload. Authentication is not the access control.",
+        "code": 200
+      },
+      "missing": {
+        "status": "PASS",
+        "reason": "No account-owned record is addressed. Ownership is not applicable."
+      },
+      "internal": {
+        "status": "PASS",
+        "code": 500
+      }
+    },
+    "verdict": "PASS"
+  },
+  {
+    "method": "GET",
+    "rule": "/api/scanner",
+    "kind": "session",
+    "checks": {
+      "success": {
+        "status": "PASS",
+        "code": 200
+      },
+      "invalid": {
+        "status": "PASS",
+        "code": 200,
+        "reason": "Invalid input did not become an internal error."
+      },
+      "auth": {
+        "status": "PASS",
+        "code": 401
+      },
+      "missing": {
+        "status": "PASS",
+        "reason": "A missing profile did not fall through to another account.",
+        "code": 200
+      },
+      "internal": {
+        "status": "PASS",
+        "code": 500
+      }
+    },
+    "verdict": "PASS"
+  },
+  {
+    "method": "GET",
+    "rule": "/api/desk",
+    "kind": "session",
+    "checks": {
+      "success": {
+        "status": "PASS",
+        "code": 200
+      },
+      "invalid": {
+        "status": "PASS",
+        "code": 200,
+        "reason": "Invalid input did not become an internal error."
+      },
+      "auth": {
+        "status": "PASS",
+        "code": 401
+      },
+      "missing": {
+        "status": "PASS",
+        "reason": "A missing profile did not fall through to another account.",
+        "code": 200
+      },
+      "internal": {
+        "status": "PASS",
+        "code": 500
+      }
+    },
+    "verdict": "PASS"
+  },
+  {
+    "method": "POST",
+    "rule": "/api/desk/plan",
+    "kind": "session",
+    "checks": {
+      "success": {
+        "status": "PASS",
+        "code": 200,
+        "reason": "No display grant. The plan route refused and did not open an order."
+      },
+      "invalid": {
+        "status": "PASS",
+        "code": 400,
+        "reason": "Invalid input did not become an internal error."
+      },
+      "auth": {
+        "status": "PASS",
+        "code": 401
+      },
+      "missing": {
+        "status": "PASS",
+        "reason": "A missing profile did not fall through to another account.",
+        "code": 401
+      },
+      "internal": {
+        "status": "PASS",
+        "code": 500
+      }
+    },
+    "verdict": "PASS"
+  },
+  {
+    "method": "GET",
+    "rule": "/api/workspace",
+    "kind": "session",
+    "checks": {
+      "success": {
+        "status": "PASS",
+        "code": 200
+      },
+      "invalid": {
+        "status": "PASS",
+        "code": 200,
+        "reason": "Invalid input did not become an internal error."
+      },
+      "auth": {
+        "status": "PASS",
+        "code": 401
+      },
+      "missing": {
+        "status": "PASS",
+        "reason": "A missing profile did not fall through to another account.",
+        "code": 200
+      },
+      "internal": {
+        "status": "PASS",
+        "code": 500
+      }
+    },
+    "verdict": "PASS"
+  },
+  {
+    "method": "GET",
+    "rule": "/api/notifications",
+    "kind": "session",
+    "checks": {
+      "success": {
+        "status": "PASS",
+        "code": 200
+      },
+      "invalid": {
+        "status": "PASS",
+        "code": 400,
+        "reason": "Invalid input did not become an internal error."
+      },
+      "auth": {
+        "status": "PASS",
+        "code": 401
+      },
+      "missing": {
+        "status": "PASS",
+        "reason": "A missing profile did not fall through to another account.",
+        "code": 200
+      },
+      "internal": {
+        "status": "PASS",
+        "code": 500
+      }
+    },
+    "verdict": "PASS"
+  },
+  {
+    "method": "POST",
+    "rule": "/api/notifications/read",
+    "kind": "session",
+    "checks": {
+      "success": {
+        "status": "PASS",
+        "code": 200
+      },
+      "invalid": {
+        "status": "PASS",
+        "code": 400,
+        "reason": "Invalid input did not become an internal error."
+      },
+      "auth": {
+        "status": "PASS",
+        "code": 401
+      },
+      "missing": {
+        "status": "PASS",
+        "reason": "A missing profile did not fall through to another account.",
+        "code": 200
+      },
+      "internal": {
+        "status": "PASS",
+        "code": 500
+      }
+    },
+    "verdict": "PASS"
+  },
+  {
+    "method": "GET",
+    "rule": "/api/inbox/settings",
+    "kind": "session",
+    "checks": {
+      "success": {
+        "status": "PASS",
+        "code": 200
+      },
+      "invalid": {
+        "status": "PASS",
+        "code": 200,
+        "reason": "Invalid input did not become an internal error."
+      },
+      "auth": {
+        "status": "PASS",
+        "code": 401
+      },
+      "missing": {
+        "status": "PASS",
+        "reason": "A missing profile did not fall through to another account.",
+        "code": 200
+      },
+      "internal": {
+        "status": "PASS",
+        "code": 500
+      }
+    },
+    "verdict": "PASS"
+  },
+  {
+    "method": "POST",
+    "rule": "/api/inbox/settings",
+    "kind": "session",
+    "checks": {
+      "success": {
+        "status": "PASS",
+        "code": 200
+      },
+      "invalid": {
+        "status": "PASS",
+        "code": 200,
+        "reason": "Invalid input did not become an internal error."
+      },
+      "auth": {
+        "status": "PASS",
+        "code": 401
+      },
+      "missing": {
+        "status": "PASS",
+        "reason": "A missing profile did not fall through to another account.",
+        "code": 404
+      },
+      "internal": {
+        "status": "PASS",
+        "code": 500
+      }
+    },
+    "verdict": "PASS"
+  },
+  {
+    "method": "POST",
+    "rule": "/api/terminal/signal",
+    "kind": "session",
+    "checks": {
+      "success": {
+        "status": "PASS",
+        "code": 200
+      },
+      "invalid": {
+        "status": "PASS",
+        "code": 200,
+        "reason": "Invalid input did not become an internal error."
+      },
+      "auth": {
+        "status": "PASS",
+        "code": 401
+      },
+      "missing": {
+        "status": "PASS",
+        "reason": "A missing profile did not fall through to another account.",
+        "code": 200
+      },
+      "internal": {
+        "status": "PASS",
+        "code": 500
+      }
+    },
+    "verdict": "PASS"
+  },
+  {
+    "method": "GET",
+    "rule": "/api/terminal/history",
+    "kind": "session",
+    "checks": {
+      "success": {
+        "status": "PASS",
+        "code": 200
+      },
+      "invalid": {
+        "status": "PASS",
+        "code": 200,
+        "reason": "Invalid input did not become an internal error."
+      },
+      "auth": {
+        "status": "PASS",
+        "code": 401
+      },
+      "missing": {
+        "status": "PASS",
+        "reason": "A missing profile did not fall through to another account.",
+        "code": 200
+      },
+      "internal": {
+        "status": "PASS",
+        "code": 500
+      }
+    },
+    "verdict": "PASS"
+  },
+  {
+    "method": "GET",
+    "rule": "/history",
+    "kind": "page",
+    "checks": {
+      "success": {
+        "status": "PASS",
+        "code": 200
+      },
+      "invalid": {
+        "status": "PASS",
+        "code": 200,
+        "reason": "Invalid input did not become an internal error."
+      },
+      "auth": {
+        "status": "PASS",
+        "code": 302
+      },
+      "missing": {
+        "status": "PASS",
+        "reason": "A missing profile did not fall through to another account.",
+        "code": 200
+      },
+      "internal": {
+        "status": "PASS",
+        "code": 500
+      }
+    },
+    "verdict": "PASS"
+  },
+  {
+    "method": "GET",
+    "rule": "/orders",
+    "kind": "page",
+    "checks": {
+      "success": {
+        "status": "PASS",
+        "code": 200
+      },
+      "invalid": {
+        "status": "PASS",
+        "code": 200,
+        "reason": "Invalid input did not become an internal error."
+      },
+      "auth": {
+        "status": "PASS",
+        "code": 302
+      },
+      "missing": {
+        "status": "PASS",
+        "reason": "A missing profile did not fall through to another account.",
+        "code": 200
+      },
+      "internal": {
+        "status": "PASS",
+        "code": 500
+      }
+    },
+    "verdict": "PASS"
+  },
+  {
+    "method": "GET",
+    "rule": "/onboarding",
+    "kind": "page",
+    "checks": {
+      "success": {
+        "status": "PASS",
+        "code": 200
+      },
+      "invalid": {
+        "status": "PASS",
+        "code": 200,
+        "reason": "Invalid input did not become an internal error."
+      },
+      "auth": {
+        "status": "PASS",
+        "code": 302
+      },
+      "missing": {
+        "status": "PASS",
+        "reason": "A missing profile did not fall through to another account.",
+        "code": 200
+      },
+      "internal": {
+        "status": "PASS",
+        "code": 500
+      }
+    },
+    "verdict": "PASS"
+  },
+  {
+    "method": "GET",
+    "rule": "/notifications",
+    "kind": "page",
+    "checks": {
+      "success": {
+        "status": "PASS",
+        "code": 200
+      },
+      "invalid": {
+        "status": "PASS",
+        "code": 200,
+        "reason": "Invalid input did not become an internal error."
+      },
+      "auth": {
+        "status": "PASS",
+        "code": 302
+      },
+      "missing": {
+        "status": "PASS",
+        "reason": "A missing profile did not fall through to another account.",
+        "code": 200
+      },
+      "internal": {
+        "status": "PASS",
+        "code": 500
+      }
+    },
+    "verdict": "PASS"
+  },
+  {
+    "method": "GET",
+    "rule": "/lab",
+    "kind": "page",
+    "checks": {
+      "success": {
+        "status": "PASS",
+        "code": 200
+      },
+      "invalid": {
+        "status": "PASS",
+        "code": 200,
+        "reason": "Invalid input did not become an internal error."
+      },
+      "auth": {
+        "status": "PASS",
+        "code": 302
+      },
+      "missing": {
+        "status": "PASS",
+        "reason": "A missing profile did not fall through to another account.",
+        "code": 200
+      },
+      "internal": {
+        "status": "PASS",
+        "code": 500
+      }
+    },
+    "verdict": "PASS"
+  },
+  {
+    "method": "GET",
+    "rule": "/plan",
+    "kind": "page",
+    "checks": {
+      "success": {
+        "status": "PASS",
+        "code": 200
+      },
+      "invalid": {
+        "status": "PASS",
+        "code": 200,
+        "reason": "Invalid input did not become an internal error."
+      },
+      "auth": {
+        "status": "PASS",
+        "code": 302
+      },
+      "missing": {
+        "status": "PASS",
+        "reason": "A missing profile did not fall through to another account.",
+        "code": 200
+      },
+      "internal": {
+        "status": "PASS",
+        "code": 500
+      }
+    },
+    "verdict": "PASS"
+  },
+  {
+    "method": "GET",
+    "rule": "/learn",
+    "kind": "page",
+    "checks": {
+      "success": {
+        "status": "PASS",
+        "code": 200
+      },
+      "invalid": {
+        "status": "PASS",
+        "code": 200,
+        "reason": "Invalid input did not become an internal error."
+      },
+      "auth": {
+        "status": "PASS",
+        "code": 302
+      },
+      "missing": {
+        "status": "PASS",
+        "reason": "A missing profile did not fall through to another account.",
+        "code": 200
+      },
+      "internal": {
+        "status": "PASS",
+        "code": 500
+      }
+    },
+    "verdict": "PASS"
+  },
+  {
+    "method": "GET",
+    "rule": "/scanner",
+    "kind": "page",
+    "checks": {
+      "success": {
+        "status": "PASS",
+        "code": 200
+      },
+      "invalid": {
+        "status": "PASS",
+        "code": 200,
+        "reason": "Invalid input did not become an internal error."
+      },
+      "auth": {
+        "status": "PASS",
+        "code": 302
+      },
+      "missing": {
+        "status": "PASS",
+        "reason": "A missing profile did not fall through to another account.",
+        "code": 200
+      },
+      "internal": {
+        "status": "PASS",
+        "code": 500
+      }
+    },
+    "verdict": "PASS"
+  },
+  {
+    "method": "GET",
+    "rule": "/settings",
+    "kind": "page",
+    "checks": {
+      "success": {
+        "status": "PASS",
+        "code": 200
+      },
+      "invalid": {
+        "status": "PASS",
+        "code": 200,
+        "reason": "Invalid input did not become an internal error."
+      },
+      "auth": {
+        "status": "PASS",
+        "code": 302
+      },
+      "missing": {
+        "status": "PASS",
+        "reason": "A missing profile did not fall through to another account.",
+        "code": 200
+      },
+      "internal": {
+        "status": "PASS",
+        "code": 500
+      }
+    },
+    "verdict": "PASS"
+  },
+  {
+    "method": "GET",
+    "rule": "/system",
+    "kind": "page",
+    "checks": {
+      "success": {
+        "status": "PASS",
+        "code": 200
+      },
+      "invalid": {
+        "status": "PASS",
+        "code": 200,
+        "reason": "Invalid input did not become an internal error."
+      },
+      "auth": {
+        "status": "PASS",
+        "code": 302
+      },
+      "missing": {
+        "status": "PASS",
+        "reason": "A missing profile did not fall through to another account.",
+        "code": 200
+      },
+      "internal": {
+        "status": "PASS",
+        "code": 500
+      }
+    },
+    "verdict": "PASS"
+  },
+  {
+    "method": "GET",
+    "rule": "/live",
+    "kind": "page",
+    "checks": {
+      "success": {
+        "status": "PASS",
+        "code": 200
+      },
+      "invalid": {
+        "status": "PASS",
+        "code": 200,
+        "reason": "Invalid input did not become an internal error."
+      },
+      "auth": {
+        "status": "PASS",
+        "code": 302
+      },
+      "missing": {
+        "status": "PASS",
+        "reason": "A missing profile did not fall through to another account.",
+        "code": 200
+      },
+      "internal": {
+        "status": "PASS",
+        "code": 500
+      }
+    },
+    "verdict": "PASS"
+  },
+  {
+    "method": "GET",
+    "rule": "/activity",
+    "kind": "page",
+    "checks": {
+      "success": {
+        "status": "PASS",
+        "code": 200
+      },
+      "invalid": {
+        "status": "PASS",
+        "code": 200,
+        "reason": "Invalid input did not become an internal error."
+      },
+      "auth": {
+        "status": "PASS",
+        "code": 302
+      },
+      "missing": {
+        "status": "PASS",
+        "reason": "A missing profile did not fall through to another account.",
+        "code": 200
+      },
+      "internal": {
+        "status": "PASS",
+        "code": 500
+      }
+    },
+    "verdict": "PASS"
+  },
+  {
+    "method": "GET",
+    "rule": "/risk",
+    "kind": "page",
+    "checks": {
+      "success": {
+        "status": "PASS",
+        "code": 200
+      },
+      "invalid": {
+        "status": "PASS",
+        "code": 200,
+        "reason": "Invalid input did not become an internal error."
+      },
+      "auth": {
+        "status": "PASS",
+        "code": 302
+      },
+      "missing": {
+        "status": "PASS",
+        "reason": "A missing profile did not fall through to another account.",
+        "code": 200
+      },
+      "internal": {
+        "status": "PASS",
+        "code": 500
+      }
+    },
+    "verdict": "PASS"
+  },
+  {
+    "method": "GET",
+    "rule": "/portfolio",
+    "kind": "page",
+    "checks": {
+      "success": {
+        "status": "PASS",
+        "code": 200
+      },
+      "invalid": {
+        "status": "PASS",
+        "code": 200,
+        "reason": "Invalid input did not become an internal error."
+      },
+      "auth": {
+        "status": "PASS",
+        "code": 302
+      },
+      "missing": {
+        "status": "PASS",
+        "reason": "A missing profile did not fall through to another account.",
+        "code": 200
+      },
+      "internal": {
+        "status": "PASS",
+        "code": 500
+      }
+    },
+    "verdict": "PASS"
+  },
+  {
+    "method": "GET",
+    "rule": "/research",
+    "kind": "page",
+    "checks": {
+      "success": {
+        "status": "PASS",
+        "code": 200
+      },
+      "invalid": {
+        "status": "PASS",
+        "code": 200,
+        "reason": "Invalid input did not become an internal error."
+      },
+      "auth": {
+        "status": "PASS",
+        "code": 302
+      },
+      "missing": {
+        "status": "PASS",
+        "reason": "A missing profile did not fall through to another account.",
+        "code": 200
+      },
+      "internal": {
+        "status": "PASS",
+        "code": 500
+      }
+    },
+    "verdict": "PASS"
+  },
+  {
+    "method": "GET",
+    "rule": "/indicators",
+    "kind": "page",
+    "checks": {
+      "success": {
+        "status": "PASS",
+        "code": 200
+      },
+      "invalid": {
+        "status": "PASS",
+        "code": 200,
+        "reason": "Invalid input did not become an internal error."
+      },
+      "auth": {
+        "status": "PASS",
+        "code": 302
+      },
+      "missing": {
+        "status": "PASS",
+        "reason": "A missing profile did not fall through to another account.",
+        "code": 200
+      },
+      "internal": {
+        "status": "PASS",
+        "code": 500
+      }
+    },
+    "verdict": "PASS"
+  },
+  {
+    "method": "GET",
+    "rule": "/strategies",
+    "kind": "page",
+    "checks": {
+      "success": {
+        "status": "PASS",
+        "code": 200
+      },
+      "invalid": {
+        "status": "PASS",
+        "code": 200,
+        "reason": "Invalid input did not become an internal error."
+      },
+      "auth": {
+        "status": "PASS",
+        "code": 302
+      },
+      "missing": {
+        "status": "PASS",
+        "reason": "A missing profile did not fall through to another account.",
+        "code": 200
+      },
+      "internal": {
+        "status": "PASS",
+        "code": 500
+      }
+    },
+    "verdict": "PASS"
+  },
+  {
+    "method": "GET",
+    "rule": "/trading",
+    "kind": "page",
+    "checks": {
+      "success": {
+        "status": "PASS",
+        "code": 200
+      },
+      "invalid": {
+        "status": "PASS",
+        "code": 200,
+        "reason": "Invalid input did not become an internal error."
+      },
+      "auth": {
+        "status": "PASS",
+        "code": 302
+      },
+      "missing": {
+        "status": "PASS",
+        "reason": "A missing profile did not fall through to another account.",
+        "code": 200
+      },
+      "internal": {
+        "status": "PASS",
+        "code": 500
+      }
+    },
+    "verdict": "PASS"
+  },
+  {
+    "method": "GET",
+    "rule": "/signals",
+    "kind": "page",
+    "checks": {
+      "success": {
+        "status": "PASS",
+        "code": 200
+      },
+      "invalid": {
+        "status": "PASS",
+        "code": 200,
+        "reason": "Invalid input did not become an internal error."
+      },
+      "auth": {
+        "status": "PASS",
+        "code": 302
+      },
+      "missing": {
+        "status": "PASS",
+        "reason": "A missing profile did not fall through to another account.",
+        "code": 200
+      },
+      "internal": {
+        "status": "PASS",
+        "code": 500
+      }
+    },
+    "verdict": "PASS"
+  },
+  {
+    "method": "GET",
+    "rule": "/overview",
+    "kind": "page",
+    "checks": {
+      "success": {
+        "status": "PASS",
+        "code": 200
+      },
+      "invalid": {
+        "status": "PASS",
+        "code": 200,
+        "reason": "Invalid input did not become an internal error."
+      },
+      "auth": {
+        "status": "PASS",
+        "code": 302
+      },
+      "missing": {
+        "status": "PASS",
+        "reason": "A missing profile did not fall through to another account.",
+        "code": 200
+      },
+      "internal": {
+        "status": "PASS",
+        "code": 500
+      }
+    },
+    "verdict": "PASS"
+  },
+  {
+    "method": "POST",
+    "rule": "/api/digest",
+    "kind": "session",
+    "checks": {
+      "success": {
+        "status": "PASS",
+        "code": 200
+      },
+      "invalid": {
+        "status": "PASS",
+        "code": 200,
+        "reason": "Invalid input did not become an internal error."
+      },
+      "auth": {
+        "status": "PASS",
+        "code": 401
+      },
+      "missing": {
+        "status": "PASS",
+        "reason": "A missing profile did not fall through to another account.",
+        "code": 404
+      },
+      "internal": {
+        "status": "PASS",
+        "code": 500
+      }
+    },
+    "verdict": "PASS"
+  }
+]

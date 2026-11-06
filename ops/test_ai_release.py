@@ -161,13 +161,13 @@ def test_ask_route_rejects_a_huge_body_and_a_missing_session(tmp_path, monkeypat
 
 def test_login_is_rate_limited_when_enforced(tmp_path, monkeypatch):
     monkeypatch.setenv("AUREON_DATA", str(tmp_path))
-    from ops.app import LIMITER, app
+    from ops.app import AUTH_LIMITER, app
 
     app.config["TESTING"] = True
     app.config["ENFORCE_RATE_LIMIT"] = True
-    previous = LIMITER.per_minute
-    LIMITER.per_minute = 2
-    LIMITER.hits.clear()
+    previous = AUTH_LIMITER.per_minute
+    AUTH_LIMITER.per_minute = 2
+    AUTH_LIMITER.hits.clear()
     try:
         client = app.test_client()
         assert client.post("/api/login", json={"name": "nobody", "password": "not-a-real-password"}).status_code == 401
@@ -176,8 +176,8 @@ def test_login_is_rate_limited_when_enforced(tmp_path, monkeypatch):
         assert blocked.status_code == 429
         assert blocked.get_json()["error"] == "rate_limited"
     finally:
-        LIMITER.per_minute = previous
-        LIMITER.hits.clear()
+        AUTH_LIMITER.per_minute = previous
+        AUTH_LIMITER.hits.clear()
         app.config["ENFORCE_RATE_LIMIT"] = False
 
 
