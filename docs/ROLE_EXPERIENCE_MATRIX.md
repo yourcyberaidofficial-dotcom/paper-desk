@@ -64,7 +64,7 @@ Widget order is derived, not posted by the browser:
 | Persona | profile via `/api/profile` | Risk caps and plan eligibility | Security role |
 | Markets | prefs | Watchlists already used by the desk | Rights gate |
 
-Another account is not written. Logout and login return the same presentation. Existing user files without `presentation` keep working: the resolver supplies defaults and does not rewrite history until the customer saves.
+Another account is not written. Logout and login return the same presentation. Chromium confirmed Benny's America/New_York, compact, light presentation after a new login, and Adanna remained on Africa/Lagos. Existing user files without `presentation` keep working: the resolver supplies defaults and does not rewrite history until the customer saves.
 
 ## Migration and rollback
 

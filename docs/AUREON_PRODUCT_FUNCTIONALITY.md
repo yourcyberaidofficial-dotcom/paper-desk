@@ -30,7 +30,7 @@ The customer product is the Flask desk in [ops/app.py](/tmp/aureon-experience/op
 | Academy | `/learn` | Lessons on this account. | Existing. |
 | Trading Lab | `/lab` | Self-described experience. Not a security role. | Existing. |
 
-`/accounts` is an operator surface, not a twenty-second customer page. A customer who opens it gets the shell and, once the page script runs, the reason administration is refused. That rendered state was not executed in a browser.
+`/accounts` is an operator surface, not a twenty-second customer page. Benny's browser session shows the refusal. Adanna's session lists names and roles and does not show a password hash.
 
 ## What a customer can change
 
@@ -40,4 +40,6 @@ A preference cannot change `security_role`, entitlements, broker access, or the 
 
 ## What was not rebuilt
 
-Each of the 21 pages still loads its own existing endpoint. They share the experience strip and the Aureon AI panel. They do not each have a separately designed role theme. There is no widget drag-and-drop editor. English is the only accepted language. Unread count is not shown in the header. Visual acceptance at 320–430px was not repeated for this branch. Older screenshots under `docs/release-evidence/` are the previous build, not this one.
+Browser acceptance for this branch is in [AUREON_BROWSER_ACCEPTANCE.md](AUREON_BROWSER_ACCEPTANCE.md). The 18 signed-in routes were rendered at 320, 360, 375, 390, 414, 430, 768, and 1280 pixels with no overflow. Landing, login, and register were rendered at 390. Display preferences change padding, card order, theme, guide text, motion, and the time zone label. They do not change `security_role`.
+
+A defect in the first experience commit stopped the whole dashboard script from parsing, so none of those controls ran. That quote is fixed. Search no longer unhides the operator link. The scanner can filter the cards it already loaded. The header unread count comes from the inbox API.

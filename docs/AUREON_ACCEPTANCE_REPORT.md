@@ -5,119 +5,101 @@
 | Item | Value |
 | --- | --- |
 | Base | `eaf78b1bc246d2c47dd3cff72b576cfb71721aea` on `product/recovery` |
-| Implementation | `5b1c77c475798e55c6c913041cb74d417c1562cc` on `product/experience-transformation` |
+| Experience implementation | `5b1c77c475798e55c6c913041cb74d417c1562cc` |
+| Experience report | `06547d192f4d4533e011270387b32632771cfb95` |
+| Verification implementation | `06fa8cf33f6aa3d6777daba89f240e021c6daadb` |
+| Verification report | The commit that adds this update. It does not change behaviour. |
 | Work branch | `product/experience-transformation` |
-| Production | Not deployed, not restarted, not reconfigured. Still the reported release `eaf78b1`. |
-| PR #97 | Left OPEN. Head remains `product/recovery` at `eaf78b1`. This branch was not merged into it. |
-| Recovery worktree | `/tmp/aureon-lab` stayed clean at `eaf78b1`. |
+| Production | Unchanged. Not deployed, not restarted, not reconfigured. Still `eaf78b1`. |
+| PR #97 | Left OPEN on `product/recovery`. This branch was not merged. |
+| Recovery worktree | `/tmp/aureon-lab` was not used for this verification. |
 
-The implementation commit is `5b1c77c475798e55c6c913041cb74d417c1562cc`. It is not `eaf78b1`. A later docs-only commit may record this SHA. Production is unchanged.
+## 2. Verdict
 
-## 2. Roles and entitlements
+The customer shell, role boundary, display preferences, and hosted AI refusal rules were exercised in Chromium. See [AUREON_BROWSER_ACCEPTANCE.md](AUREON_BROWSER_ACCEPTANCE.md).
 
-`customer` and `operator` only. Operator is `AUREON_OPERATOR_IDS`. Everyone else is a customer, including a user record that says `role: operator`. Personas remain Apex Momentum, Orion Precision, and Aegis Shield. Broker entitlement is false for both roles. Live market display follows the existing rights gate and is not granted by a preference.
+Backend suite after the fixes: **311 passed**.
 
-## 3. Role-to-page matrix
+Live hosted inference: **BLOCKED**. No provider key and no spend approval. No model text was invented for the customer.
 
-See [ROLE_EXPERIENCE_MATRIX.md](ROLE_EXPERIENCE_MATRIX.md). Customers get the 21 pages. Operators also get `/accounts`. Restricted administration is explained. It is not an empty control.
+Export and pagination: **NOT IMPLEMENTED**.
 
-## 4. Experience profile
+Production release remains the previous baseline.
 
-`GET /api/experience` returns the server profile: customer id, account id, membership, security role, status, entitlements, persona, markets, timeframes, learning level, onboarding gaps, presentation, accessibility, notifications, widgets, navigation, AI status, pages, timestamps, migration, and `broker: false`. The browser is not the authority.
+## 3. Roles
 
-## 5. Preference propagation
+`customer` and `operator` only. Operator is `AUREON_OPERATOR_IDS`. Browser proof: Benny cannot reveal Accounts in search, cannot open the directory, and a privilege POST is HTTP 403. Adanna sees both names and no password hash. Personas remain Apex Momentum, Orion Precision, and Aegis Shield. Benny's Apex choice did not change his security role.
 
-| Preference | Automated result | Visible UI |
-| --- | --- | --- |
-| Time zone, density, depth, layout, theme, contrast, motion | PASS. Saved, reloaded after a new login, other account unchanged. | NOT TESTED. No browser rendered the attributes. |
-| Persona | PASS. Orion Precision changes the profile and does not change the security role. | NOT TESTED. |
-| Operator layout from a customer | PASS. Stored as `market`. | NOT TESTED. |
+## 4. Preferences
 
-## 6. Control inventory
-
-See [AUREON_INTERACTION_INVENTORY.md](AUREON_INTERACTION_INVENTORY.md). API-backed controls that already had tests still pass. New header controls are wired. Their clicks were NOT TESTED in a browser.
-
-## 7. Top bar
-
-| Control | Result |
+| Preference | Browser result |
 | --- | --- |
-| Search | Wired to nav labels. NOT TESTED visually. |
-| Aureon AI | API PASS. Opens a panel in the shell. Click NOT TESTED. |
-| Inbox | Link to `/notifications`. Existing inbox tests PASS. Header click NOT TESTED. |
-| Help | Copy for all 21 areas is in the shell. Click NOT TESTED. |
-| Settings | Link. Display save PASS. |
-| Account chip | Navigates to settings in script. Click NOT TESTED. |
-| Sign out | Existing logout PASS. |
-| Unread badge | NOT IMPLEMENTED. |
+| Time zone America/New_York | PASS. Zone label, and it survives reload and a new login. Adanna stays on Africa/Lagos. |
+| Compact density | PASS. Card padding 12px. |
+| Concise depth | PASS. `.guide` is `display:none`. |
+| Market layout | PASS. Market card is before the account card. |
+| Light theme | PASS. Page background `rgb(255, 255, 255)`. |
+| High contrast | PASS. Stored and applied with the light theme. |
+| Reduced motion | PASS. Card transition duration `0s`. |
+| Operator layout from Benny | PASS. HTTP 403 when sent with a role field. Adanna can save `operator`. |
 
-## 8. Backend integrations
+## 5. Pages
 
-New routes: `GET /api/experience`, `POST /api/experience`, `GET /api/accounts`, `POST /api/aureon-ai`, `GET /accounts`. The endpoint matrix includes them. Anonymous session routes return 401. `/accounts` redirects anonymous users to login. Invalid JSON does not 500.
+All 21 routes were opened. The 18 signed-in routes were measured at eight widths. Public landing, login, and register were shot at 390px. Detail is in the browser report. None of those rows overflowed.
 
-## 9. AI architecture
-
-See [AUREON_AI_ARCHITECTURE.md](AUREON_AI_ARCHITECTURE.md). Evidence is loaded before inference. The product route cannot inject a transport.
-
-## 10. AI security tests
-
-PASS in `ops/test_experience_product.py`: blocked provider does not call the network; invented price `99999` is rejected; order language is rejected; a foreign evidence citation is rejected; another account id and the name Benny are refused with an empty stored record; `approved` and `order_opened` stay false; the API key is not in the response; the product route with credentials still does not invent an analysis when the socket fails.
-
-## 11. Live provider
-
-**BLOCKED.** No approved credentials and no spend approval. No real model response was evaluated.
-
-## 12. The 21 pages
-
-Routes and existing data loaders remain. They now share the experience strip and the hosted AI panel in the shell source. End-to-end browser proof for every page on this branch: **NOT TESTED**.
-
-## 13. Journeys
+## 6. Journeys
 
 | Journey | Result |
 | --- | --- |
-| A. Register and least-privilege profile | PASS |
-| B. Learner dashboard, academy, lab | NOT TESTED as a browser journey. Lab is still not a role. |
-| C. Trader terminal through paper history | NOT TESTED as a new browser journey. Existing paper tests still pass. |
-| D. Administrator directory | PASS for the read-only API. No entitlement editor was added. |
-| E. Preference save, reload, other account | PASS |
-| F. AI isolation | PASS against the harness, not a live model |
-| G. AI unavailable | PASS. Trading routes were not made to depend on the provider. Market rights gate unchanged. Worker health unchanged. |
+| Register, login, onboarding, customer role, persona, Overview, Academy, Aureon AI | PASS |
+| Academy check, Trading Lab journal and profile | PASS |
+| Overview, Terminal, Scanner filter, Signals ask, Plan, Risk, manual paper trade, Portfolio, History | PASS for the path. The paper trade is one isolated open estimate, not a broker fill. |
+| Operator directory and system page | PASS. Read only. |
+| Preference save, visual effect, reload, new login, other account unchanged | PASS |
+| Provider unavailable | PASS. The panel says the model is not configured. Terminal and portfolio still load. |
+| Benny cannot see Adanna's data, and Adanna cannot see Benny's journal sentence | PASS |
 
-## 14. Screenshots
+## 7. AI
 
-**NOT TESTED.** No Chromium or Playwright was available. Do not use `docs/release-evidence/phase4` as evidence for this branch.
+Live provider: **BLOCKED**.
 
-## 15. Persistence and isolation
+The independent review of `5b1c77c` found that a configured test transport could accept a two-digit win rate, an order phrase split by a format character, and a foreign identifier written in the summary. Those are now `invalid_output`. A transport is ignored unless the server is configured. The product route still does not accept a transport.
 
-PASS. Ada's presentation survives a new login. Ben's account stays on the default time zone. Password hashes are absent from the experience and directory payloads. Signal history in this worktree was not a customer history file. The local `data/paper` ledger and prefs were restored after the suite to their pre-run hashes.
+## 8. Independent review
 
-## 16. Unresolved defects
+A separate review of `5b1c77c` reported the validation holes above and the search control that cleared `hidden` on the operator link. Both were fixed. That review did not re-run against the fix. The author's browser run is not an independent sign-off of the fix.
 
-- Overview arrangement, theme, contrast, and concise copy are implemented in CSS and script, but no rendered screenshot was inspected.
-- Header has no unread count.
-- Language cannot be switched. Unsupported codes are rejected rather than translated.
-- Operator directory is read-only. There is no audited entitlement editor, because role assignment stays on the server.
-- Durable AI spend accounting is not implemented. Counters reset with the process.
-- A customer name of four or more characters inside an ordinary question is refused. That is deliberate and can false-positive.
-- High-contrast and light theme do not restyle every hard-coded chart colour.
+## 9. Persistence
 
-## 17. External approvals still required
+This worktree's ignored data was restored after the suite to the pre-run bytes:
 
-Hosted AI provider URL, model, API key, and `AUREON_AI_SPEND_APPROVED=1`. Live market display grants are still unapproved. Production deployment is still not approved. This assignment did not authorise a merge or a restart.
+- `data/signals/history.jsonl` `2a6d8404a2740a554c2decb79cad8042d44f4e1d5224e140e7319a60f190b4ea` (5711)
+- `data/paper/ledger.jsonl` `39e8ff9d97eebc64b56527101419ae4204bc436de32a6477fb8027ed5d58166a` (1172)
+- `data/activity/events.jsonl` `d83dcfb4165cd5581743e8e4ba98dfacaa798ce16bed56176940d3cf75ae8ab9` (5495)
+- `data/paper/prefs.json` `a22cf93d608b8608bf7d79b1125fabe77ab8e0626f22dce47606c338d5a3ef1f` (145)
 
-## 18. Migration and rollback
+The paper trade in the browser report is in `/tmp/aureon-experience-browser`, not in this checkout.
 
-Read-time defaults. History is not rewritten. Rollback: remove the `presentation` object for that user and, if a profile timezone was overwritten by a display save, restore that field from backup. Do not delete ledger, signal, or notification rows. Reverting the git branch removes the routes. The production process is still on `eaf78b1` and does not need a rollback.
+## 10. Tests
 
-## 19. Tests and change summary
+```bash
+cd /tmp/aureon-experience
+PYTHONPATH=. python3 -m pytest ops/test_*.py tests/test_h4.py -q --tb=line -p no:cacheprovider
+PYTHONPATH=. python3 ops/browser_acceptance.py
+```
 
-`PYTHONPATH=. python3 -m pytest ops/test_*.py tests/test_h4.py -q --tb=line -p no:cacheprovider`
+Pytest: `311 passed in 79.79s`.
 
-Result: **311 passed**.
+Browser: `56 PASS`, `1 NOT IMPLEMENTED`, `144` layout rows, `0` bad.
 
-Files: `ops/access.py`, `ops/experience.py`, `ops/hosted_ai.py`, `ops/test_experience_product.py`, `ops/users.py`, `ops/activity.py`, `ops/app.py`, `ops/test_endpoint_matrix.py`, `ops/test_signal_reliability.py`, and these docs.
+## 11. Blockers
 
-Signal engine source does not import hosted AI. Customer copy no longer says the desk is waiting on "Local AI offline".
+- No hosted AI credentials and no `AUREON_AI_SPEND_APPROVED=1`.
+- No customer live-market grant.
+- No export or pagination control.
+- No second independent review of the verification commit.
+- Production deployment is not approved. PR #97 stays open and unmerged.
 
 ## Gate
 
-Engineering of the profile, the role boundary, the display save, and the hosted adapter is in the branch and tested. Live AI is BLOCKED. Visual acceptance is NOT TESTED. Production remains on the previous release.
+The experience branch is verified in a browser for the controls it has. It is not a production release. Live AI is BLOCKED. Do not merge and do not deploy.

@@ -31,7 +31,8 @@ The customer shell posts `{page, question}` from the header panel and from the L
 | --- | --- |
 | Question asks to place a trade or approve a strategy | `order_request_refused`. No model call. |
 | Question contains another account id, or another account name of at least four characters | `other_account_refused`. Stored facts are not returned. |
-| Summary contains order language or a number that was not in the facts | `invalid_output`. `analysis` stays null. |
+| Summary contains order language, including a format character inside the phrase, or a number that was not in the facts, including a one- or two-digit number | `invalid_output`. `analysis` stays null. |
+| Summary contains a hyphenated or colon-separated identifier that is not in the facts or refs | `invalid_output`. |
 | `evidence_used` cites text that is not in the facts or refs | `invalid_output`. |
 | Valid summary | `ai_commentary_not_a_signal`. `approved` and `order_opened` are forced false. |
 
