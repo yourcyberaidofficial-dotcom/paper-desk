@@ -533,6 +533,19 @@ def paper_open():
         return jsonify({"ok": False, "reason": "missing_opportunity"}), 404
     user["id"] = user_id
     result = open_order(user, row, int(time.time() * 1000))
+    if not result.get("ok"):
+        try:
+            from ops.activity import record
+            record(
+                "risk_rejected",
+                account_id=user_id,
+                entity=body.get("opportunity_id"),
+                component="paper",
+                detail={"note": "The paper order was refused. No observation was deleted.", "reason": str(result.get("reason") or "")[:80]},
+                now_ms=int(time.time() * 1000),
+            )
+        except Exception:
+            pass
     return jsonify(result), (200 if result.get("ok") else 409)
 
 
@@ -559,32 +572,30 @@ def activity_api():
 
 @app.get("/api/signals/lifecycle")
 def signal_lifecycle():
-    """Observations stay even when research or AutoPilot cannot act. No price is invented."""
-    from ops.customer_release import any_customer_display, empty_desk, release_scan
-    from ops.signal_continuity import classify_card
+    """One result per instrument. A blocked pair does not blank the others."""
+    from ops.signal_engine import cycle
+    from ops.signal_ledger import read as read_signals
 
-    if not any_customer_display():
-        cards = empty_desk().get("markets") or []
-    else:
-        from ops.desk_snapshot import desk_scan
-        try:
-            cards = release_scan(desk_scan(int(time.time() * 1000))).get("markets") or []
-        except Exception:
-            cards = empty_desk().get("markets") or []
-    classified = [classify_card(card) for card in cards]
     try:
-        from ops.signal_ledger import read as read_signals, record_observations
-        record_observations(classified, component="lifecycle")
+        body = cycle(int(time.time() * 1000))
+        markets = body.get("markets") or []
+    except Exception:
+        from ops.customer_release import empty_desk
+        from ops.signal_continuity import classify_card
+
+        markets = [classify_card(card) for card in empty_desk().get("markets") or []]
+    history = []
+    try:
         history = read_signals()
     except Exception:
         history = []
     return jsonify({
-        "markets": classified,
+        "markets": markets,
         "history": history,
         "history_count": len(history),
         "truncated": False,
         "broker": False,
-        "note": "A failed study or a blocked AutoPilot does not remove an observation. Missing data stays missing.",
+        "note": "A failed study or a blocked AutoPilot does not remove an observation. One unavailable instrument does not hide another.",
     })
 
 
@@ -592,6 +603,20 @@ def signal_lifecycle():
 def ai_status():
     from ops.ollama import health
     return jsonify(health())
+
+
+@app.post("/api/ai/ask")
+def ai_ask():
+    user_id, _user = _session_user()
+    if not user_id:
+        return jsonify({"error": "unauthorized"}), 401
+    from ops.ai_provider import ask
+
+    body = request.get_json(silent=True) or {}
+    result = ask(user_id, str(body.get("task") or ""), symbol=body.get("symbol"), interval=body.get("interval"))
+    result["approved"] = False
+    result["order_opened"] = False
+    return jsonify(result)
 
 
 @app.post("/api/explain")
@@ -2546,6 +2571,29 @@ function priceText(symbol, value){
   const digits = Math.abs(n) >= 1 ? 2 : 4;
   return n.toLocaleString(undefined, {minimumFractionDigits: digits, maximumFractionDigits: digits});
 }
+function askCard(){
+  return `<article class="card" id="ask-aureon"><h2>Ask Aureon</h2><p class="muted">Local AI status is separate from market freshness. Answers use stored records. The model cannot approve a strategy or open an order.</p><div class="fieldrow"><button type="button" data-ask="why_quiet">Why no new signal</button><button type="button" data-ask="market_watch">Summarise the watch</button><button type="button" data-ask="explain_signal">Explain the latest signal</button><button type="button" data-ask="compare">Compare setups</button><button type="button" data-ask="explain_invalidated">Explain an invalidation</button><button type="button" data-ask="portfolio">Summarise paper portfolio</button><button type="button" data-ask="risk">Explain risk</button><button type="button" data-ask="journal">Review journal</button></div><p id="ask-out" class="muted">Choose a question. An offline model still returns the stored record.</p></article>`;
+}
+function bindAsk(){
+  document.querySelectorAll("[data-ask]").forEach(button => {
+    if (button.dataset.bound) return;
+    button.dataset.bound = "1";
+    button.onclick = async () => {
+      const out = document.getElementById("ask-out");
+      button.disabled = true;
+      if (out) out.textContent = "Reading stored records.";
+      try {
+        const response = await fetch("/api/ai/ask", {method:"POST", credentials:"same-origin", headers:{"Content-Type":"application/json"}, body: JSON.stringify({task: button.dataset.ask})});
+        const body = await response.json().catch(() => ({}));
+        const text = (body.explanation && body.explanation.summary) || body.fallback || body.reason || "No stored explanation.";
+        if (out) out.textContent = text;
+      } catch (err) {
+        if (out) out.textContent = "The explanation request failed. Market data was not changed.";
+      }
+      button.disabled = false;
+    };
+  });
+}
 function manualPlanCard(){
   return `<article class="card" id="manual-plan-card"><h2>Manual paper plan</h2><p class="muted">Type the entry, stop and target yourself. These fields stay empty. Nothing is copied from a market feed. Confirm records a paper estimate on this account, not a broker fill.</p><form id="manual-plan"><div class="fieldrow"><label>Market <select name="symbol"><option>BTCUSDT</option><option>ETHUSDT</option><option>XAUUSD</option></select></label><label>Timeframe <select name="interval"><option>15m</option><option>1h</option><option>1m</option><option>3m</option></select></label><label>Side <select name="decision"><option>BUY</option><option>SELL</option></select></label><label>Entry <input name="entry" inputmode="decimal" autocomplete="off" /></label><label>Stop <input name="stop" inputmode="decimal" autocomplete="off" /></label><label>Target <input name="target" inputmode="decimal" autocomplete="off" /></label></div><button type="submit">Review my levels</button></form><div id="manual-out"></div></article>`;
 }
@@ -2714,7 +2762,7 @@ async function overview(){
   }
 }
 async function signals(){
-  view.innerHTML = `<article class="card" id="live-now"><h2>Live signals</h2><p role="status">Loading today's readings. No price is invented while this loads.</p></article><article class="card" id="live-hist"><h2>Historical research</h2><p class="muted">Separated from the live desk. Loading the saved record.</p></article>`;
+  view.innerHTML = `<article class="card" id="live-now"><h2>Live signals</h2><p role="status">Loading today's readings. No price is invented while this loads.</p></article>${askCard()}<article class="card" id="live-hist"><h2>Historical research</h2><p class="muted">Separated from the live desk. Loading the saved record.</p></article>`;
   const scan = await timed("/api/scanner", 12000);
   const now = document.getElementById("live-now");
   if (now) {
@@ -2751,6 +2799,7 @@ async function signals(){
     }).join("");
     now.innerHTML = `<h2>Live signals</h2><p class="muted">No eligible live reading is available. That is separate from whether a research strategy is approved. Nothing here is an order.</p>${cards || "<p>No eligible live reading is available.</p>"}${manualPlanCard()}<p><a href="/scanner">Open the scanner</a> · <a href="/trading">Terminal</a></p>`;
     bindManualPlan();
+    bindAsk();
     const again = document.getElementById("sig-retry");
     if (again) again.onclick = () => signals();
     document.querySelectorAll("[data-review]").forEach(button => { button.onclick = async () => {

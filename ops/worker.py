@@ -172,6 +172,18 @@ class Worker:
             if self._seen(key):
                 continue
             fresh = bool(bar.get("fresh"))
+            if not fresh:
+                try:
+                    from ops.activity import record as record_event
+                    record_event(
+                        "reading_stale",
+                        component="worker",
+                        entity=f"{symbol}:{prefs['interval']}",
+                        detail={"note": "No fresh completed candle. No price was stored.", "symbol": symbol, "interval": prefs["interval"]},
+                        now_ms=now_ms,
+                    )
+                except Exception:
+                    pass
             reason = "no_validated_strategy" if fresh else "stale_or_unavailable"
             record = {
                 "id": key,

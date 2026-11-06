@@ -83,6 +83,7 @@ MARKET_SOURCE_IDS = frozenset({
     "swissquote_public_bbo",
     "dukascopy_datafeed_bi5",
     "twelve_data",
+    "kraken_public_ohlc",
 })
 
 MARKET_PROVIDERS = frozenset({
@@ -92,6 +93,7 @@ MARKET_PROVIDERS = frozenset({
     "swissquote-public-bbo",
     "dukascopy",
     "twelve-data",
+    "kraken",
 })
 
 SOURCE_ALIAS = {
@@ -123,6 +125,8 @@ def decide_use(source_id, use, *, symbol=None, interval=None):
     source_id = SOURCE_ALIAS.get(source_id, source_id)
     if source_id == "twelve_data":
         return _twelve_decision(use, symbol, interval)
+    if source_id == "kraken_public_ohlc":
+        return _kraken_decision(use, symbol, interval)
     if symbol == "XAUUSD" and interval in {"1m", "3m"}:
         return _decision(False, "unavailable", "xau_minute_unlicensed", source_id=source_id, use=use)
     if use not in CAPABILITIES:
@@ -155,6 +159,47 @@ def decide_use(source_id, use, *, symbol=None, interval=None):
     if use in PERSISTENCE_CAPABILITIES or not operational:
         return _decision(False, "unverified", "unverified", source_id=source_id, use=use)
     return _decision(False, "unverified", "unverified_observation", source_id=source_id, use=use, operational=True)
+
+
+def _kraken_decision(use, symbol, interval):
+    """USDT pairs only. 3m is derived from complete 1m bars, never a native candle."""
+    source_id = "kraken_public_ohlc"
+    if use not in CAPABILITIES:
+        return _decision(False, "unverified", "missing_or_malformed_rights", source_id=source_id, use=use)
+    if symbol not in (None, "BTCUSDT", "ETHUSDT"):
+        return _decision(False, "unavailable", "pair_not_listed", source_id=source_id, use=use)
+    if use == "quote_display":
+        return _decision(False, "unavailable", "bid_ask_not_supplied", source_id=source_id, use=use)
+    from ops.rights_evidence import recorded_grant
+
+    grant = recorded_grant(source_id)
+    if interval == "3m":
+        derived = (
+            grant
+            and grant.get("provider") == "Kraken"
+            and grant.get("product") == "ohlc+derived"
+            and "1m" in grant["timeframes"]
+            and "3m" in grant["timeframes"]
+            and use in grant["capabilities"]
+            and (symbol is None or symbol in grant["instruments"])
+            and use in {"candle_display", "customer_reading", "indicator_calculation"}
+        )
+        if not derived:
+            return _decision(False, "unavailable", "native_3m_not_supplied", source_id=source_id, use=use)
+        return _decision(True, "verified", "derived_from_native_1m", source_id=source_id, use=use, verified=True)
+    if interval not in (None, "1m", "15m", "1h"):
+        return _decision(False, "unavailable", "native_interval_not_supplied", source_id=source_id, use=use)
+    if not grant or grant.get("provider") != "Kraken":
+        return _decision(False, "unverified", "commercial_use_unverified", source_id=source_id, use=use)
+    if use not in grant["capabilities"] or grant.get("product") not in {"ohlc", "ohlc+derived"}:
+        return _decision(False, "unverified", "capability_not_granted", source_id=source_id, use=use)
+    if use != "candle_display" and grant.get("product") != "ohlc+derived":
+        return _decision(False, "unverified", "capability_not_granted", source_id=source_id, use=use)
+    if symbol and symbol not in grant["instruments"]:
+        return _decision(False, "unverified", "instrument_not_granted", source_id=source_id, use=use)
+    if interval and interval not in grant["timeframes"]:
+        return _decision(False, "unverified", "timeframe_not_granted", source_id=source_id, use=use)
+    return _decision(True, "verified", "recorded_grant", source_id=source_id, use=use, verified=True)
 
 
 def _twelve_decision(use, symbol, interval):

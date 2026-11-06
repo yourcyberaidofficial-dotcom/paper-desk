@@ -197,6 +197,64 @@ def act(user_id, action, now_ms, confirm=False, max_orders_per_day=None):
     return holder.get("result") or {"ok": False, "reason": "missing_user"}
 
 
+_RISK_REASONS = frozenset({
+    "below_persona_reward",
+    "daily_count",
+    "daily_loss",
+    "weekly_loss",
+    "open_risk",
+    "automation_cap",
+    "no_persona",
+    "persona_timeframe",
+    "unsized",
+    "market",
+    "timeframe",
+    "incomplete",
+    "not_a_plan",
+    "opportunity_closed",
+    "buy_off",
+    "sell_off",
+})
+
+
+def _audit(user_id, now_ms, opportunity_id, reason, result=None):
+    """Append the refusal. The account rejection list can drop old rows. This file does not."""
+    try:
+        from ops.activity import record
+
+        result = result or {}
+        reason = str(reason or "")
+        if not reason:
+            return
+        if reason == "no_approved_strategy":
+            kind = "strategy_rejected"
+            text = "AutoPilot did not open it. No approved strategy. The observation was not removed."
+        elif reason == "commercial_use_unverified":
+            kind = "source_unavailable"
+            text = "No authorised reading. AutoPilot did not open an order."
+        elif reason == "quote_divergence":
+            kind = "reading_stale"
+            text = "The quote did not agree with the candle. No order was opened and no price was stored here."
+        else:
+            kind = "risk_rejected"
+            text = "The paper order was refused. The observation was not removed."
+        record(
+            kind,
+            account_id=user_id,
+            entity=opportunity_id or f"{result.get('symbol')}:{result.get('interval')}:{reason}",
+            component="autopilot",
+            detail={
+                "note": text,
+                "reason": reason[:80],
+                "symbol": result.get("symbol"),
+                "interval": result.get("interval"),
+            },
+            now_ms=int(now_ms),
+        )
+    except Exception:
+        pass
+
+
 def note(user_id, now_ms, opportunity_id=None, rejection=None, error=None):
     def mutate(user):
         state = view(user)
@@ -224,6 +282,7 @@ def consider(user, result, now_ms, opportunity_id=None):
     if result.get("rights_status") in {"rights_unconfirmed", "prohibited", "restricted", "fixture_only"} or is_rights_reason(result.get("reason")) or is_rights_reason(result.get("blocked")):
         if state["enabled"]:
             note(user_id, now_ms, opportunity_id, rejection="commercial_use_unverified")
+        _audit(user_id, now_ms, opportunity_id, "commercial_use_unverified", result)
         return {"attempted": False, "ok": False, "reason": "commercial_use_unverified", "order": False}
     if state["enabled"]:
         note(user_id, now_ms, opportunity_id)
@@ -232,10 +291,12 @@ def consider(user, result, now_ms, opportunity_id=None):
     decision = result.get("decision")
     if result.get("runtime_status") == "quote_divergence":
         note(user_id, now_ms, opportunity_id, rejection="quote_divergence")
+        _audit(user_id, now_ms, opportunity_id, "quote_divergence", result)
         return {"attempted": True, "ok": False, "reason": "quote_divergence"}
     if result.get("blocked") or decision not in {"BUY", "SELL"} or result.get("entry") is None:
         reason = result.get("blocked") or "not_a_plan"
         note(user_id, now_ms, opportunity_id, rejection=reason)
+        _audit(user_id, now_ms, opportunity_id, reason, result)
         return {"attempted": True, "ok": False, "reason": reason}
     from ops.paperbook import open_order
     from ops.qualification import autopilot_may_open
@@ -253,13 +314,16 @@ def consider(user, result, now_ms, opportunity_id=None):
     probe = open_order(user, row, now_ms, commit=False, opened_by="autopilot", automation_cap=state.get("max_orders_per_day"))
     if not probe.get("ok"):
         note(user_id, now_ms, row.get("opportunity_id"), rejection=probe.get("reason"))
+        _audit(user_id, now_ms, row.get("opportunity_id"), probe.get("reason"), result)
         return {"attempted": True, "ok": False, "reason": probe.get("reason")}
     if not autopilot_may_open(result):
         note(user_id, now_ms, row.get("opportunity_id"), rejection="no_approved_strategy")
+        _audit(user_id, now_ms, row.get("opportunity_id"), "no_approved_strategy", result)
         return {"attempted": True, "ok": False, "reason": "no_approved_strategy", "approved_strategy": False}
     opened = open_order(user, row, now_ms, opened_by="autopilot", automation_cap=state.get("max_orders_per_day"))
     if opened.get("ok"):
         note(user_id, now_ms, row.get("opportunity_id"))
     else:
         note(user_id, now_ms, row.get("opportunity_id"), rejection=opened.get("reason"))
+        _audit(user_id, now_ms, row.get("opportunity_id"), opened.get("reason"), result)
     return {"attempted": True, **opened}

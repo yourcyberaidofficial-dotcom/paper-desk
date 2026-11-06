@@ -90,7 +90,41 @@ def _activity(row, component, now_ms):
     }.get(row.get("observation"))
     if not kind:
         return
+    if kind == "signal_created" and row.get("opportunity_id"):
+        earlier = [
+            item for item in read()
+            if item.get("opportunity_id") == row.get("opportunity_id")
+            and item.get("signal") is True
+            and item.get("created_ms") != row.get("created_ms")
+        ]
+        if earlier:
+            kind = "signal_updated"
     record(kind, entity=entity, component=component, detail=detail, now_ms=now_ms)
+    if row.get("research") == "research_failed":
+        record(
+            "research_recorded",
+            entity=entity,
+            component=component,
+            detail={
+                "note": "Research did not pass. The observation was not removed.",
+                "symbol": row.get("symbol"),
+                "interval": row.get("interval"),
+                "observation": row.get("observation"),
+            },
+            now_ms=now_ms,
+        )
+    elif row.get("research") == "approved":
+        record(
+            "strategy_approved",
+            entity=entity,
+            component=component,
+            detail={
+                "note": "The stored research status is approved. This event does not place an order.",
+                "symbol": row.get("symbol"),
+                "interval": row.get("interval"),
+            },
+            now_ms=now_ms,
+        )
 
 
 def record_observations(cards, *, now_ms=None, component="lifecycle"):

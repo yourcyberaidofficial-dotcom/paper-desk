@@ -70,6 +70,35 @@ def current_reference_adapter():
     }
 
 
+def kraken_public_adapter():
+    from ops.entitlements import decide_use
+
+    source = "kraken_public_ohlc"
+    return {
+        "source_id": source,
+        "supplies": ("native_trade_ohlc",),
+        "does_not_supply": ("bid_ask", "native_3m", "xauusd", "btc_usd", "websocket_stream"),
+        "instruments": ("BTCUSDT", "ETHUSDT"),
+        "venue_pairs": ("XBT/USDT", "ETH/USDT"),
+        "timeframes": ("1m", "15m", "1h"),
+        "derived_timeframes": ("3m",),
+        "candle_semantics": "native_trade_ohlc_not_bid_ask",
+        "quote_semantics": "not_supplied",
+        "source_timestamps": "unix seconds on the OHLC row, converted to open_time_ms; close is open plus the interval",
+        "freshness_policy": "drop the final forming row; keep close_time at or before now",
+        "completeness_policy": "do not fill gaps; 3m exists only when every native 1m bar in the bucket is present",
+        "failure_mode": "not_verified_until_owner_grant",
+        "rate_limit": "public REST has no documented per-call token cost; a failure is not filled from another venue",
+        "licence": "public route only; redistribution and customer display are not granted",
+        "capabilities": {name: decide_use(source, name, symbol="BTCUSDT", interval="15m") for name in (
+            "candle_display",
+            "customer_reading",
+            "quote_display",
+            "paper_ledger_persistence",
+        )},
+    }
+
+
 def binance_rest_adapter():
     from ops.entitlements import decide_use
 

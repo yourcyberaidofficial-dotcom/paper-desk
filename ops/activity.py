@@ -30,11 +30,13 @@ TYPES = frozenset({
     "paper_closed",
     "risk_rejected",
     "ollama_status",
+    "ai_inference",
 })
 
 THROTTLED = {
     "worker_heartbeat": 300_000,
     "source_unavailable": 900_000,
+    "reading_stale": 900_000,
     "ollama_status": 900_000,
 }
 
