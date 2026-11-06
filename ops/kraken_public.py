@@ -106,7 +106,10 @@ def parse_ohlc(payload, symbol, interval, now_ms):
 
 
 def authorized_bars(symbol, interval, now_ms, transport=None, timeout=8):
-    """Fetch one native series, or refuse before the socket."""
+    """Fetch one native series, or refuse before the socket.
+
+    One retry, then stop. A failure is not filled from another venue.
+    """
     from ops.entitlements import decide_use
 
     decision = decide_use(SOURCE_ID, "candle_display", symbol=symbol, interval=interval)
@@ -123,12 +126,30 @@ def authorized_bars(symbol, interval, now_ms, transport=None, timeout=8):
     if minutes is None or spec is None:
         return {"ok": False, "reason": "not_listed", "bars": [], "called": False, "source_id": SOURCE_ID}
     url = f"{BASE}/0/public/OHLC?pair={spec['rest']}&interval={minutes}"
-    try:
-        status, payload = _request(url, timeout, transport)
-    except Exception as exc:
-        return {"ok": False, "reason": "source_failure", "error": type(exc).__name__, "bars": [], "called": True, "source_id": SOURCE_ID}
-    if status != 200 or (isinstance(payload, dict) and payload.get("error")):
-        return {"ok": False, "reason": "source_failure", "bars": [], "called": True, "source_id": SOURCE_ID}
-    parsed = parse_ohlc(payload, symbol, interval, now_ms)
-    parsed["called"] = True
-    return parsed
+    last_reason = "source_failure"
+    for attempt in (1, 2):
+        try:
+            status, payload = _request(url, timeout, transport)
+        except Exception as exc:
+            name = type(exc).__name__.lower()
+            last_reason = "timeout" if "timeout" in name or "timeout" in str(exc).lower() else "source_failure"
+            if attempt == 1:
+                continue
+            return {"ok": False, "reason": last_reason, "error": type(exc).__name__, "bars": [], "called": True, "source_id": SOURCE_ID, "attempts": attempt}
+        if not isinstance(payload, dict):
+            last_reason = "malformed"
+            if attempt == 1:
+                continue
+            return {"ok": False, "reason": "malformed", "bars": [], "called": True, "source_id": SOURCE_ID, "attempts": attempt}
+        if status != 200 or payload.get("error") or status >= 500:
+            last_reason = "timeout" if status == 429 else "source_failure"
+            if attempt == 1 and (status >= 500 or status == 429):
+                continue
+            return {"ok": False, "reason": last_reason, "bars": [], "called": True, "source_id": SOURCE_ID, "attempts": attempt}
+        parsed = parse_ohlc(payload, symbol, interval, now_ms)
+        if parsed.get("reason") == "malformed" and attempt == 1:
+            continue
+        parsed["called"] = True
+        parsed["attempts"] = attempt
+        return parsed
+    return {"ok": False, "reason": last_reason, "bars": [], "called": True, "source_id": SOURCE_ID, "attempts": 2}

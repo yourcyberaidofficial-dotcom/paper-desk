@@ -7,6 +7,7 @@ not a second price feed. The file itself is not trimmed.
 
 from __future__ import annotations
 
+import fcntl
 import json
 import os
 import time
@@ -65,33 +66,45 @@ def _rows():
     return found
 
 
+def _exclusive(path):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    handle = (path.parent / (path.name + ".lock")).open("a+")
+    fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+    return handle
+
+
 def record(event_type, *, entity=None, component=None, account_id=None, detail=None, now_ms=None):
     """Append one event. Unknown types are refused. Nothing already stored is rewritten."""
     if event_type not in TYPES:
         return {"stored": False, "reason": "unknown_event"}
     now_ms = int(now_ms if now_ms is not None else time.time() * 1000)
-    if event_type in ONCE or event_type in THROTTLED:
-        window = THROTTLED.get(event_type)
-        for row in reversed(_rows()):
-            if row.get("event_type") != event_type or row.get("entity") != entity:
-                continue
-            if event_type in ONCE or now_ms - int(row.get("created_ms") or 0) < window:
-                return {"stored": False, "reason": "already_recorded", "event": row}
-            break
-    payload = detail if isinstance(detail, dict) else ({"note": str(detail)} if detail else {})
-    row = {
-        "event_type": event_type,
-        "entity": entity,
-        "component": component or "desk",
-        "account_id": account_id,
-        "detail": payload,
-        "created_ms": now_ms,
-    }
     path = _path()
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("a", encoding="utf-8") as handle:
-        handle.write(json.dumps(row, separators=(",", ":")) + "\n")
-    return {"stored": True, "event": row}
+    lock = _exclusive(path)
+    try:
+        if event_type in ONCE or event_type in THROTTLED:
+            window = THROTTLED.get(event_type)
+            for row in reversed(_rows()):
+                if row.get("event_type") != event_type or row.get("entity") != entity:
+                    continue
+                if event_type in ONCE or now_ms - int(row.get("created_ms") or 0) < window:
+                    return {"stored": False, "reason": "already_recorded", "event": row}
+                break
+        payload = detail if isinstance(detail, dict) else ({"note": str(detail)} if detail else {})
+        row = {
+            "event_type": event_type,
+            "entity": entity,
+            "component": component or "desk",
+            "account_id": account_id,
+            "detail": payload,
+            "created_ms": now_ms,
+        }
+        with path.open("a", encoding="utf-8") as handle:
+            handle.write(json.dumps(row, separators=(",", ":")) + "\n")
+            handle.flush()
+        return {"stored": True, "event": row}
+    finally:
+        fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
+        lock.close()
 
 
 def read(*, account_id=None):

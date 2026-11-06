@@ -270,6 +270,11 @@ class Worker:
     def _monitor(self, now_ms, windows):
         from ops.users import list_users
 
+        try:
+            from ops.signal_engine import cycle
+            cycle(now_ms)
+        except Exception:
+            pass
         if windows is None:
             windows = self._monitor_windows(now_ms)
         users = list_users()

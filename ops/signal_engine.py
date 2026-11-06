@@ -110,9 +110,93 @@ def _load(symbol, interval, now_ms, transport):
     return {"bars": (loaded or {}).get("bars") or [], "source_id": "kraken_public_ohlc", "reason": (loaded or {}).get("reason")}
 
 
+def _higher(symbol, interval):
+    order = ("1m", "3m", "15m", "1h")
+    if interval not in order:
+        return "No higher timeframe is defined."
+    wanted = order[order.index(interval) + 1 :]
+    if not wanted:
+        return "This is the highest desk timeframe."
+    from ops.signal_ledger import read
+
+    rows = [row for row in read() if row.get("symbol") == symbol and row.get("interval") in wanted]
+    if not rows:
+        return "No higher-timeframe observation is stored."
+    last = rows[-1]
+    return f"{last.get('interval')} is {last.get('observation')}. Research {last.get('research')}. Context only. Not a new signal."
+
+
+def _expire_or_invalidate(card, now_ms):
+    """Append a later state. The earlier row stays."""
+    if card.get("quality") != "ok" or card.get("price") is None:
+        return None
+    from ops.bars import interval_ms
+    from ops.signal_ledger import read
+
+    priors = [
+        row for row in read()
+        if row.get("symbol") == card.get("symbol")
+        and row.get("interval") == card.get("interval")
+        and row.get("observation") == "active_signal"
+    ]
+    if not priors:
+        return None
+    prior = priors[-1]
+    price = card.get("price")
+    stop = prior.get("stop")
+    decision = prior.get("decision")
+    if isinstance(price, (int, float)) and isinstance(stop, (int, float)) and decision in {"BUY", "SELL"}:
+        crossed = (decision == "BUY" and price <= stop) or (decision == "SELL" and price >= stop)
+        if crossed:
+            return {
+                "symbol": prior.get("symbol"),
+                "interval": prior.get("interval"),
+                "opportunity_id": prior.get("opportunity_id"),
+                "source_id": prior.get("source_id"),
+                "lifecycle": "invalidated",
+                "observation": "invalidated",
+                "research": prior.get("research") or "research_failed",
+                "execution": "not_eligible",
+                "decision": decision,
+                "price": price,
+                "entry": prior.get("entry"),
+                "stop": stop,
+                "target": prior.get("target"),
+                "quality": "ok",
+                "approved": False,
+                "note": "The completed close crossed the stored stop. The earlier signal remains in history.",
+            }
+    try:
+        limit = 48 * interval_ms(card.get("interval") or "15m")
+    except ValueError:
+        return None
+    if int(now_ms) - int(prior.get("created_ms") or now_ms) > limit:
+        return {
+            "symbol": prior.get("symbol"),
+            "interval": prior.get("interval"),
+            "opportunity_id": prior.get("opportunity_id"),
+            "source_id": prior.get("source_id"),
+            "lifecycle": "expired",
+            "observation": "expired",
+            "research": prior.get("research") or "research_failed",
+            "execution": "not_eligible",
+            "decision": decision or "WAIT",
+            "quality": "ok",
+            "approved": False,
+            "price": None,
+            "entry": prior.get("entry"),
+            "stop": prior.get("stop"),
+            "target": prior.get("target"),
+            "note": "The stored signal is older than 48 candles. It was not deleted.",
+        }
+    return None
+
+
 def _observe(symbol, interval, bars, source_id, now_ms):
+    from ops.market_conditions import assess
     from ops.terminal_signal import decide
 
+    facts = assess(bars, now_ms, interval)
     result = decide(symbol, interval, "auto", bars, now_ms, None)
     result["source_id"] = source_id
     result["approved"] = False
@@ -121,12 +205,44 @@ def _observe(symbol, interval, bars, source_id, now_ms):
     result["validation_status"] = result.get("validation_status") or "FAIL"
     result["price"] = result.get("price") if result.get("price") is not None else result.get("reference_price")
     result["opportunity_id"] = result.get("opportunity_id") or f"obs:{symbol}:{interval}:{result.get('bar_close_ms') or bars[-1].get('close_time_ms')}"
-    if result.get("blocked") in {"stale_or_incomplete", "xau_minute_unlicensed", "commercial_use_unverified"}:
+    result["conditions"] = facts["evidence"]
+    result["freshness"] = facts["freshness"]
+    result["higher_timeframe"] = _higher(symbol, interval)
+    if facts["freshness"] == "stale" or result.get("blocked") == "stale_or_incomplete":
+        result["quality"] = "stale"
+        result["reading_class"] = "observational"
+        result["customer_status"] = None
+        result["decision"] = "WAIT"
+        result["decision_label"] = "WAIT"
+        result["price"] = None
+        result["entry"] = None
+        result["stop"] = None
+        result["target"] = None
+        result["setup_state"] = "stale"
+        try:
+            from ops.activity import record
+            record(
+                "reading_stale",
+                component="signal_engine",
+                entity=f"{symbol}:{interval}",
+                detail={"note": "The completed candle is too old to treat as current. No price was stored.", "symbol": symbol, "interval": interval},
+                now_ms=now_ms,
+            )
+        except Exception:
+            pass
+    elif result.get("blocked") in {"xau_minute_unlicensed", "commercial_use_unverified"}:
         result["customer_status"] = "reading_unavailable"
         result["quality"] = "unavailable"
+        result["price"] = None
     else:
         result["quality"] = "ok"
-        result["reading_class"] = result.get("reading_class") or "observational"
+        if result.get("decision") in {"BUY", "SELL"} and None not in (result.get("entry"), result.get("stop"), result.get("target")):
+            result["reading_class"] = result.get("reading_class") or "observational"
+            result["setup_state"] = "confirmed"
+        else:
+            result["reading_class"] = "developing"
+            result["setup_state"] = "forming"
+            result["decision_label"] = result.get("decision_label") or "WATCH"
     return result
 
 
@@ -155,7 +271,13 @@ def cycle(now_ms=None, transport=None):
             markets.append(classify_card(unavailable_card(symbol, interval)))
             continue
         stored = record_observations([card], now_ms=now_ms, component="signal_engine")
+        follow = _expire_or_invalidate(card, now_ms)
+        if follow:
+            record_observations([follow], now_ms=now_ms, component="signal_engine")
         classified = classify_card(card)
+        classified["conditions"] = card.get("conditions")
+        classified["higher_timeframe"] = card.get("higher_timeframe")
+        classified["freshness"] = card.get("freshness")
         if stored.get("rows"):
             classified = {**classified, "persisted": True}
         markets.append(classified)

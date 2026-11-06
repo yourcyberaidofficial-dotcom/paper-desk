@@ -6,6 +6,7 @@ or trimmed. A data-unavailable row is not a signal and carries no price.
 
 from __future__ import annotations
 
+import fcntl
 import json
 import os
 import time
@@ -23,6 +24,9 @@ FIELDS = (
     "opportunity_id",
     "source_id",
     "note",
+    "conditions",
+    "higher_timeframe",
+    "freshness",
 )
 NUMBERS = ("price", "entry", "stop", "target")
 SIGNAL_STATES = frozenset({"forming", "active_signal", "invalidated", "expired"})
@@ -66,8 +70,13 @@ def _project(card):
 def _classified(card):
     card = card or {}
     if card.get("observation") in OBSERVATIONS and card.get("research") and card.get("execution"):
-        return card
-    return classify_card(card)
+        out = dict(card)
+    else:
+        out = classify_card(card)
+    for key in ("conditions", "higher_timeframe", "freshness"):
+        if isinstance(card.get(key), str) and card.get(key).strip():
+            out[key] = card[key].strip()[:400]
+    return out
 
 
 def _activity(row, component, now_ms):
@@ -146,8 +155,15 @@ def record_observations(cards, *, now_ms=None, component="lifecycle"):
         row["created_ms"] = now_ms
         row["component"] = component
         path.parent.mkdir(parents=True, exist_ok=True)
-        with path.open("a", encoding="utf-8") as handle:
-            handle.write(json.dumps(row, separators=(",", ":")) + "\n")
+        lock = (path.parent / "history.jsonl.lock").open("a+")
+        fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
+        try:
+            with path.open("a", encoding="utf-8") as handle:
+                handle.write(json.dumps(row, separators=(",", ":")) + "\n")
+                handle.flush()
+        finally:
+            fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
+            lock.close()
         seen.add(ident)
         stored.append(row)
         try:

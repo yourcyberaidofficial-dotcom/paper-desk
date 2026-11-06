@@ -2,6 +2,8 @@
 
 Not deployed. No source below is a customer display grant.
 
+Completed candles are described as rising or falling, momentum up, down or mixed, and range wide, ordinary or narrow. Those words are not a score. A candle older than two intervals is stale: the price is not shown as current and a `reading_stale` event is stored. A close through a stored stop appends `invalidated` and leaves the original row. After 48 candles the row is marked `expired` the same way. Kraken retries one failed request, then stops. It does not change venue.
+
 ## Engine
 
 `ops/signal_engine.py` walks BTCUSDT, ETHUSDT and XAUUSD at 1m, 3m, 15m and 1h independently. A pair with no verified candle capability is stored as `data_unavailable` with no price. That does not blank another pair. History is append-only in `$AUREON_DATA/signals/history.jsonl`. The same identity is stored once. A later state is appended. Research failure, a blocked notification and an AutoPilot rejection do not delete the row.
