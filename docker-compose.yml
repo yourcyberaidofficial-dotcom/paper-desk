@@ -16,6 +16,11 @@ services:
       - desk-data:/app/data/paper
       - desk-users:/app/data/users
       - desk-shadow:/app/data/shadow
+      - desk-signals:/app/data/signals
+      - desk-activity:/app/data/activity
+      - desk-rights:/app/data/rights
+      - desk-cache:/app/data/cache
+      - desk-ai:/app/data/ai
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/health')"]
       interval: 30s
@@ -25,3 +30,8 @@ volumes:
   desk-data:
   desk-users:
   desk-shadow:
+  desk-signals:
+  desk-activity:
+  desk-rights:
+  desk-cache:
+  desk-ai:

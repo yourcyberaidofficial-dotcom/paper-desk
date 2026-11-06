@@ -1,81 +1,81 @@
 """Model-provider boundary.
 
 The desk builds the evidence. A provider may only phrase it. Ollama is the
-first provider. Replacing it means implementing ask_model with the same
-return shape. One inference runs at a time. Offline answers still return
-the stored facts.
+first provider. One inference runs at a time. Offline answers still return
+the stored facts. The model cannot approve a strategy or open an order.
 """
 
 from __future__ import annotations
 
+import os
 import threading
+
+from ops.ai_safety import PROMPT_VERSION, invented_numbers, local_model_allowed, order_language, question_requests_action
 
 _LOCK = threading.Lock()
 
 TASKS = (
+    "ask",
     "explain_signal",
     "compare",
     "market_watch",
     "why_quiet",
+    "explain_missing",
+    "why_no_setup",
     "explain_invalidated",
     "portfolio",
     "risk",
     "journal",
+    "research",
+    "academy",
 )
 
 
-def _text(user_id, task, symbol, interval):
-    from ops.paperbook import summary
-    from ops.signal_ledger import read
-
-    rows = [row for row in read() if symbol in (None, "", row.get("symbol")) and interval in (None, "", row.get("interval"))]
-    latest = rows[-1] if rows else None
-    book = summary(user_id) if user_id else {"open": [], "closed": [], "orders": [], "performance": {}}
-    performance = book.get("performance") or {}
-    lines = [
-        f"task {task}",
-        f"stored observations {len(rows)}",
-        f"latest observation {(latest or {}).get('observation') or 'none'}",
-        f"latest research {(latest or {}).get('research') or 'not_promoted'}",
-        f"latest execution {(latest or {}).get('execution') or 'not_eligible'}",
-        f"open paper positions {len(book.get('open') or [])}",
-        f"closed paper trades {performance.get('trades') or 0}",
-        "broker false",
-        "approved false",
-    ]
-    if task == "why_quiet":
-        lines.append("No new confirmed signal is claimed when the stored observation is data_unavailable or research_failed.")
-    if task == "explain_invalidated":
-        lines.append("Invalidated and expired rows stay in the history.")
-    if task == "compare":
-        symbols = sorted({row.get("symbol") for row in rows if row.get("symbol")})
-        lines.append("symbols " + (", ".join(symbols) if symbols else "none"))
-    return lines
-
-
 def deterministic(lines):
-    return " ".join(lines) + " This is the stored record. It is not a new signal and not an order."
+    return " ".join(lines) + " This is the stored record. It is not a new signal and not an order. AI analysis is not a deterministic signal."
 
 
-def ask(user_id, task, symbol=None, interval=None, transport=None, now_ms=None):
+def _refuse(reason, stamp):
+    return {
+        "ok": False,
+        "reason": reason,
+        "approved": False,
+        "order_opened": False,
+        "broker": False,
+        "created_ms": stamp,
+        "prompt_version": PROMPT_VERSION,
+        "analysis_label": "ai_analysis_not_a_signal",
+        "explanation": None,
+        "fallback": None,
+        "model_status": "refused",
+    }
+
+
+def ask(user_id, task, symbol=None, interval=None, transport=None, now_ms=None, signal_id=None, lesson_id=None, question=None):
     """Answer from stored records. The model cannot approve or trade."""
     import time
 
     stamp = int(now_ms if now_ms is not None else time.time() * 1000)
     if task not in TASKS:
-        return {"ok": False, "reason": "unknown_task", "approved": False, "order_opened": False, "broker": False}
-    lines = _text(user_id, task, symbol, interval)
+        return _refuse("unknown_task", stamp)
+    if question:
+        from ops.ai_safety import scrub_untrusted
+
+        if not scrub_untrusted(question) and str(question).strip():
+            return _refuse("untrusted_input", stamp)
+        if question_requests_action(question):
+            return _refuse("order_request_refused", stamp)
+    if not local_model_allowed(os.environ.get("OLLAMA_MODEL")):
+        return _refuse("cloud_model_refused", stamp)
+    from ops.ai_evidence import build
+
+    bundle = build(user_id, task, symbol, interval, signal_id=signal_id, lesson_id=lesson_id)
+    if bundle.get("ok") is False:
+        return _refuse(bundle.get("reason") or "unknown_signal", stamp)
+    lines = bundle["facts"]
     fallback = deterministic(lines)
-    evidence = {
-        "symbol": symbol or "desk",
-        "interval": interval or "desk",
-        "observation": lines[2],
-        "research": lines[3],
-        "execution": lines[4],
-        "paper_status": lines[5] + ". " + lines[6],
-        "note": fallback[:400],
-        "lifecycle": task,
-    }
+    evidence = dict(bundle["model_view"])
+    evidence["note"] = fallback[:400]
     base = {
         "ok": True,
         "task": task,
@@ -83,14 +83,22 @@ def ask(user_id, task, symbol=None, interval=None, transport=None, now_ms=None):
         "order_opened": False,
         "broker": False,
         "created_ms": stamp,
+        "prompt_version": PROMPT_VERSION,
+        "analysis_label": "ai_analysis_not_a_signal",
         "fallback": fallback,
         "evidence": {key: value for key, value in evidence.items() if isinstance(value, str)},
+        "evidence_refs": list(bundle["refs"]),
+        "verified_facts": list(lines),
+        "unavailable": list(bundle["unavailable"]),
+        "uncertainty": ["The model is not a signal. A missing source is not a setup."],
+        "interpretation": None,
         "model_status": "offline",
         "explanation": None,
     }
     if not _LOCK.acquire(blocking=False):
         base["model_status"] = "busy"
         base["reason"] = "busy"
+        _log(user_id, task, stamp, bundle, "busy", None)
         return base
     try:
         from ops.activity import record
@@ -107,6 +115,7 @@ def ask(user_id, task, symbol=None, interval=None, transport=None, now_ms=None):
         )
         if status.get("available") is not True:
             base["reason"] = status.get("reason") or "offline"
+            _log(user_id, task, stamp, bundle, base["reason"], status.get("model"))
             return base
         phrased = explain(evidence, timeout=8, transport=transport, now_ms=stamp)
         record(
@@ -118,15 +127,38 @@ def ask(user_id, task, symbol=None, interval=None, transport=None, now_ms=None):
             now_ms=stamp,
         )
         summary = ((phrased.get("explanation") or {}).get("summary") if phrased.get("ok") else None)
-        base["model_status"] = "online"
+        base["model_status"] = "online" if phrased.get("ok") else "rejected"
         base["model"] = status.get("model")
         base["reason"] = None if phrased.get("ok") else phrased.get("reason")
         base["explanation"] = phrased.get("explanation")
-        if summary and any(token in summary.lower() for token in ("approve", "order", "buy now", "sell now")):
+        if summary and (order_language(summary) or invented_numbers(summary, lines)):
             base["explanation"]["summary"] = fallback
             base["explanation"]["approved"] = False
+            base["reason"] = "ungrounded"
+            summary = fallback
+        base["interpretation"] = summary
         base["approved"] = False
         base["order_opened"] = False
+        _log(user_id, task, stamp, bundle, base["reason"] or "ok", status.get("model"))
         return base
     finally:
         _LOCK.release()
+
+
+def _log(user_id, task, stamp, bundle, status, model):
+    try:
+        from ops.ai_log import record
+
+        record({
+            "user_id": user_id,
+            "task": task,
+            "model": model,
+            "prompt_version": PROMPT_VERSION,
+            "created_ms": stamp,
+            "evidence_refs": list(bundle.get("refs") or []),
+            "output_status": status,
+            "broker": False,
+            "approved": False,
+        })
+    except Exception:
+        return None

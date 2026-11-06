@@ -139,9 +139,9 @@ def _activity(row, component, now_ms):
 def record_observations(cards, *, now_ms=None, component="lifecycle"):
     """Store each new identity once. Existing rows are left untouched."""
     now_ms = int(now_ms if now_ms is not None else time.time() * 1000)
-    seen = {_identity(row) for row in read()}
     stored = []
     path = _path()
+    path.parent.mkdir(parents=True, exist_ok=True)
     for raw in cards or []:
         row = _project(_classified(raw))
         if row.get("observation") not in OBSERVATIONS:
@@ -150,21 +150,19 @@ def record_observations(cards, *, now_ms=None, component="lifecycle"):
             for key in NUMBERS:
                 row[key] = None
         ident = _identity(row)
-        if ident in seen:
-            continue
-        row["created_ms"] = now_ms
-        row["component"] = component
-        path.parent.mkdir(parents=True, exist_ok=True)
         lock = (path.parent / "history.jsonl.lock").open("a+")
         fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
         try:
+            if ident in {_identity(item) for item in read()}:
+                continue
+            row["created_ms"] = now_ms
+            row["component"] = component
             with path.open("a", encoding="utf-8") as handle:
                 handle.write(json.dumps(row, separators=(",", ":")) + "\n")
                 handle.flush()
         finally:
             fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
             lock.close()
-        seen.add(ident)
         stored.append(row)
         try:
             _activity(row, component, now_ms)

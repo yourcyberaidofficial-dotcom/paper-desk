@@ -110,6 +110,7 @@ class Worker:
         self.last_result = None
         self.last_monitor = None
         self.last_monitor_error = None
+        self.last_cycle_error = None
 
     def prefs(self) -> dict:
         if not self.prefs_path.exists():
@@ -273,8 +274,9 @@ class Worker:
         try:
             from ops.signal_engine import cycle
             cycle(now_ms)
-        except Exception:
-            pass
+            self.last_cycle_error = None
+        except Exception as exc:
+            self.last_cycle_error = type(exc).__name__
         if windows is None:
             windows = self._monitor_windows(now_ms)
         users = list_users()

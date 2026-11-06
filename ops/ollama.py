@@ -53,6 +53,12 @@ def health(timeout=1.5, transport=None):
     model = configured_model()
     if not model:
         return {"available": False, "reason": "model_not_configured", "model": None, "broker": False}
+    from ops.ai_safety import endpoint_allowed, local_model_allowed
+
+    if not local_model_allowed(model):
+        return {"available": False, "reason": "cloud_model_refused", "model": model, "broker": False}
+    if not endpoint_allowed(base_url()):
+        return {"available": False, "reason": "endpoint_refused", "model": model, "broker": False}
     try:
         status, body = _get(base_url() + "/api/tags", timeout, transport)
     except Exception as exc:
@@ -104,6 +110,10 @@ def explain(evidence, timeout=8, transport=None, now_ms=None):
     import time
 
     clean = evidence_view(evidence)
+    from ops.ai_safety import INJECTION, redact_numbers
+
+    clean = {key: redact_numbers(value) for key, value in clean.items()}
+    clean = {key: value for key, value in clean.items() if value and not INJECTION.search(value)}
     status = health(timeout=min(timeout, 1.5), transport=transport)
     stamp = int(now_ms if now_ms is not None else time.time() * 1000)
     base = {

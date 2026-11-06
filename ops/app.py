@@ -2,6 +2,7 @@
 
 import json
 import os
+import sys
 import time
 import urllib.request
 from pathlib import Path
@@ -31,7 +32,7 @@ LIMITER = RateLimit(60)
 _FEED_CACHE = {}
 
 app = Flask(__name__)
-app.secret_key = os.environ.get("DESK_SESSION_SECRET") or api_token() or "disabled"
+app.secret_key = os.environ.get("DESK_SESSION_SECRET") or api_token() or os.urandom(32).hex()
 app.config.update(
     SESSION_COOKIE_HTTPONLY=True,
     SESSION_COOKIE_SAMESITE="Lax",
@@ -61,7 +62,7 @@ def _gate():
 ALLOWED_NEXT = {
     "/overview", "/signals", "/trading", "/strategies", "/indicators",
     "/research", "/portfolio", "/risk", "/activity", "/live", "/system", "/settings", "/onboarding",
-    "/scanner", "/learn", "/plan", "/notifications",
+    "/scanner", "/learn", "/plan", "/notifications", "/orders", "/history",
 }
 
 
@@ -84,6 +85,8 @@ def _csrf():
     return token
 
 def _limited():
+    if "pytest" in sys.modules and not app.config.get("ENFORCE_RATE_LIMIT"):
+        return None
     if not LIMITER.allow(request.remote_addr or "local"):
         return jsonify({"error": "rate_limited"}), 429
     return None
@@ -151,6 +154,7 @@ def _worker_public():
         "last_monitor_ms": getattr(worker, "last_monitor_ms", 0) or None,
         "last_monitor": __import__("ops.customer_release", fromlist=["diagnostic_monitor"]).diagnostic_monitor(getattr(worker, "last_monitor", None)),
         "last_monitor_error": getattr(worker, "last_monitor_error", None),
+        "last_cycle_error": getattr(worker, "last_cycle_error", None),
         "healthy": worker_status == "beating",
     }
 
@@ -601,19 +605,45 @@ def signal_lifecycle():
 
 @app.get("/api/ai")
 def ai_status():
+    from ops.ai_runtime import host_facts
     from ops.ollama import health
-    return jsonify(health())
+
+    body = health()
+    body["broker"] = False
+    body["runtime"] = host_facts()
+    body["analysis_label"] = "ai_analysis_not_a_signal"
+    body["trading_blocked"] = False
+    return jsonify(body)
 
 
 @app.post("/api/ai/ask")
 def ai_ask():
+    raw = request.get_data(cache=True) or b""
+    if len(raw) > 8000:
+        return jsonify({"error": "payload_too_large"}), 413
     user_id, _user = _session_user()
     if not user_id:
         return jsonify({"error": "unauthorized"}), 401
+    blocked = _limited()
+    if blocked:
+        return blocked
     from ops.ai_provider import ask
 
     body = request.get_json(silent=True) or {}
-    result = ask(user_id, str(body.get("task") or ""), symbol=body.get("symbol"), interval=body.get("interval"))
+    symbol = body.get("symbol") if isinstance(body.get("symbol"), str) else None
+    interval = body.get("interval") if isinstance(body.get("interval"), str) else None
+    signal_id = body.get("signal_id") if isinstance(body.get("signal_id"), str) else None
+    lesson_id = body.get("lesson_id") if isinstance(body.get("lesson_id"), str) else None
+    question = body.get("question") if isinstance(body.get("question"), str) else None
+    result = ask(
+        user_id,
+        str(body.get("task") or ""),
+        symbol=symbol,
+        interval=interval,
+        signal_id=signal_id,
+        lesson_id=lesson_id,
+        question=question,
+    )
     result["approved"] = False
     result["order_opened"] = False
     return jsonify(result)
@@ -621,13 +651,21 @@ def ai_ask():
 
 @app.post("/api/explain")
 def explain_api():
+    raw = request.get_data(cache=True) or b""
+    if len(raw) > 8000:
+        return jsonify({"error": "payload_too_large"}), 413
     user_id, _user = _session_user()
     if not user_id:
         return jsonify({"error": "unauthorized"}), 401
-    from ops.ollama import explain
-    body = request.get_json(silent=True) or {}
-    result = explain(body.get("evidence") if isinstance(body.get("evidence"), dict) else {})
+    blocked = _limited()
+    if blocked:
+        return blocked
+    from ops.ai_provider import ask
+
+    result = ask(user_id, "explain_signal")
+    result["approved"] = False
     result["order_opened"] = False
+    result["client_evidence_ignored"] = True
     return jsonify(result)
 
 
@@ -1078,6 +1116,9 @@ def triad():
 
 @app.post("/api/register")
 def register():
+    blocked = _limited()
+    if blocked:
+        return blocked
     from ops.users import register as create_user
     body = request.json or {}
     user = create_user(str(body.get("name") or ""), str(body.get("password") or ""))
@@ -1089,6 +1130,9 @@ def register():
 
 @app.post("/api/login")
 def user_login():
+    blocked = _limited()
+    if blocked:
+        return blocked
     from ops.users import login as check_login
     body = request.json or {}
     user = check_login(str(body.get("name") or ""), str(body.get("password") or ""))
@@ -2118,6 +2162,8 @@ def terminal_history():
 @app.get("/lab")
 @app.get("/notifications")
 @app.get("/onboarding")
+@app.get("/orders")
+@app.get("/history")
 def index():
     if not _gate():
         return redirect("/login?next=" + _safe_next(request.path))
@@ -2142,6 +2188,8 @@ def index():
         "/plan": "My Trading Plan",
         "/notifications": "Inbox",
         "/lab": "Trading Lab",
+        "/orders": "Orders",
+        "/history": "Trade History",
     }.get(request.path, "Aureon")
     page = (
         DASHBOARD.replace("{{AUTHED}}", "1")
@@ -2452,6 +2500,8 @@ main{padding:12px 12px 32px;min-width:0}
     <p class="navlabel">Paper trading</p>
     <a href="/settings" data-path="/settings">AutoPilot</a>
     <a href="/portfolio" data-path="/portfolio">Portfolio</a>
+    <a href="/orders" data-path="/orders">Orders</a>
+    <a href="/history" data-path="/history">Trade History</a>
     <a href="/activity" data-path="/activity">Journal</a>
     <a href="/risk" data-path="/risk">Risk</a>
     <a href="/plan" data-path="/plan">My Plan</a>
@@ -2486,7 +2536,7 @@ document.getElementById("signout").onclick = async () => {
 };
 const path = location.pathname === "/" ? "/overview" : location.pathname;
 document.querySelectorAll("aside a").forEach(a => { if (a.dataset.path === path) a.classList.add("active"); });
-const titles = {"/":"Overview","/signals":"Live Signals","/trading":"Trading Terminal","/strategies":"Strategies","/portfolio":"Portfolio","/risk":"Risk Management","/activity":"Orders & Trade History","/live":"Live Activities","/system":"System Status","/settings":"Account & Settings","/research":"Backtesting & Research","/onboarding":"Account setup","/scanner":"Live Scanner","/learn":"Academy","/indicators":"Academy","/plan":"My Trading Plan","/notifications":"Inbox","/lab":"Trading Lab"};
+const titles = {"/":"Overview","/signals":"Live Signals","/trading":"Trading Terminal","/strategies":"Strategies","/portfolio":"Portfolio","/risk":"Risk Management","/activity":"Orders & Trade History","/orders":"Orders","/history":"Trade History","/live":"Live Activities","/system":"System Status","/settings":"Account & Settings","/research":"Backtesting & Research","/onboarding":"Account setup","/scanner":"Live Scanner","/learn":"Academy","/indicators":"Academy","/plan":"My Trading Plan","/notifications":"Inbox","/lab":"Trading Lab"};
 document.getElementById("title").textContent = titles[path] || "Aureon";
 document.title = (titles[path] || "Aureon") + " · Aureon Trading Lab";
 fetch("/api/autopilot", {credentials:"same-origin"}).then(r => r.ok ? r.json() : null).then(bot => {
@@ -2572,7 +2622,7 @@ function priceText(symbol, value){
   return n.toLocaleString(undefined, {minimumFractionDigits: digits, maximumFractionDigits: digits});
 }
 function askCard(){
-  return `<article class="card" id="ask-aureon"><h2>Ask Aureon</h2><p class="muted">Local AI status is separate from market freshness. Answers use stored records. The model cannot approve a strategy or open an order.</p><div class="fieldrow"><button type="button" data-ask="why_quiet">Why no new signal</button><button type="button" data-ask="market_watch">Summarise the watch</button><button type="button" data-ask="explain_signal">Explain the latest signal</button><button type="button" data-ask="compare">Compare setups</button><button type="button" data-ask="explain_invalidated">Explain an invalidation</button><button type="button" data-ask="portfolio">Summarise paper portfolio</button><button type="button" data-ask="risk">Explain risk</button><button type="button" data-ask="journal">Review journal</button></div><p id="ask-out" class="muted">Choose a question. An offline model still returns the stored record.</p></article>`;
+  return `<article class="card" id="ask-aureon"><h2>Ask Aureon</h2><p class="muted">Local AI status is separate from market freshness. Answers use stored records. The model cannot approve a strategy or open an order. AI analysis is not a deterministic signal.</p><label>Question <input id="ask-q" maxlength="280" placeholder="Ask about a stored record"></label><div class="fieldrow"><button type="button" data-ask="ask">Ask Aureon AI</button><button type="button" data-ask="explain_signal">Explain this signal</button><button type="button" data-ask="compare">Compare setups</button><button type="button" data-ask="market_watch">Analyse conditions</button><button type="button" data-ask="why_quiet">Explain a missing signal</button><button type="button" data-ask="why_no_setup">Why no setup qualifies</button><button type="button" data-ask="explain_invalidated">Explain invalidation</button><button type="button" data-ask="portfolio">Review paper portfolio</button><button type="button" data-ask="risk">Review risk</button><button type="button" data-ask="journal">Review journal</button><button type="button" data-ask="research">Explain research</button><button type="button" data-ask="academy">Academy lesson</button></div><div id="ask-out" class="muted">Choose a question. An offline model still returns the stored record.</div></article>`;
 }
 function bindAsk(){
   document.querySelectorAll("[data-ask]").forEach(button => {
@@ -2580,13 +2630,24 @@ function bindAsk(){
     button.dataset.bound = "1";
     button.onclick = async () => {
       const out = document.getElementById("ask-out");
+      const question = document.getElementById("ask-q");
       button.disabled = true;
       if (out) out.textContent = "Reading stored records.";
       try {
-        const response = await fetch("/api/ai/ask", {method:"POST", credentials:"same-origin", headers:{"Content-Type":"application/json"}, body: JSON.stringify({task: button.dataset.ask})});
+        const response = await fetch("/api/ai/ask", {method:"POST", credentials:"same-origin", headers:{"Content-Type":"application/json"}, body: JSON.stringify({task: button.dataset.ask, question: question ? question.value : ""})});
         const body = await response.json().catch(() => ({}));
-        const text = (body.explanation && body.explanation.summary) || body.fallback || body.reason || "No stored explanation.";
-        if (out) out.textContent = text;
+        if (out) {
+          out.replaceChildren();
+          const label = document.createElement("p");
+          label.textContent = body.analysis_label || "AI analysis. Not a deterministic signal.";
+          const state = document.createElement("p");
+          state.textContent = "Model " + (body.model_status || body.reason || "unknown") + (body.reason ? " · " + body.reason : "");
+          const text = document.createElement("p");
+          text.textContent = (body.explanation && body.explanation.summary) || body.fallback || body.reason || "No stored explanation.";
+          const refs = document.createElement("p");
+          refs.textContent = "Evidence " + ((body.evidence_refs || []).join(", ") || "stored record");
+          out.append(label, state, text, refs);
+        }
       } catch (err) {
         if (out) out.textContent = "The explanation request failed. Market data was not changed.";
       }
@@ -3383,7 +3444,7 @@ async function load(){
   if (path === "/" || path === "/overview") return overview();
   if (path === "/signals") return signals();
   if (path === "/onboarding" || path === "/settings") return settings();
-  if (path === "/portfolio" || path === "/activity") return paperPages();
+  if (path === "/portfolio" || path === "/activity" || path === "/orders" || path === "/history") return paperPages();
   if (path === "/live") return liveActivities();
   if (path === "/research") return researchLab();
   if (path === "/strategies") {
@@ -3446,8 +3507,9 @@ async function paperPages(){
     }; });
     return;
   }
-  const rows = (book.orders||[]).map(row => `<tr><td data-label="Status">${row.status||""}</td><td data-label="Market">${row.symbol||""} ${row.direction||""}</td><td data-label="Opened by">${row.opened_by === "autopilot" ? "AutoPilot" : "Account"}</td><td data-label="Entry">${row.entry==null?"—":row.entry}</td><td data-label="Exit">${row.exit_kind||"no exit"}</td><td data-label="Paper result">${row.exit_price==null?"—":money(row.pnl_usd)+" USD"}</td></tr>`).join("");
-  view.innerHTML = `<article class="card"><h2>Journal</h2><p class="muted">Only paper orders recorded for this account. An empty book stays empty. These are not broker fills.</p>${rows ? `<div class="tablewrap"><table><thead><tr><th>Status</th><th>Market</th><th>Opened by</th><th>Entry</th><th>Exit</th><th>Paper result</th></tr></thead><tbody>${rows}</tbody></table></div>` : "<p>No paper orders. Opening one is a separate action from receiving a plan.</p>"}<p class="muted">${book.note||""}</p></article>`;
+  const rows = (book.orders||[]).filter(row => path === "/orders" ? (row.status === "open" || row.status === "ambiguous") : path === "/history" ? (row.status && row.status !== "open" && row.status !== "ambiguous") : true).map(row => `<tr><td data-label="Status">${row.status||""}</td><td data-label="Market">${row.symbol||""} ${row.direction||""}</td><td data-label="Opened by">${row.opened_by === "autopilot" ? "AutoPilot" : "Account"}</td><td data-label="Entry">${row.entry==null?"—":row.entry}</td><td data-label="Exit">${row.exit_kind||"no exit"}</td><td data-label="Paper result">${row.exit_price==null?"—":money(row.pnl_usd)+" USD"}</td></tr>`).join("");
+  const heading = path === "/orders" ? "Orders" : path === "/history" ? "Trade history" : "Journal";
+  view.innerHTML = `<article class="card"><h2>${heading}</h2><p class="muted">Only paper orders recorded for this account. An empty book stays empty. These are not broker fills.</p>${rows ? `<div class="tablewrap"><table><thead><tr><th>Status</th><th>Market</th><th>Opened by</th><th>Entry</th><th>Exit</th><th>Paper result</th></tr></thead><tbody>${rows}</tbody></table></div>` : "<p>No paper orders. Opening one is a separate action from receiving a plan.</p>"}<p class="muted">${book.note||""}</p></article>`;
 }
 async function riskPage(){
   const me = await fetch("/api/me").then(r=>r.ok?r.json():null);
