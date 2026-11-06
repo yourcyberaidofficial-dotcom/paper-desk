@@ -41,7 +41,7 @@ def _listen_addresses(port):
     return found
 
 
-def _spawn(port, bind, data):
+def _spawn(port, bind, data, extra_env=None):
     data.mkdir(parents=True, exist_ok=True)
     log_path = Path(data) / "server.log"
     handle = log_path.open("w", encoding="utf-8")
@@ -56,6 +56,8 @@ def _spawn(port, bind, data):
     })
     env.pop("DESK_AUTH_LIMIT", None)
     env.pop("DESK_GENERAL_LIMIT", None)
+    if extra_env:
+        env.update(extra_env)
     process = subprocess.Popen(
         ["python3", "-m", "ops.app"],
         cwd=str(ROOT),
@@ -239,6 +241,27 @@ def test_default_limits_allow_a_signed_in_account(tmp_path):
         assert health[0] == 200
         me = json.loads(_open(urllib.request.Request(f"http://127.0.0.1:{port}/api/me"), opener)[2])
         assert me["name"] == "ada"
+    finally:
+        _stop(process)
+
+
+def test_trusted_proxy_counts_the_appended_hop_not_a_rotating_prefix(tmp_path):
+    """DESK_TRUST_PROXY is off in Compose. When it is on, the left side must not mint buckets."""
+    port = _free_port()
+    process = _spawn(port, "127.0.0.1", tmp_path / "proxy", extra_env={"DESK_TRUST_PROXY": "1"})
+    try:
+        codes = []
+        for index in range(21):
+            result = _login(
+                port,
+                "nobody",
+                "not-the-password",
+                forwarded_for=f"198.51.100.{index}, 203.0.113.9",
+            )
+            codes.append(result[0])
+        assert codes[:20] == [401] * 20
+        assert codes[20] == 429
+        assert json.loads(result[2])["scope"] == "auth"
     finally:
         _stop(process)
 

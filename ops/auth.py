@@ -62,6 +62,13 @@ def _trusted_peer(peer):
 
 
 def _forwarded_client(header):
+    """Return the hop the trusted proxy appended, not the client-supplied prefix.
+
+    An appending proxy adds the address it observed at the right. The left
+    side is whatever the caller sent. Using the left side lets one client
+    rotate the prefix and skip the login ceiling.
+    """
+    found = None
     for item in (header or "").split(","):
         host = item.strip()
         if not host:
@@ -74,15 +81,15 @@ def _forwarded_client(header):
             ipaddress.ip_address(host)
         except ValueError:
             continue
-        return host
-    return None
+        found = host
+    return found
 
 
 def client_identity(remote_addr, forwarded_for=None, trust_proxy=None):
     """Use the socket address unless the peer is a proxy we were told to trust.
 
-    A client-supplied X-Forwarded-For is not a new identity. That would let
-    one caller empty the bucket by rotating the header.
+    A client-supplied prefix is not a new identity. The trusted proxy's
+    appended hop is the only forwarded address that selects a bucket.
     """
     peer = (remote_addr or "").strip() or "unknown"
     if trust_proxy is None:

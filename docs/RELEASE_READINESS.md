@@ -24,7 +24,7 @@ Phase 4 checked the deployment bind, the real rate-limit ceilings, the locked de
 
 ## 2. Verdict
 
-The suite on the Phase 4 implementation is **301 passed in 78.65s**. That includes the Phase 2 and Phase 3 tests. It is not a production approval.
+The suite after the trusted-proxy fix is **302 passed in 79.23s**. That includes the Phase 2 and Phase 3 tests. It is not a production approval.
 
 Customer live signals for BTCUSDT, ETHUSDT, and XAUUSD stay blocked. No display grant is on file.
 
@@ -32,18 +32,18 @@ No candidate model was installed. This host measured 2 CPU cores, 4,024,496 kB R
 
 ## 3. Independent review
 
-A separate review agent was started against the uncommitted Phase 4 tree and told not to edit files, not to start Docker, and not to use the public network. It had not returned a finished review when this document was written. Partial notes from its commands are not a completed review.
+A separate review agent inspected the Phase 4 tree and was told not to edit files, not to start Docker, and not to use the public network. It returned one defect and otherwise confirmed the bind contract, the 20-login ceiling, untrusted `X-Forwarded-For`, the private Ollama publish line, foreign-evidence rejection, and that a model reply does not write a signal or an order.
 
-Those notes did reproduce the 20-then-429 login ceiling, X-Forwarded-For refusal when the proxy flag is off, foreign evidence rejection, and no signal or order write from a fake model reply. One probe labelled `bind-0-reachable-on-172` timed out connecting to `172.16.0.2` while `127.0.0.1` and `127.0.0.2` connected. That is a sandbox filter on the private NIC, not a Compose publish. Docker was not running. A bind of `127.0.0.1` correctly refused both `127.0.0.2` and `172.16.0.2` in the same notes.
+The defect was in `ops/auth.py` `_forwarded_client`. With `DESK_TRUST_PROXY` on, a loopback peer was trusted and the leftmost `X-Forwarded-For` value became the bucket. A caller could rotate that prefix and skip the login ceiling. The function now keeps the rightmost address, which is the hop an appending proxy adds. Compose still does not set `DESK_TRUST_PROXY`. With the flag off, a rotated header does not mint a bucket.
 
-The Phase 3 review agent was cancelled without a report. The checks in this file were also run by the implementation author. That is not a second human reviewer and it is not an external security audit. **Independent review: NOT COMPLETE. NO-GO stands for that reason alone.**
+This is not a second human reviewer and it is not an external penetration test. The defect above was reproduced by that agent and fixed in this tree. **Independent review of the Phase 4 diff: received. The one confirmed defect is fixed. NO-GO still stands for the blockers in section 14.**
 
 ## 4. Requirement matrix
 
 | Requirement | Status | Evidence |
 |---|---|---|
 | Production deploy, merge, and production data stay untouched | PASS | No compose up, no merge, no production SSH. PR #97 was OPEN at `b49aa62` before this phase. |
-| Phase 2 and Phase 3 behaviour still passes | PASS | 301 passed, including `ops/test_phase2_backend.py` and `ops/test_phase3_verify.py`. |
+| Phase 2 and Phase 3 behaviour still passes | PASS | 302 passed, including `ops/test_phase2_backend.py` and `ops/test_phase3_verify.py`. |
 | Docker container reachable on the published loopback port | NOT TESTED | No `docker` binary and no daemon. Process stand-in is in section 5. |
 | Compose command listens inside the container on all interfaces and is answered on loopback | PASS | `DESK_BIND=0.0.0.0` process listens `00000000` and returns 200 on `127.0.0.1`. Default bind listens only `0100007F`. |
 | Effective login limit is 20/minute, not the third-call test ceiling | PASS | Section 6. The third-login 429 is a lowered test ceiling. |
@@ -55,7 +55,7 @@ The Phase 3 review agent was cancelled without a report. The checks in this file
 | Evidence bundle, local-only URL, no order authority | PASS | Fake-transport tests. `ops/signal_engine.py` does not import Ollama. |
 | Customer live signals | BLOCKED | Rights matrix: all 12 desk rows blocked. |
 | Broker and real-money trading disabled | PASS | `broker` stays false. No broker adapter was added. |
-| Independent review complete | FAIL | No finished report from a separate reviewer. |
+| Independent review of the Phase 4 diff | PASS | One defect, fixed: trusted-proxy identity now uses the appended hop. Not a human penetration test. |
 
 ## 5. Docker networking
 
@@ -90,6 +90,7 @@ Proved on a child `python3 -m ops.app` with those variables removed from the env
 | Spoofed auth identity | The same 429 continues when `X-Forwarded-For` is `203.0.113.51`. |
 | General bucket | The access log shows 300 `GET` 200 responses, then 429 `scope=general`. The client may see 299 or 300 of those 200s because a sandbox probe can `GET /` once. |
 | Spoofed general identity | A further `GET /version` with `X-Forwarded-For: 203.0.113.50` stays 429. |
+| Trusted proxy, appended hop | With `DESK_TRUST_PROXY=1` only, 20 logins that rotate the left address and keep `203.0.113.9` on the right are 401, and the 21st is 429. Compose leaves this flag unset. |
 | Expiry | After `Retry-After + 1` seconds on that same process, a failed login is 401 again and `/version` is 200. |
 | Normal account | Register, login, then `/overview`, `/signals`, `/orders`, `/history`, `/live`, `/api/me`, `/api/activity`, `/api/ai`, `/api/autopilot`, and `/api/signals/lifecycle` are 200. `/api/me` returns the signed-in name. `/health` without a cookie is 200. Two auth calls do not trip the limit of 20. |
 
@@ -217,7 +218,7 @@ PYTHONPATH=. python3 -m pytest ops/test_*.py tests/test_h4.py -q --tb=line -p no
 |---|---|
 | Phase 2, before the Phase 3 edit | 292 passed |
 | Phase 3 | 296 passed |
-| Phase 4, this tree | 301 passed in 78.65s |
+| Phase 4, after the trusted-proxy fix | 302 passed in 79.23s |
 
 Not run: a Docker daemon, a loaded Qwen model, a phone device lab, a live vendor socket, an external human penetration test.
 
@@ -234,7 +235,6 @@ When a deploy is later approved, and only then: back up `paper-desk_desk-data`, 
 - No authorised customer market-data grant for BTCUSDT, ETHUSDT, or XAUUSD.
 - No private inference host and no measured model. Local AI operational status is BLOCKED. Real-model acceptance is NOT TESTED.
 - Docker container publish is NOT TESTED. No daemon in this environment.
-- Independent review did not return a finished report. NO-GO.
 - `DESK_COOKIE_SECURE` is off until TLS terminates in front of the desk.
 - The lockfile has no hashes. The audit found no known vulnerabilities in the pinned names.
 - Sandbox image packages outside the desk dependency set still have advisories.

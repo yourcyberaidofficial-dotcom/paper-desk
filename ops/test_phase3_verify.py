@@ -19,6 +19,8 @@ def test_rate_limit_identity_expiry_and_a_normal_account_flow(tmp_path, monkeypa
     assert client_identity("10.0.0.4", "203.0.113.20, 10.0.0.4", trust_proxy=True) == "10.0.0.4"
     monkeypatch.setenv("DESK_TRUSTED_PROXIES", "10.0.0.0/8")
     assert client_identity("10.0.0.4", "203.0.113.20", trust_proxy=True) == "203.0.113.20"
+    assert client_identity("10.0.0.4", "198.51.100.1, 203.0.113.9", trust_proxy=True) == "203.0.113.9"
+    assert client_identity("127.0.0.1", "198.51.100.1, 203.0.113.9", trust_proxy=True) == "203.0.113.9"
 
     now = {"t": 1_000.0}
     monkeypatch.setattr("ops.auth.time.time", lambda: now["t"])
