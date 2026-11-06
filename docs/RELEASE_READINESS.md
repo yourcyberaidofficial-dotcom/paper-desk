@@ -13,7 +13,7 @@ PR #97 stays open and unmerged. This document does not authorise a deploy, a mer
 | Repository | `yourcyberaidofficial-dotcom/paper-desk` |
 | Branch | `product/recovery` |
 | Baseline SHA | `d64a3287fd89541cf4568c6af90e9db3b7adc3d8` |
-| Report SHA | See the commit that adds this file. Do not treat a dirty tree as the release. |
+| Report SHA | Implementation `a6da67b0ef458da233e2f82cc25202d4d18ba258`. This file's SHA line was added in the following commit on the same branch. |
 | Working tree preserved | `/tmp/paper-desk` (`product-completion`, dirty) and `/tmp/paper-desk-fix` (dirty `product/recovery` checkout) were not reset or cleaned. This work was made in a separate clone. |
 
 ## 2. Verdict
@@ -235,7 +235,7 @@ If the compose volume change is ever applied, copy `data/signals`, `data/activit
 
 ## 16. Independent review
 
-A separate review agent was asked to attack the diff without editing it: duplicate ledger rows, cross-account paper text, cloud and public Ollama URLs, invented prices, client evidence on `/api/explain`, cycle coupling, rights promotion, order language, and tool writes.
+A separate review agent was started against the diff and told not to edit it. It had not returned a written finding before this commit. The completed adversarial pass was a local script plus the fixture suite, not the unfinished agent.
 
 A local adversarial script then proved, against this tree:
 
