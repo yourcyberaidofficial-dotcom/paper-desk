@@ -13,14 +13,14 @@ PUBLIC_GET = {
     "/api/signal", "/api/signal-history", "/api/triad", "/health", "/version",
 }
 SESSION_GET = {
-    "/api/activity", "/api/autopilot", "/api/desk", "/api/eligibility", "/api/inbox/settings",
+    "/api/activity", "/api/autopilot", "/api/desk", "/api/eligibility", "/api/experience", "/api/accounts", "/api/inbox/settings",
     "/api/lab", "/api/me", "/api/notifications", "/api/paper/book", "/api/plan",
     "/api/qualification", "/api/registry", "/api/scanner", "/api/signals/lifecycle",
     "/api/terminal/history", "/api/workspace",
 }
 SESSION_POST = {
-    "/api/ai/ask", "/api/autopilot", "/api/desk/plan", "/api/digest", "/api/explain",
-    "/api/inbox/settings", "/api/lab", "/api/notifications/read", "/api/paper/close",
+    "/api/ai/ask", "/api/aureon-ai", "/api/autopilot", "/api/desk/plan", "/api/digest", "/api/explain",
+    "/api/experience", "/api/inbox/settings", "/api/lab", "/api/notifications/read", "/api/paper/close",
     "/api/paper/orders", "/api/plan", "/api/prefs", "/api/profile", "/api/size",
     "/api/telegram/link", "/api/telegram/unlink", "/api/terminal/signal",
 }
@@ -30,6 +30,7 @@ PAGES = {
     "/overview", "/signals", "/trading", "/strategies", "/indicators", "/research",
     "/portfolio", "/risk", "/activity", "/live", "/system", "/settings", "/scanner",
     "/learn", "/plan", "/lab", "/notifications", "/onboarding", "/orders", "/history",
+    "/accounts",
 }
 PUBLIC_PAGES = {"/", "/login", "/register"}
 AUTH_FREE_POST = {"/api/login", "/api/logout", "/api/register", "/api/telegram/confirm", "/api/telegram/update", "/login", "/logout"}

@@ -238,6 +238,50 @@ def update_profile(user_id: str, profile: dict, expected_revision=None) -> dict 
     return _commit(user_id, mutator)
 
 
+def update_presentation(user_id: str, incoming: dict, role: str = "customer") -> dict | None:
+    """Display preferences only. They cannot change role, risk, or a grant."""
+    from zoneinfo import ZoneInfo
+
+    def mutator(user):
+        current = user.get("presentation") if isinstance(user.get("presentation"), dict) else {}
+        body = incoming if isinstance(incoming, dict) else {}
+        density = body.get("density", current.get("density", "comfortable"))
+        depth = body.get("depth", current.get("depth", "guided"))
+        language = body.get("language", current.get("language", "en"))
+        layout = body.get("layout", current.get("layout", "guided"))
+        theme = body.get("theme", current.get("theme", "dark"))
+        contrast = body.get("contrast", current.get("contrast", "standard"))
+        motion = body.get("motion", current.get("motion", "full"))
+        if density not in {"comfortable", "compact"} or depth not in {"guided", "concise"} or language != "en":
+            return {"__skip__": "invalid"}
+        if theme not in {"dark", "light", "system"} or contrast not in {"standard", "high"} or motion not in {"full", "reduced"}:
+            return {"__skip__": "invalid"}
+        if layout == "operator" and role != "operator":
+            layout = "market"
+        elif layout not in {"guided", "market", "operator"}:
+            return {"__skip__": "invalid"}
+        timezone = str(body.get("timezone") or current.get("timezone") or "Africa/Lagos")[:64]
+        try:
+            ZoneInfo(timezone)
+        except Exception:
+            return {"__skip__": "invalid"}
+        user["presentation"] = {
+            "timezone": timezone,
+            "density": density,
+            "depth": depth,
+            "language": language,
+            "layout": layout,
+            "theme": theme,
+            "contrast": contrast,
+            "motion": motion,
+        }
+        if isinstance(user.get("profile"), dict):
+            user["profile"]["timezone"] = timezone
+        return user
+
+    return _commit(user_id, mutator)
+
+
 def save_plan(user_id: str, incoming: dict) -> dict | None:
     from ops.plan import normalize
     from ops.profiles import risk_cap
