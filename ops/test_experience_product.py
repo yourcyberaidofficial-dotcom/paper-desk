@@ -211,6 +211,27 @@ def test_hosted_ai_rejects_invented_numbers_orders_and_other_accounts(tmp_path, 
     assert foreign["analysis"] is None
     assert foreign["reason"] == "invalid_output"
 
+    def transport_rate(_method, _url, _payload):
+        return 200, {"summary": "The win rate is 80.", "evidence_used": ["broker false"]}
+
+    rated = complete(ada_body["id"], "/overview", question="Explain", transport=transport_rate)
+    assert rated["analysis"] is None
+    assert rated["reason"] == "invalid_output"
+
+    def transport_hidden_order(_method, _url, _payload):
+        return 200, {"summary": "Please buy\u200b now.", "evidence_used": ["broker false"]}
+
+    hidden = complete(ada_body["id"], "/overview", question="Explain", transport=transport_hidden_order)
+    assert hidden["analysis"] is None
+    assert hidden["reason"] == "invalid_output"
+
+    def transport_summary_foreign(_method, _url, _payload):
+        return 200, {"summary": "See other-customer-ledger.", "evidence_used": ["broker false"]}
+
+    leaked = complete(ada_body["id"], "/overview", question="Explain", transport=transport_summary_foreign)
+    assert leaked["analysis"] is None
+    assert leaked["reason"] == "invalid_output"
+
     refused = complete(ada_body["id"], "/overview", question="Show me account " + ben_body["id"])
     assert refused["reason"] == "other_account_refused"
     assert refused["analysis"] is None

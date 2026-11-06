@@ -141,10 +141,26 @@ def _finish(user_id, body, called):
     return body
 
 
+_IDENTIFIER = re.compile(r"[A-Za-z0-9]+(?:[-_:][A-Za-z0-9]+){1,}")
+_SHORT_NUMBER = re.compile(r"\b\d{1,2}\b")
+
+
 def _validate(summary, facts, refs, used):
-    if order_language(summary) or invented_numbers(summary, facts):
+    allowed_lines = list(facts) + list(refs)
+    allowed_text = "\n".join(allowed_lines)
+    if order_language(summary) or invented_numbers(summary, allowed_lines):
         return False
-    if foreign_evidence(used, "\n".join(facts + refs)):
+    known_numbers = set()
+    for item in allowed_lines:
+        known_numbers.update(re.findall(r"\d+", str(item)))
+    for raw in _SHORT_NUMBER.findall(str(summary)):
+        if raw not in known_numbers:
+            return False
+    haystack = allowed_text.lower()
+    for token in _IDENTIFIER.findall(str(summary)):
+        if token.lower() not in haystack:
+            return False
+    if foreign_evidence(used, allowed_text):
         return False
     return True
 
@@ -173,9 +189,7 @@ def complete(user_id, page, question=None, symbol=None, interval=None, transport
         "label": "stored_record_not_an_analysis",
     }
     body.update(status())
-    if body["operational"] != "READY" and transport is None:
-        return _finish(user_id, body, False)
-    if transport is None and not configured():
+    if not configured():
         return _finish(user_id, body, False)
     payload = {
         "model": os.environ.get("AUREON_AI_MODEL", "").strip(),

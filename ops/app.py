@@ -2485,6 +2485,7 @@ button:disabled{{opacity:.6}}
     <p>{alt}</p>
     <p><a href="/">Back to Aureon</a></p>
   </form>
+  <p class="muted">Aureon AI is on every signed-in page. This form does not call it, and it cannot be switched off.</p>
 </main>
 <script>
 const form = document.getElementById("form");
@@ -2571,7 +2572,7 @@ footer a{color:#99f6e4}
   <div>
     <p class="muted">Paper trading and research</p>
     <h1>See the market clearly. Research with discipline.</h1>
-    <p class="lede">One account for the live desk, free paper AutoPilot, the Academy and your Trading Lab. AutoPilot opens paper trades only after you turn it on. It is not a broker.</p>
+    <p class="lede">One account for the live desk, free paper AutoPilot, the Academy and your Trading Lab. AutoPilot opens paper trades only after you turn it on. It is not a broker. Aureon AI explains this account's stored records after you sign in. It is not a switch, and it does not place an order.</p>
     <div class="actions"><a class="btn" href="/register">Create your account</a><a class="btn ghost" href="/login">Sign in</a></div>
   </div>
   <aside class="preview" aria-label="Product preview">
@@ -2625,7 +2626,7 @@ header{display:flex;justify-content:space-between;align-items:flex-start;gap:12p
 .pills{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
 .pill{background:#10151c;border:1px solid var(--line);border-radius:999px;padding:6px 10px;color:var(--muted);font-size:.78rem}
 .markets,.courses{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin-bottom:12px}
-.card{background:linear-gradient(180deg,#161c26,#10151c);border:1px solid var(--line);border-radius:16px;padding:16px}
+.card{background:linear-gradient(180deg,#161c26,#10151c);border:1px solid var(--line);border-radius:16px;padding:16px;transition:padding .2s ease,border-color .2s ease}
 .course .bar{height:6px;background:#222a36;border-radius:99px;margin:10px 0}
 .course .bar span{display:block;height:100%;border-radius:99px;background:linear-gradient(90deg,#14b8a6,#3dd68c)}
 .price{font-size:1.7rem;font-weight:700;margin:6px 0}
@@ -2702,6 +2703,7 @@ aside.open{display:block}
 aside a{min-height:44px}
 .markets,.courses,.workspace,.empty-grid,.sections,.desk,.split,.kpis,.kpis.five{grid-template-columns:1fr}
 button,select{min-height:44px;max-width:100%}
+.pills a{min-height:44px;display:inline-flex;align-items:center}
 main{padding:12px 12px 32px;min-width:0}
 .pills{min-width:0}
 .pill{max-width:100%}
@@ -2737,6 +2739,7 @@ body[data-motion="reduced"] *{animation:none !important;transition:none !importa
 @media (prefers-reduced-motion: reduce){*{animation:none !important;transition:none !important}}
 button.pill{font:inherit;cursor:pointer;color:inherit}
 #nav-accounts[hidden]{display:none}
+#nav a.filtered-out{display:none}
 #navsearch{width:calc(100% - 20px);margin:8px 10px;box-sizing:border-box;background:#0e141c;color:#e8eef6;border:1px solid var(--line);border-radius:8px;padding:8px}
 #aipanel,#helppanel{position:fixed;right:12px;bottom:12px;z-index:50;width:min(420px,calc(100vw - 24px));max-height:70vh;overflow:auto;background:#121820;border:1px solid #2dd4bf;border-radius:14px;padding:14px}
 #aipanel textarea{width:100%;box-sizing:border-box;min-height:72px}
@@ -2803,8 +2806,8 @@ navSearch.oninput = () => {
   let shown = 0;
   document.querySelectorAll("#nav a").forEach(link => {
     const match = !query || link.textContent.toLowerCase().includes(query);
-    link.hidden = !match;
-    if (match) shown += 1;
+    link.classList.toggle("filtered-out", !match);
+    if (match && !link.hidden) shown += 1;
   });
   let empty = document.getElementById("navempty");
   if (!empty) {
@@ -2919,13 +2922,27 @@ function paintExperienceStrip(){
 document.getElementById("aiask").onclick = async () => {
   const answer = document.getElementById("aianswer");
   answer.textContent = "Asking Aureon AI. A stored record is not an analysis.";
-  const response = await fetch("/api/aureon-ai", {method:"POST", credentials:"same-origin", headers:{"Content-Type":"application/json"}, body: JSON.stringify({page: path, question: document.getElementById("aiquestion").value})});
-  const body = await response.json();
-  if (body.analysis) answer.textContent = body.analysis + " This is commentary, not a signal and not an order.";
-  else answer.textContent = (body.note || body.reason || "No analysis was produced.") + (body.stored_record && body.stored_record.length ? " Stored record: " + body.stored_record.join(" ") : "");
+  try {
+    const response = await fetch("/api/aureon-ai", {method:"POST", credentials:"same-origin", headers:{"Content-Type":"application/json"}, body: JSON.stringify({page: path, question: document.getElementById("aiquestion").value})});
+    const body = await response.json();
+    if (body.analysis) answer.textContent = body.analysis + " This is commentary, not a signal and not an order.";
+    else answer.textContent = (body.note || body.reason || "No analysis was produced.") + (body.stored_record && body.stored_record.length ? " Stored record: " + body.stored_record.join(" ") : "");
+  } catch (err) {
+    answer.textContent = "Aureon AI could not be reached. No analysis was invented. The desk is still available.";
+  }
 };
+function paintInbox(count){
+  const link = document.getElementById("inboxlink");
+  if (!link) return;
+  const unread = Number(count) || 0;
+  link.textContent = unread > 0 ? "Inbox (" + unread + ")" : "Inbox";
+  link.setAttribute("aria-label", unread > 0 ? unread + " unread notices" : "Inbox");
+}
 fetch("/api/experience", {credentials:"same-origin"}).then(r => r.ok ? r.json() : null).then(profile => {
   applyExperience(profile);
+}).catch(()=>{});
+fetch("/api/notifications", {credentials:"same-origin"}).then(r => r.ok ? r.json() : null).then(body => {
+  if (body) paintInbox(body.unread);
 }).catch(()=>{});
 const path = location.pathname === "/" ? "/overview" : location.pathname;
 document.querySelectorAll("aside a").forEach(a => { if (a.dataset.path === path) a.classList.add("active"); });
@@ -3605,9 +3622,19 @@ async function researchLab(){
 }
 async function scannerPage(){
   let lastBody = null;
-  view.innerHTML = `<article class="card"><h2>Live Scanner</h2><p id="scanstatus" role="status">Checking which prices can be shown.</p><p class="muted" id="scanwhen">A reading uses the latest completed candle. It is not a tick feed and not an order.</p><p id="scanstale" class="stale-note" hidden></p><div id="scancards"><p class="muted">Loading coverage. No price is invented while this loads.</p></div></article><article class="card" id="scanboard"><h2>Market coverage</h2><div class="skeleton lg"></div></article>`;
+  view.innerHTML = `<article class="card"><h2>Live Scanner</h2><p id="scanstatus" role="status">Checking which prices can be shown.</p><div class="fieldrow"><label>Instrument <select id="scan-symbol"><option value="">All instruments</option><option>BTCUSDT</option><option>ETHUSDT</option><option>XAUUSD</option></select></label><label>Timeframe <select id="scan-interval"><option value="">All timeframes</option><option value="1m">1m</option><option value="3m">3m</option><option value="15m">15m</option><option value="1h">1h</option></select></label></div><p class="muted" id="scanwhen">A reading uses the latest completed candle. It is not a tick feed and not an order.</p><p id="scanstale" class="stale-note" hidden></p><div id="scancards"><p class="muted">Loading coverage. No price is invented while this loads.</p></div></article><article class="card" id="scanboard"><h2>Market coverage</h2><div class="skeleton lg"></div></article>`;
   const draw = (body, staleNote) => {
-    const cards = (body.markets||[]).map(m => {
+    const symbolFilter = (document.getElementById("scan-symbol") || {}).value || "";
+    const frameFilter = (document.getElementById("scan-interval") || {}).value || "";
+    const markets = (body.markets || []).filter(row => (!symbolFilter || row.symbol === symbolFilter) && (!frameFilter || row.interval === frameFilter));
+    if (!markets.length) {
+      const box = document.getElementById("scancards");
+      if (box) box.innerHTML = `<article class="card"><h2>No matching card</h2><p>That instrument and timeframe are not in this scan. No price was invented.</p></article>`;
+      const status = document.getElementById("scanstatus");
+      if (status) status.textContent = "No scanner card matches that filter.";
+      return;
+    }
+    const cards = markets.map(m => {
       if (m.customer_status === "reading_unavailable") {
         const minute = m.blocked === "xau_minute_unlicensed";
         return `<article class="card" data-symbol="${m.symbol}"><h2>${m.symbol} · ${m.interval||""}</h2><div class="row"><span>${minute ? "Unavailable" : "WAIT"}</span><span class="num">—</span></div><p class="muted">${minute ? "This timeframe is not available." : "A verified live reading is not available."}</p></article>`;
@@ -3636,9 +3663,9 @@ async function scannerPage(){
         : "No evidence grade is shown as a probability.";
       return `<article class="card ${klass}" data-symbol="${m.symbol}"><p class="badge ${klass==="blocked"?"block":"research"}">${kind}</p><h2>${m.symbol} · ${m.interval||""}</h2><div class="row"><span>${headline}</span><span class="num">${m.price==null?"—":priceText(m.symbol, m.price)}</span></div><p class="muted">${source}. ${m.evaluated===false?"This market did not complete a valid reading.":"Reading complete."}${lineage}${scope}</p><p>${plainReason(m.message||"No qualifying setup yet.")}${gap}${times}</p>${levels}<p class="muted">${grade} Updated ${m.updated_at||"unknown"}. ${m.snapshot_id || ""}</p><details><summary>Technical evidence</summary><p class="muted">${plainReason(m.diagnostic||"")} State ${m.scanner_state||m.state||"unknown"}. Source code ${m.quote||"unnamed"}.</p></details></article>`;
     }).join("");
-    const qualifying = (body.markets||[]).some(m => m.approved || m.scanner_state === "APPROVED_SIGNAL");
-    const heldOnly = (body.markets||[]).length > 0 && (body.markets||[]).every(m => isRightsHold(m.decision_label, m.scanner_state, m.status));
-    const readingOff = (body.markets||[]).length > 0 && (body.markets||[]).every(m => m.customer_status === "reading_unavailable");
+    const qualifying = markets.some(m => m.approved || m.scanner_state === "APPROVED_SIGNAL");
+    const heldOnly = markets.length > 0 && markets.every(m => isRightsHold(m.decision_label, m.scanner_state, m.status));
+    const readingOff = markets.length > 0 && markets.every(m => m.customer_status === "reading_unavailable");
     const box = document.getElementById("scancards");
     if (readingOff) {
       if (box) box.innerHTML = cards;
@@ -3706,6 +3733,8 @@ async function scannerPage(){
       fail("The request failed.");
     }
   };
+  document.getElementById("scan-symbol").onchange = () => { if (lastBody) draw(lastBody, null); };
+  document.getElementById("scan-interval").onchange = () => { if (lastBody) draw(lastBody, null); };
   await loadScan();
   if (window.__scanTimer) clearInterval(window.__scanTimer);
   window.__scanTimer = setInterval(loadScan, 15000);
@@ -3816,14 +3845,20 @@ async function inboxPage(){
   const rows = body.items || [];
   const list = rows.map(item => {
     const freshness = item.freshness || (item.created_ms ? ((Date.now() - item.created_ms) > 3*86400000 ? "historical" : (Date.now() - item.created_ms) > 86400000 ? "stale" : "current") : "unknown");
-    const ageLabel = item.age_label || (item.created_ms ? new Date(item.created_ms).toISOString() : "time unknown");
+    const ageLabel = item.age_label || (item.created_ms ? when(item.created_ms) : "time not available");
     const noticeClass = item.notice_class || (item.decision === "WAIT" ? "WAIT notification" : "inbox notice");
-    const when = item.created_ms ? new Date(item.created_ms).toISOString() : "";
+    const shownTime = item.created_ms ? when(item.created_ms) : "time not available";
     const researchLevels = `<p class="muted">Research levels, not a paper order. Entry ${item.entry==null?"—":priceText(item.symbol, item.entry)}. Stop ${item.stop==null?"—":priceText(item.symbol, item.stop)}. Target ${item.target==null?"—":priceText(item.symbol, item.target)}.</p>`;
-    return `<article class="card ${noticeClass.includes("WAIT") || noticeClass.includes("blocked") ? "blocked" : "research"}" data-kind="${item.kind||""}" data-symbol="${item.symbol||""}"><p class="badge ${item.read ? "" : "block"}">${item.read_state || (item.read ? "read" : "unread")}</p><p class="badge">${freshness}</p><p class="badge research">${noticeClass}</p><h2>${item.lifecycle==="superseded"||item.lifecycle==="expired" ? item.lifecycle.toUpperCase()+" · " : ""}${item.decision || item.state || "Notice"} · ${item.symbol || "Desk"} ${item.interval || ""}</h2><p>${item.lifecycle_note || item.label || ""}</p><p>${plainReason(item.message || "")}</p>${researchLevels}<p class="muted">${ageLabel}. ${when}. ${item.strategy || "no strategy"}. Validation ${item.validation_status || "n/a"}. ${item.approved?"Approved.":"Not approved."} This inbox notice is not a paper order.</p>${item.decision==="BUY"||item.decision==="SELL"?`<button type="button" data-paper="${item.opportunity_id||""}">Open paper trade</button><p class="muted">Opening a paper trade is a separate action. The notice itself does not create one.</p>`:""}${item.actionable ? "" : "<p>Not an approved trade.</p>"}<button type="button" data-id="${item.id}">Mark read</button></article>`;
+    return `<article class="card ${noticeClass.includes("WAIT") || noticeClass.includes("blocked") ? "blocked" : "research"}" data-kind="${item.kind||""}" data-symbol="${item.symbol||""}"><p class="badge ${item.read ? "" : "block"}">${item.read_state || (item.read ? "read" : "unread")}</p><p class="badge">${freshness}</p><p class="badge research">${noticeClass}</p><h2>${item.lifecycle==="superseded"||item.lifecycle==="expired" ? item.lifecycle.toUpperCase()+" · " : ""}${item.decision || item.state || "Notice"} · ${item.symbol || "Desk"} ${item.interval || ""}</h2><p>${item.lifecycle_note || item.label || ""}</p><p>${plainReason(item.message || "")}</p>${researchLevels}<p class="muted">${ageLabel}. ${shownTime}. ${item.strategy || "no strategy"}. Validation ${item.validation_status || "n/a"}. ${item.approved?"Approved.":"Not approved."} This inbox notice is not a paper order.</p>${item.decision==="BUY"||item.decision==="SELL"?`<button type="button" data-paper="${item.opportunity_id||""}">Open paper trade</button><p class="muted">Opening a paper trade is a separate action. The notice itself does not create one.</p>`:""}${item.actionable ? "" : "<p>Not an approved trade.</p>"}<button type="button" data-id="${item.id}">Mark read</button></article>`;
   }).join("");
   view.innerHTML = `<p role="status">${body.unread || 0} unread.</p>${list || "<article class='card'><h2>No notifications</h2><p>A quiet scan is recorded once a day. A research note appears only if you opted in. Nothing here is a trade alert unless a strategy has been approved. None has.</p></article>"}<button id="readall" type="button">Mark all read</button>`;
-  const refresh = async (id) => { await fetch("/api/notifications/read", {method:"POST", credentials:"same-origin", headers:{"Content-Type":"application/json"}, body: JSON.stringify(id ? {id} : {})}); inboxPage(); };
+  paintInbox(body.unread);
+  const refresh = async (id) => {
+    const marked = await fetch("/api/notifications/read", {method:"POST", credentials:"same-origin", headers:{"Content-Type":"application/json"}, body: JSON.stringify(id ? {id} : {})});
+    const payload = await marked.json().catch(() => ({}));
+    if (payload && payload.unread != null) paintInbox(payload.unread);
+    inboxPage();
+  };
   document.getElementById("readall").onclick = () => refresh(null);
   document.querySelectorAll("[data-id]").forEach(button => { button.onclick = () => refresh(button.dataset.id); });
   document.querySelectorAll("[data-paper]").forEach(button => { button.onclick = async () => {
@@ -3890,9 +3925,9 @@ async function liveActivities(){
   const book = await fetch("/api/paper/book", {credentials:"same-origin"}).then(r => r.ok ? r.json() : {open:[], orders:[]}).catch(()=>({open:[], orders:[]}));
   const positions = (book.open||[]).concat(book.ambiguous||[]).map(row => `<article class="card"><h2>${row.opened_by === "autopilot" ? "AutoPilot paper" : "Account paper"} · ${row.exit_kind||row.status} · ${row.symbol} ${row.direction}</h2><p>Entry ${priceText(row.symbol, row.entry)}. Stop ${priceText(row.symbol, row.stop)}. Target ${priceText(row.symbol, row.target)}. ${row.exit_price==null?"No paper exit.":"Paper exit "+priceText(row.symbol, row.exit_price)+"."}</p><p class="muted">${(row.events&&row.events.length)?row.events[row.events.length-1].note:row.note||""} This is not a broker fill.</p></article>`).join("");
   const events = (activity.events || []).slice().reverse().map(item => {
-    const when = item.created_ms ? new Date(item.created_ms).toISOString() : "time unknown";
+    const shownTime = item.created_ms ? when(item.created_ms) : "time not available";
     const note = (item.detail && item.detail.note) || "";
-    return `<article class="card"><div class="row"><span>${item.event_type}</span><span class="muted">${when}</span></div><p>${item.component || "desk"}${item.entity ? " · " + item.entity : ""}</p><p class="muted">${note} A heartbeat is not a market reading. A blocked notification does not delete this event.</p></article>`;
+    return `<article class="card"><div class="row"><span>${item.event_type}</span><span class="muted">${shownTime}</span></div><p>${item.component || "desk"}${item.entity ? " · " + item.entity : ""}</p><p class="muted">${note} A heartbeat is not a market reading. A blocked notification does not delete this event.</p></article>`;
   }).join("");
   view.innerHTML = `<article class="card"><h2>Live Activities</h2><p>AutoPilot ${autoLine}</p><p class="muted">Permission, an approved strategy, and execution eligibility are three different facts. This page lists events that actually happened. It does not invent scans or fills.</p></article>${positions}${events || "<article class='card'><p>No system event is stored yet. An empty list is not a fictional scan.</p></article>"}`;
 }
@@ -3959,7 +3994,7 @@ async function systemPage(){
   const rightsLine = h.status === "rights_withheld"
     ? `<p>${RIGHTS_MESSAGE}</p><p class="muted">The process is up. Market data is withheld because commercial use is not approved. That is not a provider outage and not a stale feed.</p>`
     : (h.status === "reading_unavailable" ? `<p>A verified live reading is not available. This is not a fresh market and not a provider outage.</p>` : "");
-  view.innerHTML = `<article class="card"><h2>System</h2>${rightsLine}${stateRows}${row("Process", h.process||"unknown")}${row("Overall", h.status||"unknown")}${row("BTC / ETH", market)}${row("Gold", gold||"not scanned")}${row("Notifications", note)}${row("Approved strategies", qual)}${row("Ledger", h.ledger||"unknown")}${row("Strategy", h.strategy_status||"unknown")}${row("Broker", String(h.broker))}${row("Build", h.build_commit||"unknown")}${row("Worker status", workerStatus + " · " + workerHealthy)}${row("This account AutoPilot", autoLine)}${row("Worker heartbeat", h.worker && h.worker.last_beat_ms ? new Date(h.worker.last_beat_ms).toISOString() : "unknown")}${row("Background scan", h.worker && h.worker.last_monitor_ms ? new Date(h.worker.last_monitor_ms).toISOString() : "not run yet")}${row("Last scan", watched)}</article><article class="card" id="ai-status"><h2>Aureon AI</h2><p>Checking the hosted service. Local AI status is separate from the customer desk. The hosted model is not a customer switch.</p></article><article class="card" id="data-coverage"><h2>Research data coverage</h2><p>Reading data rights.</p></article><p class="muted">A missing, stale or failed heartbeat is not a healthy worker. A rights withhold is not an outage. AutoPilot is not confirmed while the worker is unhealthy. The background scan uses the same decision as the terminal. It does not send Telegram. Gold 1m and 3m are unavailable without a licensed minute feed. AutoPilot permission is not the same as an approved strategy or an eligible entry. Local AI cannot approve a strategy or place an order.</p>`;
+  view.innerHTML = `<article class="card"><h2>System</h2>${rightsLine}${stateRows}${row("Process", h.process||"unknown")}${row("Overall", h.status||"unknown")}${row("BTC / ETH", market)}${row("Gold", gold||"not scanned")}${row("Notifications", note)}${row("Approved strategies", qual)}${row("Ledger", h.ledger||"unknown")}${row("Strategy", h.strategy_status||"unknown")}${row("Broker", String(h.broker))}${row("Build", h.build_commit||"unknown")}${row("Worker status", workerStatus + " · " + workerHealthy)}${row("This account AutoPilot", autoLine)}${row("Worker heartbeat", h.worker && h.worker.last_beat_ms ? when(h.worker.last_beat_ms) : "unknown")}${row("Background scan", h.worker && h.worker.last_monitor_ms ? when(h.worker.last_monitor_ms) : "not run yet")}${row("Last scan", watched)}</article><article class="card" id="ai-status"><h2>Aureon AI</h2><p>Checking the hosted service. Local AI status is separate from the customer desk. The hosted model is not a customer switch.</p></article><article class="card" id="data-coverage"><h2>Research data coverage</h2><p>Reading data rights.</p></article><p class="muted">A missing, stale or failed heartbeat is not a healthy worker. A rights withhold is not an outage. AutoPilot is not confirmed while the worker is unhealthy. The background scan uses the same decision as the terminal. It does not send Telegram. Gold 1m and 3m are unavailable without a licensed minute feed. AutoPilot permission is not the same as an approved strategy or an eligible entry. Local AI cannot approve a strategy or place an order.</p>`;
   fetch("/api/aureon-ai", {method:"POST", credentials:"same-origin", headers:{"Content-Type":"application/json"}, body: JSON.stringify({page: "/system"})}).then(r => r.ok ? r.json() : null).then(ai => {
     const box = document.getElementById("ai-status");
     if (!box) return;
@@ -4025,7 +4060,7 @@ async function settings(){
   if (document.getElementById("depth")) document.getElementById("depth").value = look.depth || "guided";
   if (experience && experience.security_role === "operator") {
     const layout = document.getElementById("layout");
-    if (layout && !layout.querySelector("[value=operator]")) layout.insertAdjacentHTML("beforeend", "<option value=\"operator\">Operator</option>");
+    if (layout && !layout.querySelector("[value=operator]")) layout.insertAdjacentHTML("beforeend", "<option value='operator'>Operator</option>");
   }
   if (document.getElementById("layout")) document.getElementById("layout").value = look.layout || "guided";
   if (document.getElementById("theme")) document.getElementById("theme").value = look.theme || "dark";

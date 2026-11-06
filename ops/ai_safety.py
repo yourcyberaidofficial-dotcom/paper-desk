@@ -95,13 +95,18 @@ def redact_numbers(text):
     return NUMBER.sub("[withheld]", _plain(text))
 
 
+def _folded(text):
+    cleaned = "".join(ch for ch in _plain(text) if unicodedata.category(ch) != "Cf")
+    return re.sub(r"\s+", " ", cleaned.lower().replace("\u00a0", " "))
+
+
 def order_language(text):
-    folded = re.sub(r"\s+", " ", _plain(text).lower().replace("\u00a0", " "))
+    folded = _folded(text)
     return any(token in folded for token in ORDER_TOKENS)
 
 
 def question_requests_action(text):
-    folded = re.sub(r"\s+", " ", _plain(text).lower().replace("\u00a0", " "))
+    folded = _folded(text)
     phrases = ("buy now", "sell now", "place a trade", "place the order", "open a position", "open an order", "approve the strategy", "approve this")
     return any(phrase in folded for phrase in phrases)
 
