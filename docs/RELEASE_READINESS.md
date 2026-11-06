@@ -16,7 +16,8 @@ Phase 3 verified the Phase 2 backend, closed the rate-limit and file-permission 
 | Branch | `product/recovery` |
 | Phase 2 implementation | `3660e3e3f07086a387bc7c98e8a3cceaeb3f4960` |
 | Phase 2 report | `04167f5c8301326a6bafcf66a01719ba3482372d` |
-| Phase 3 HEAD | The commit that records this file. It is the behaviour change plus this report. |
+| Phase 3 implementation | `b089c88eacc0a80c573079442c5780b99d4091a3` |
+| Phase 3 report | The commit that records this SHA. It does not change behaviour. |
 | Working tree | `/tmp/aureon-lab`. No other checkout was reset. PR #97 was not merged. |
 
 ## 2. Verdict
