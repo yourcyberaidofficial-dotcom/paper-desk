@@ -105,6 +105,8 @@ def build(user_id, task, symbol=None, interval=None, signal_id=None, lesson_id=N
         if lesson_id and lesson_id not in known:
             unavailable.append("unknown_lesson")
     model_view = {
+        "symbol": symbol or (latest or {}).get("symbol") or "not_selected",
+        "interval": interval or (latest or {}).get("interval") or "not_selected",
         "task": task,
         "observation": facts[2],
         "research": facts[3],

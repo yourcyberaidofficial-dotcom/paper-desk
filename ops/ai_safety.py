@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import ipaddress
 import re
+import unicodedata
 from urllib.parse import urlparse
 
 PROMPT_VERSION = "ai-evidence-20261106"
@@ -29,7 +30,9 @@ CLOUD_MARKERS = (
     "o3-",
 )
 ORDER_TOKENS = ("approve", "order", "buy now", "sell now", "place a trade", "open a position")
-NUMBER = re.compile(r"\d{1,3}(?:,\d{3})+(?:\.\d+)?|\d+\.\d+|\d{3,}")
+NUMBER = re.compile(
+    r"\d{1,3}(?:,\d{3})+(?:\.\d+)?|\d+(?:\.\d+)?[eE][+-]?\d+|\d+\.\d+|\d{3,}"
+)
 _RFC1918 = (
     ipaddress.ip_network("10.0.0.0/8"),
     ipaddress.ip_network("172.16.0.0/12"),
@@ -75,8 +78,12 @@ def listener_allowed(host):
     return endpoint_allowed("http://" + text)
 
 
+def _plain(text):
+    return unicodedata.normalize("NFKC", str(text or ""))
+
+
 def scrub_untrusted(text):
-    raw = str(text or "").strip()
+    raw = _plain(text).strip()
     if not raw:
         return ""
     if INJECTION.search(raw):
@@ -85,22 +92,22 @@ def scrub_untrusted(text):
 
 
 def redact_numbers(text):
-    return NUMBER.sub("[withheld]", str(text or ""))
+    return NUMBER.sub("[withheld]", _plain(text))
 
 
 def order_language(text):
-    folded = re.sub(r"\s+", " ", (text or "").lower().replace("\u00a0", " "))
+    folded = re.sub(r"\s+", " ", _plain(text).lower().replace("\u00a0", " "))
     return any(token in folded for token in ORDER_TOKENS)
 
 
 def question_requests_action(text):
-    folded = re.sub(r"\s+", " ", (text or "").lower().replace("\u00a0", " "))
+    folded = re.sub(r"\s+", " ", _plain(text).lower().replace("\u00a0", " "))
     phrases = ("buy now", "sell now", "place a trade", "place the order", "open a position", "open an order", "approve the strategy", "approve this")
     return any(phrase in folded for phrase in phrases)
 
 
 def _numeric_tokens(text):
-    return [match.replace(",", "") for match in NUMBER.findall(text or "")]
+    return [match.replace(",", "") for match in NUMBER.findall(_plain(text))]
 
 
 def invented_numbers(text, allowed):
@@ -113,7 +120,7 @@ def invented_numbers(text, allowed):
     for item in allowed or []:
         allowed_tokens.update(_numeric_tokens(str(item)))
     found = []
-    for raw in NUMBER.findall(text or ""):
+    for raw in NUMBER.findall(_plain(text)):
         key = raw.replace(",", "")
         if key not in allowed_tokens and raw not in found:
             found.append(raw)

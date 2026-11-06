@@ -29,8 +29,8 @@ from ops.runtime import DeskRuntime
 ROOT = Path(__file__).resolve().parents[1]
 LEDGER_PATH = ROOT / "data" / "paper" / "ledger.jsonl"
 STARTED = time.time()
-LIMITER = RateLimit(300)
-AUTH_LIMITER = RateLimit(20)
+LIMITER = RateLimit(int(os.environ.get("DESK_GENERAL_LIMIT", "300")))
+AUTH_LIMITER = RateLimit(int(os.environ.get("DESK_AUTH_LIMIT", "20")))
 _FEED_CACHE = {}
 
 app = Flask(__name__)
@@ -92,11 +92,18 @@ def _csrf():
     return token
 
 def _limited():
-    if "pytest" in sys.modules and not app.config.get("ENFORCE_RATE_LIMIT"):
+    from ops.auth import client_identity, limits_apply
+
+    if not limits_apply("pytest" in sys.modules, bool(app.config.get("ENFORCE_RATE_LIMIT"))):
         return None
-    limiter = AUTH_LIMITER if request.path in {"/login", "/api/login", "/api/register"} else LIMITER
-    if not limiter.allow(request.remote_addr or "local"):
-        return jsonify({"error": "rate_limited"}), 429
+    auth_paths = {"/login", "/register", "/api/login", "/api/register"}
+    limiter = AUTH_LIMITER if request.path in auth_paths else LIMITER
+    key = client_identity(request.remote_addr, request.headers.get("X-Forwarded-For"))
+    if not limiter.allow(key):
+        response = jsonify({"error": "rate_limited", "scope": "auth" if limiter is AUTH_LIMITER else "general"})
+        response.status_code = 429
+        response.headers["Retry-After"] = str(limiter.retry_after(key))
+        return response
     return None
 
 
@@ -2596,8 +2603,8 @@ button,select{min-height:44px;max-width:100%}
 main{padding:12px 12px 32px;min-width:0}
 .pills{min-width:0}
 .pill{max-width:100%}
-#view input,#view select{max-width:100%;font-size:16px}
-.field,#planform > label{max-width:none}
+#view input,#view select{max-width:100%;width:100%;box-sizing:border-box;font-size:16px}
+.field,#planform > label,#planform,.card,form{max-width:100%;min-width:0}
 .tablewrap{overflow:visible;border:0}
 #view table,#view table tbody,#view table tr,#view table td,table.matrix,table.matrix tbody,table.matrix tr,table.matrix td{display:block;width:100%;max-width:100%;white-space:normal}
 #view table thead,table.matrix thead{display:none}
@@ -3815,7 +3822,9 @@ load();
 
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=8080)
+    _bind = os.environ.get("DESK_BIND", "127.0.0.1")
+    _port = int(os.environ.get("PORT", "8080"))
+    app.run(host=_bind, port=_port)
 
 
 def _account_day(tzname):

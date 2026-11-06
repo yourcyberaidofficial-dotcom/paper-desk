@@ -30,7 +30,9 @@ def update_json(path, fn, default=None):
                 return updated if updated is not None else current
             temporary = path.with_name(path.name + ".tmp")
             temporary.write_text(json.dumps(updated), encoding="utf-8")
+            os.chmod(temporary, 0o600)
             os.replace(temporary, path)
+            os.chmod(path, 0o600)
             return updated
         finally:
             if fcntl is not None:

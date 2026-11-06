@@ -105,6 +105,9 @@ def ask(user_id, task, symbol=None, interval=None, transport=None, now_ms=None, 
         from ops.ollama import explain, health
 
         status = health(timeout=1.5, transport=transport)
+        from ops.ai_monitor import note as note_model
+
+        base["monitor"] = note_model(user_id, status)
         record(
             "ollama_status",
             account_id=user_id,

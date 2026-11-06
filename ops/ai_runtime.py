@@ -45,6 +45,10 @@ def host_facts():
         "benchmark_status": "NOT TESTED",
         "benchmark_reason": "No Qwen weights are loaded. A smaller model was not installed to manufacture a passing benchmark.",
         "private_inference": "not_operational",
+        "inference_concurrency_limit": 1,
+        "gateway": "session_required",
+        "weights_on_this_host": False,
+        "measured_at": "host_proc",
         "reason": (
             "This host is not a dedicated inference machine. "
             "The 9B Q4 candidate is not installed. A smaller model was not selected in its place."

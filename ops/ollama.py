@@ -86,8 +86,26 @@ def evidence_view(payload):
     return clean
 
 
+def _clip_context(clean, limit=4000):
+    """Keep the model prompt inside a fixed budget. Facts are shortened, not invented."""
+    clipped = dict(clean)
+    if len(json.dumps({"evidence": clipped}, sort_keys=True)) <= limit:
+        return clipped
+    if "note" in clipped:
+        clipped["note"] = clipped["note"][:400]
+    while len(json.dumps({"evidence": clipped}, sort_keys=True)) > limit and len(clipped) > 1:
+        key = max((item for item in clipped if item != "symbol"), key=lambda item: len(str(clipped[item])), default=None)
+        if key is None:
+            break
+        clipped.pop(key, None)
+    return clipped
+
+
 def _validate(raw):
     if not isinstance(raw, dict):
+        return None
+    forbidden = {"confidence", "probability", "win_rate", "p_win", "price", "entry", "stop", "target"}
+    if any(key in raw for key in forbidden):
         return None
     summary = raw.get("summary")
     used = raw.get("evidence_used")
@@ -114,6 +132,7 @@ def explain(evidence, timeout=8, transport=None, now_ms=None):
 
     clean = {key: redact_numbers(value) for key, value in clean.items()}
     clean = {key: value for key, value in clean.items() if value and not INJECTION.search(value)}
+    clean = _clip_context(clean)
     status = health(timeout=min(timeout, 1.5), transport=transport)
     stamp = int(now_ms if now_ms is not None else time.time() * 1000)
     base = {
