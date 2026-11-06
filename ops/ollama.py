@@ -155,6 +155,7 @@ def explain(evidence, timeout=8, transport=None, now_ms=None):
         "model": status["model"],
         "stream": False,
         "format": "json",
+        "options": {"num_predict": 320, "temperature": 0},
         "messages": [
             {
                 "role": "system",

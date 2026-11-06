@@ -1,0 +1,570 @@
+[
+  {
+    "path": "/",
+    "width": 390,
+    "status": 200,
+    "url": "http://127.0.0.1:8098/overview",
+    "overflow": false,
+    "loading": false,
+    "clipped": [],
+    "badge": "No verified reading",
+    "text": "Paper capital Not set Open paper positions 0 Closed paper trades 0 No closed paper trade. No win rate. AutoPilot Disabled ada Open paper positions None Persona Not selected Paper capital Not set Recorded paper result \u2014 D",
+    "interaction": null
+  },
+  {
+    "path": "/login",
+    "width": 390,
+    "status": 200,
+    "url": "http://127.0.0.1:8098/overview",
+    "overflow": false,
+    "loading": false,
+    "clipped": [],
+    "badge": "No verified reading",
+    "text": "Paper capital Not set Open paper positions 0 Closed paper trades 0 No closed paper trade. No win rate. AutoPilot Disabled ada Open paper positions None Persona Not selected Paper capital Not set Recorded paper result \u2014 D",
+    "interaction": null
+  },
+  {
+    "path": "/register",
+    "width": 390,
+    "status": 200,
+    "url": "http://127.0.0.1:8098/onboarding",
+    "overflow": false,
+    "loading": false,
+    "clipped": [],
+    "badge": "No verified reading",
+    "text": "Choose a signal style Profiles change research eligibility and risk posture only. Production remains WAIT_DEFAULT. No currency conversion is performed. Apex Momentum \u2014 aggressive. Sizes a buy or a sell when reward/risk i",
+    "interaction": null
+  },
+  {
+    "path": "/overview",
+    "width": 390,
+    "status": 200,
+    "url": "http://127.0.0.1:8098/overview",
+    "overflow": false,
+    "loading": false,
+    "clipped": [],
+    "badge": "No verified reading",
+    "text": "Paper capital Not set Open paper positions 0 Closed paper trades 0 No closed paper trade. No win rate. AutoPilot Disabled ada Open paper positions None Persona Not selected Paper capital Not set Recorded paper result \u2014 D",
+    "interaction": null
+  },
+  {
+    "path": "/signals",
+    "width": 390,
+    "status": 200,
+    "url": "http://127.0.0.1:8098/signals",
+    "overflow": false,
+    "loading": false,
+    "clipped": [],
+    "badge": "No verified reading",
+    "text": "Live desk Local AI offline. The signal engine does not wait on it. A signal, a research result and an AutoPilot decision are three different facts. BTCUSDT 1m Data unavailable \u2014 not a zero-setup scan Permission not_grant",
+    "interaction": null
+  },
+  {
+    "path": "/trading",
+    "width": 390,
+    "status": 200,
+    "url": "http://127.0.0.1:8098/trading",
+    "overflow": false,
+    "loading": false,
+    "clipped": [],
+    "badge": "No verified reading",
+    "text": "Market watch BTCUSDT \u2014 ETHUSDT \u2014 XAUUSD \u2014 A verified live reading is not available. Completed candles Market BTCUSDT ETHUSDT XAUUSD Timeframe 1m 3m 15m 1h Reading Auto BTC compression breakout ETH failed-breakdown Gold L",
+    "interaction": null
+  },
+  {
+    "path": "/strategies",
+    "width": 390,
+    "status": 200,
+    "url": "http://127.0.0.1:8098/strategies",
+    "overflow": false,
+    "loading": false,
+    "clipped": [],
+    "badge": "No verified reading",
+    "text": "Registered 13 Approved for paper 0 Failed validation 11 Insufficient data 2 Blocked by source rights No Live evaluation. Not a strategy-failure count. Registered strategies No registered strategy is approved for paper pr",
+    "interaction": null
+  },
+  {
+    "path": "/indicators",
+    "width": 390,
+    "status": 200,
+    "url": "http://127.0.0.1:8098/indicators",
+    "overflow": false,
+    "loading": false,
+    "clipped": [],
+    "badge": "No verified reading",
+    "text": "Academy 0 of 19 lessons completed on this account. No firm rule is marked verified. Aureon has not checked a current official rulebook into this release. These lessons explain the desk. They do not open a paper trade. Co",
+    "interaction": null
+  },
+  {
+    "path": "/research",
+    "width": 390,
+    "status": 200,
+    "url": "http://127.0.0.1:8098/research",
+    "overflow": false,
+    "loading": false,
+    "clipped": [],
+    "badge": "No verified reading",
+    "text": "Registered 13 Approved for paper 0 Failed validation 11 Insufficient data 2 Blocked by source rights No Live evaluation. Not a strategy-failure count. Research summary Promoted strategies: 0. Production: WAIT_DEFAULT. Ap",
+    "interaction": null
+  },
+  {
+    "path": "/portfolio",
+    "width": 390,
+    "status": 200,
+    "url": "http://127.0.0.1:8098/portfolio",
+    "overflow": false,
+    "loading": false,
+    "clipped": [],
+    "badge": "No verified reading",
+    "text": "Portfolio Open paper positions 0 Closed paper trades 0 Recorded paper result \u2014 No win rate until a trade is closed. No completed paper trade. No win rate is shown. No open paper position. No completed paper trades This a",
+    "interaction": null
+  },
+  {
+    "path": "/risk",
+    "width": 390,
+    "status": 200,
+    "url": "http://127.0.0.1:8098/risk",
+    "overflow": false,
+    "loading": false,
+    "clipped": [],
+    "badge": "No verified reading",
+    "text": "Risk Active style Not selected Risk posture unset Max risk per trade Not set Max daily loss Not set Max open risk Not set Open paper risk now not calculated Minimum reward/risk Not set These caps are enforced when you op",
+    "interaction": null
+  },
+  {
+    "path": "/activity",
+    "width": 390,
+    "status": 200,
+    "url": "http://127.0.0.1:8098/activity",
+    "overflow": false,
+    "loading": false,
+    "clipped": [],
+    "badge": "No verified reading",
+    "text": "Journal Only paper orders recorded for this account. An empty book stays empty. These are not broker fills. No paper orders. Opening one is a separate action from receiving a plan. Closed paper trades use an unrounded sp",
+    "interaction": null
+  },
+  {
+    "path": "/live",
+    "width": 390,
+    "status": 200,
+    "url": "http://127.0.0.1:8098/live",
+    "overflow": false,
+    "loading": false,
+    "clipped": [],
+    "badge": "No verified reading",
+    "text": "Live Activities AutoPilot Disabled. New automated paper entries are not eligible. Permission is not active. New automated entries are blocked. Permission, an approved strategy, and execution eligibility are three differe",
+    "interaction": null
+  },
+  {
+    "path": "/system",
+    "width": 390,
+    "status": 200,
+    "url": "http://127.0.0.1:8098/system",
+    "overflow": false,
+    "loading": false,
+    "clipped": [],
+    "badge": "No verified reading",
+    "text": "System A verified live reading is not available. This is not a fresh market and not a provider outage. Application Operational Worker Not confirmed Market data Not available Feed health Not checked Historical research Un",
+    "interaction": null
+  },
+  {
+    "path": "/settings",
+    "width": 390,
+    "status": 200,
+    "url": "http://127.0.0.1:8098/settings",
+    "overflow": false,
+    "loading": false,
+    "clipped": [],
+    "badge": "No verified reading",
+    "text": "Signal style Profiles change research eligibility and risk posture only. Production remains WAIT_DEFAULT. No currency conversion is performed. Apex Momentum \u2014 aggressive. Sizes a buy or a sell when reward/risk is at leas",
+    "interaction": null
+  },
+  {
+    "path": "/scanner",
+    "width": 390,
+    "status": 200,
+    "url": "http://127.0.0.1:8098/scanner",
+    "overflow": false,
+    "loading": false,
+    "clipped": [],
+    "badge": "No verified reading",
+    "text": "Live Scanner No eligible live reading is available. The instruments stay listed. No price was invented. This is not an order. BTCUSDT \u00b7 1m WAIT \u2014 A verified live reading is not available. BTCUSDT \u00b7 3m WAIT \u2014 A verified l",
+    "interaction": null
+  },
+  {
+    "path": "/learn",
+    "width": 390,
+    "status": 200,
+    "url": "http://127.0.0.1:8098/learn",
+    "overflow": false,
+    "loading": false,
+    "clipped": [],
+    "badge": "No verified reading",
+    "text": "Academy 0 of 19 lessons completed on this account. No firm rule is marked verified. Aureon has not checked a current official rulebook into this release. These lessons explain the desk. They do not open a paper trade. Co",
+    "interaction": null
+  },
+  {
+    "path": "/plan",
+    "width": 390,
+    "status": 200,
+    "url": "http://127.0.0.1:8098/plan",
+    "overflow": false,
+    "loading": false,
+    "clipped": [],
+    "badge": "No verified reading",
+    "text": "This week 2026-W45 Chosen aim: not set. No simulated results recorded. Approved alerts this week: 0. Simulated trades: 0. A target does not force a signal. The weekly loss limit blocks a new paper order once it is reache",
+    "interaction": null
+  },
+  {
+    "path": "/lab",
+    "width": 390,
+    "status": 200,
+    "url": "http://127.0.0.1:8098/lab",
+    "overflow": false,
+    "loading": false,
+    "clipped": [],
+    "badge": "No verified reading",
+    "text": "Your desk Experience you stated: not_stated. Objective: not set. Persona not selected. Risk cap \u2014%. Reward floor \u2014. Paper timeframes \u2014. Markets saved on the account: BTCUSDT, ETHUSDT, XAUUSD. AutoPilot Disabled. New auto",
+    "interaction": null
+  },
+  {
+    "path": "/notifications",
+    "width": 390,
+    "status": 200,
+    "url": "http://127.0.0.1:8098/notifications",
+    "overflow": false,
+    "loading": false,
+    "clipped": [],
+    "badge": "No verified reading",
+    "text": "1 unread. UNREAD CURRENT INBOX NOTICE WAIT \u00b7 Desk Scanner status Scan completed for BTCUSDT, BTCUSDT, BTCUSDT, BTCUSDT, ETHUSDT, ETHUSDT, ETHUSDT, ETHUSDT, XAUUSD, XAUUSD, XAUUSD, XAUUSD. No qualifying setup. Research le",
+    "interaction": null
+  },
+  {
+    "path": "/onboarding",
+    "width": 390,
+    "status": 200,
+    "url": "http://127.0.0.1:8098/onboarding",
+    "overflow": false,
+    "loading": false,
+    "clipped": [],
+    "badge": "No verified reading",
+    "text": "Choose a signal style Profiles change research eligibility and risk posture only. Production remains WAIT_DEFAULT. No currency conversion is performed. Apex Momentum \u2014 aggressive. Sizes a buy or a sell when reward/risk i",
+    "interaction": null
+  },
+  {
+    "path": "/orders",
+    "width": 390,
+    "status": 200,
+    "url": "http://127.0.0.1:8098/orders",
+    "overflow": false,
+    "loading": false,
+    "clipped": [],
+    "badge": "No verified reading",
+    "text": "Orders Only paper orders recorded for this account. An empty book stays empty. These are not broker fills. No paper orders. Opening one is a separate action from receiving a plan. Closed paper trades use an unrounded spo",
+    "interaction": null
+  },
+  {
+    "path": "/history",
+    "width": 390,
+    "status": 200,
+    "url": "http://127.0.0.1:8098/history",
+    "overflow": false,
+    "loading": false,
+    "clipped": [],
+    "badge": "No verified reading",
+    "text": "Trade history Only paper orders recorded for this account. An empty book stays empty. These are not broker fills. No paper orders. Opening one is a separate action from receiving a plan. Closed paper trades use an unroun",
+    "interaction": null
+  },
+  {
+    "path": "/overview",
+    "width": 390,
+    "interaction": "menu-open",
+    "opened": true,
+    "orders_link": {
+      "x": 12,
+      "y": 524,
+      "width": 255,
+      "height": 44
+    }
+  },
+  {
+    "path": "/orders",
+    "width": 390,
+    "interaction": "menu-to-orders",
+    "url": "http://127.0.0.1:8098/orders",
+    "loading": false,
+    "text": "Orders Only paper orders recorded for this account. An empty book stays empty. These are not broker fills. No paper orders. Opening one is a separate action from receiving a plan. Closed paper trades use an unrounded spo",
+    "overflow": false
+  },
+  {
+    "path": "/settings",
+    "width": 390,
+    "interaction": "save-profile",
+    "result": "Saved. Active style and currency are stored on this account.",
+    "overflow": false
+  },
+  {
+    "path": "/plan",
+    "width": 390,
+    "interaction": "save-plan",
+    "result": "Plan saved."
+  },
+  {
+    "path": "/notifications",
+    "width": 390,
+    "interaction": "inbox",
+    "text": "1 unread. UNREAD CURRENT INBOX NOTICE WAIT \u00b7 Desk Scanner status Scan completed for BTCUSDT, BTCUSDT, BTCUSDT, BTCUSDT, ETHUSDT, ETHUSDT, ETHUSDT, ETHUSDT, XAUUSD, XAUUSD, XAUUSD, XAUUSD. No qualifying setup. Research le",
+    "loading": false
+  },
+  {
+    "path": "/system",
+    "width": 390,
+    "interaction": "health",
+    "badge": "No verified reading",
+    "text": "System A verified live reading is not available. This is not a fresh market and not a provider outage. Application Operational Worker Not confirmed Market data Not available Feed health Not checked Historical research Un"
+  },
+  {
+    "path": "/live",
+    "width": 390,
+    "interaction": "live-desk",
+    "text": "Live Activities AutoPilot Disabled. New automated paper entries are not eligible. Permission is not active. New automated entries are blocked. Permission, an approved strategy, and execution eligibility are three differe",
+    "overflow": false
+  },
+  {
+    "path": "/",
+    "width": 390,
+    "interaction": "sign-out",
+    "url": "http://127.0.0.1:8098/",
+    "text": "Aureon Trading Lab\nBrought to you by Cyber Aid\nSignal styles\nResearch & risk\nSign in\nCreate account\n\nPaper trading and research\n\nSee the market clearly. Research with discipline.\n\n"
+  },
+  {
+    "path": "/login",
+    "width": 320,
+    "interaction": "login-form",
+    "text": "Aureon Trading Lab\nBrought to you by Cyber Aid\nSign in\nName\nPassword\nShow\nSign in\n\nNeed an account? Create one\n\nBack to Aureon",
+    "overflow": false,
+    "clipped": []
+  },
+  {
+    "path": "/",
+    "width": 320,
+    "status": 200,
+    "url": "http://127.0.0.1:8098/overview",
+    "overflow": false,
+    "loading": false,
+    "clipped": [],
+    "text": "Paper capital $1,000.00 Open paper positions 0 Closed paper trades 0 No closed paper trade. No win rate. AutoPilot Disabled ada Open paper positions None Persona Not selected Paper capital $1,000.00 Recorded paper result"
+  },
+  {
+    "path": "/overview",
+    "width": 320,
+    "status": 200,
+    "url": "http://127.0.0.1:8098/overview",
+    "overflow": false,
+    "loading": false,
+    "clipped": [],
+    "text": "Paper capital $1,000.00 Open paper positions 0 Closed paper trades 0 No closed paper trade. No win rate. AutoPilot Disabled ada Open paper positions None Persona Not selected Paper capital $1,000.00 Recorded paper result"
+  },
+  {
+    "path": "/signals",
+    "width": 320,
+    "status": 200,
+    "url": "http://127.0.0.1:8098/signals",
+    "overflow": false,
+    "loading": false,
+    "clipped": [],
+    "text": "Live desk Local AI offline. The signal engine does not wait on it. A signal, a research result and an AutoPilot decision are three different facts. BTCUSDT 1m Data unavailable \u2014 not a zero-setup scan Permission not_grant"
+  },
+  {
+    "path": "/trading",
+    "width": 320,
+    "status": 200,
+    "url": "http://127.0.0.1:8098/trading",
+    "overflow": false,
+    "loading": false,
+    "clipped": [],
+    "text": "Market watch BTCUSDT \u2014 ETHUSDT \u2014 XAUUSD \u2014 A verified live reading is not available. Completed candles Market BTCUSDT ETHUSDT XAUUSD Timeframe 1m 3m 15m 1h Reading Auto BTC compression breakout ETH failed-breakdown Gold L"
+  },
+  {
+    "path": "/strategies",
+    "width": 320,
+    "status": 200,
+    "url": "http://127.0.0.1:8098/strategies",
+    "overflow": false,
+    "loading": false,
+    "clipped": [],
+    "text": "Registered 13 Approved for paper 0 Failed validation 11 Insufficient data 2 Blocked by source rights No Live evaluation. Not a strategy-failure count. Registered strategies No registered strategy is approved for paper pr"
+  },
+  {
+    "path": "/indicators",
+    "width": 320,
+    "status": 200,
+    "url": "http://127.0.0.1:8098/indicators",
+    "overflow": false,
+    "loading": false,
+    "clipped": [],
+    "text": "Academy 0 of 19 lessons completed on this account. No firm rule is marked verified. Aureon has not checked a current official rulebook into this release. These lessons explain the desk. They do not open a paper trade. Co"
+  },
+  {
+    "path": "/research",
+    "width": 320,
+    "status": 200,
+    "url": "http://127.0.0.1:8098/research",
+    "overflow": false,
+    "loading": false,
+    "clipped": [],
+    "text": "Registered 13 Approved for paper 0 Failed validation 11 Insufficient data 2 Blocked by source rights No Live evaluation. Not a strategy-failure count. Research summary Promoted strategies: 0. Production: WAIT_DEFAULT. Ap"
+  },
+  {
+    "path": "/portfolio",
+    "width": 320,
+    "status": 200,
+    "url": "http://127.0.0.1:8098/portfolio",
+    "overflow": false,
+    "loading": false,
+    "clipped": [],
+    "text": "Portfolio Open paper positions 0 Closed paper trades 0 Recorded paper result \u2014 No win rate until a trade is closed. No completed paper trade. No win rate is shown. No open paper position. No completed paper trades This a"
+  },
+  {
+    "path": "/risk",
+    "width": 320,
+    "status": 200,
+    "url": "http://127.0.0.1:8098/risk",
+    "overflow": false,
+    "loading": false,
+    "clipped": [],
+    "text": "Risk Active style Not selected Risk posture unset Max risk per trade Not set Max daily loss Not set Max open risk Not set Open paper risk now 0.00% Minimum reward/risk Not set These caps are enforced when you open a pape"
+  },
+  {
+    "path": "/activity",
+    "width": 320,
+    "status": 200,
+    "url": "http://127.0.0.1:8098/activity",
+    "overflow": false,
+    "loading": false,
+    "clipped": [],
+    "text": "Journal Only paper orders recorded for this account. An empty book stays empty. These are not broker fills. No paper orders. Opening one is a separate action from receiving a plan. Closed paper trades use an unrounded sp"
+  },
+  {
+    "path": "/live",
+    "width": 320,
+    "status": 200,
+    "url": "http://127.0.0.1:8098/live",
+    "overflow": false,
+    "loading": false,
+    "clipped": [],
+    "text": "Live Activities AutoPilot Disabled. New automated paper entries are not eligible. Permission is not active. New automated entries are blocked. Permission, an approved strategy, and execution eligibility are three differe"
+  },
+  {
+    "path": "/system",
+    "width": 320,
+    "status": 200,
+    "url": "http://127.0.0.1:8098/system",
+    "overflow": false,
+    "loading": false,
+    "clipped": [],
+    "text": "System A verified live reading is not available. This is not a fresh market and not a provider outage. Application Operational Worker Not confirmed Market data Not available Feed health Not checked Historical research Un"
+  },
+  {
+    "path": "/settings",
+    "width": 320,
+    "status": 200,
+    "url": "http://127.0.0.1:8098/settings",
+    "overflow": false,
+    "loading": false,
+    "clipped": [],
+    "text": "Signal style Profiles change research eligibility and risk posture only. Production remains WAIT_DEFAULT. No currency conversion is performed. Apex Momentum \u2014 aggressive. Sizes a buy or a sell when reward/risk is at leas"
+  },
+  {
+    "path": "/scanner",
+    "width": 320,
+    "status": 200,
+    "url": "http://127.0.0.1:8098/scanner",
+    "overflow": false,
+    "loading": false,
+    "clipped": [],
+    "text": "Live Scanner No eligible live reading is available. The instruments stay listed. No price was invented. This is not an order. BTCUSDT \u00b7 1m WAIT \u2014 A verified live reading is not available. BTCUSDT \u00b7 3m WAIT \u2014 A verified l"
+  },
+  {
+    "path": "/learn",
+    "width": 320,
+    "status": 200,
+    "url": "http://127.0.0.1:8098/learn",
+    "overflow": false,
+    "loading": false,
+    "clipped": [],
+    "text": "Academy 0 of 19 lessons completed on this account. No firm rule is marked verified. Aureon has not checked a current official rulebook into this release. These lessons explain the desk. They do not open a paper trade. Co"
+  },
+  {
+    "path": "/plan",
+    "width": 320,
+    "status": 200,
+    "url": "http://127.0.0.1:8098/plan",
+    "overflow": false,
+    "loading": false,
+    "clipped": [],
+    "text": "This week 2026-W45 Chosen aim: 1%. No simulated results recorded. Approved alerts this week: 0. Simulated trades: 0. A target does not force a signal. The weekly loss limit blocks a new paper order once it is reached. Pl"
+  },
+  {
+    "path": "/lab",
+    "width": 320,
+    "status": 200,
+    "url": "http://127.0.0.1:8098/lab",
+    "overflow": false,
+    "loading": false,
+    "clipped": [],
+    "text": "Your desk Experience you stated: not_stated. Objective: not set. Persona not selected. Risk cap \u2014%. Reward floor \u2014. Paper timeframes \u2014. Markets saved on the account: BTCUSDT, ETHUSDT, XAUUSD. AutoPilot Disabled. New auto"
+  },
+  {
+    "path": "/notifications",
+    "width": 320,
+    "status": 200,
+    "url": "http://127.0.0.1:8098/notifications",
+    "overflow": false,
+    "loading": false,
+    "clipped": [],
+    "text": "1 unread. UNREAD CURRENT INBOX NOTICE WAIT \u00b7 Desk Scanner status Scan completed for BTCUSDT, BTCUSDT, BTCUSDT, BTCUSDT, ETHUSDT, ETHUSDT, ETHUSDT, ETHUSDT, XAUUSD, XAUUSD, XAUUSD, XAUUSD. No qualifying setup. Research le"
+  },
+  {
+    "path": "/onboarding",
+    "width": 320,
+    "status": 200,
+    "url": "http://127.0.0.1:8098/onboarding",
+    "overflow": false,
+    "loading": false,
+    "clipped": [],
+    "text": "Choose a signal style Profiles change research eligibility and risk posture only. Production remains WAIT_DEFAULT. No currency conversion is performed. Apex Momentum \u2014 aggressive. Sizes a buy or a sell when reward/risk i"
+  },
+  {
+    "path": "/orders",
+    "width": 320,
+    "status": 200,
+    "url": "http://127.0.0.1:8098/orders",
+    "overflow": false,
+    "loading": false,
+    "clipped": [],
+    "text": "Orders Only paper orders recorded for this account. An empty book stays empty. These are not broker fills. No paper orders. Opening one is a separate action from receiving a plan. Closed paper trades use an unrounded spo"
+  },
+  {
+    "path": "/history",
+    "width": 320,
+    "status": 200,
+    "url": "http://127.0.0.1:8098/history",
+    "overflow": false,
+    "loading": false,
+    "clipped": [],
+    "text": "Trade history Only paper orders recorded for this account. An empty book stays empty. These are not broker fills. No paper orders. Opening one is a separate action from receiving a plan. Closed paper trades use an unroun"
+  },
+  {
+    "path": "/overview",
+    "width": 320,
+    "interaction": "menu-open",
+    "opened": true,
+    "signals_link": {
+      "x": 12,
+      "y": 228,
+      "width": 255,
+      "height": 44
+    }
+  }
+]

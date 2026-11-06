@@ -10,7 +10,7 @@ from __future__ import annotations
 import os
 import threading
 
-from ops.ai_safety import PROMPT_VERSION, invented_numbers, local_model_allowed, order_language, question_requests_action
+from ops.ai_safety import PROMPT_VERSION, foreign_evidence, invented_numbers, local_model_allowed, order_language, question_requests_action
 
 _LOCK = threading.Lock()
 
@@ -138,7 +138,11 @@ def ask(user_id, task, symbol=None, interval=None, transport=None, now_ms=None, 
         base["model"] = status.get("model")
         base["reason"] = None if phrased.get("ok") else phrased.get("reason")
         base["explanation"] = phrased.get("explanation")
-        if phrased.get("ok") and (order_language(blob) or invented_numbers(blob, lines)):
+        if phrased.get("ok") and (
+            order_language(blob)
+            or invented_numbers(blob, lines)
+            or foreign_evidence(phrased["explanation"].get("evidence_used"), "\n".join(lines + list(bundle["refs"])))
+        ):
             base["explanation"]["summary"] = fallback
             base["explanation"]["evidence_used"] = list(bundle["refs"])
             base["explanation"]["approved"] = False

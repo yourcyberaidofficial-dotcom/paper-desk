@@ -8,6 +8,9 @@ services:
     env_file:
       - .env
     environment:
+      # Listen on every container interface. The process default is 127.0.0.1,
+      # which Docker's published port cannot reach. The host mapping below
+      # stays on loopback, so the desk is not published on a public interface.
       DESK_BIND: "0.0.0.0"
       PORT: "8080"
     ports:

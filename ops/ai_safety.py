@@ -127,6 +127,24 @@ def invented_numbers(text, allowed):
     return found
 
 
+def foreign_evidence(items, allowed_text):
+    """Evidence citations that are not present in the stored facts or refs.
+
+    A short label such as ``observation`` is kept when that word is already
+    in the facts. An invented id or a phrase the desk did not supply is not.
+    """
+    haystack = _plain(allowed_text).lower()
+    bad = []
+    for item in items or []:
+        text = _plain(item).strip()
+        if not text:
+            continue
+        if text.lower() in haystack:
+            continue
+        bad.append(text)
+    return bad
+
+
 def call_tool(name, **_kwargs):
     """The analyst has no executable tools. A requested name is a refusal."""
     raise PermissionError(name or "unnamed")

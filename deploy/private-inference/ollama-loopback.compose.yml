@@ -1,0 +1,20 @@
+# Private Ollama for a dedicated host. Do not run this on the development sandbox.
+# Do not add this file to the production desk compose, and do not start it
+# until the owner has measured the host and approved a model pull.
+#
+# OLLAMA_HOST is 0.0.0.0 inside the container so the published port can reach
+# the process. The publish itself is host loopback only. Port 11434 is not
+# opened on a public interface.
+services:
+  ollama:
+    image: ollama/ollama:latest
+    profiles: ["private-inference"]
+    environment:
+      OLLAMA_HOST: 0.0.0.0:11434
+    ports:
+      - "127.0.0.1:11434:11434"
+    volumes:
+      - ollama-models:/root/.ollama
+    restart: "no"
+volumes:
+  ollama-models:
