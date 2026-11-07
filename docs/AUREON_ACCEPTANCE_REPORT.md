@@ -110,3 +110,25 @@ Chromium for this gate, customer Benny and operator Adanna, isolated data under 
 ## Gate
 
 READY FOR MERGE REVIEW of `product/experience-transformation`. Do not merge and do not deploy under this assignment. Live AI is BLOCKED. Production stays `eaf78b1`. PR #97 stays OPEN on `product/recovery`.
+
+## 13. PR #98 remediation
+
+Reviewed head `6c76d7d9089b88baadf4d91cc4635a6826066a27` was REQUEST CHANGES. The three findings are fixed in `2020554f6dd5489a255ec8f5026cfb4e14e51753`. This is not reviewer approval. The reviewer has not inspected this commit.
+
+| Finding | Fix |
+| --- | --- |
+| `ateight`, `foreight`, `oneight` passed | A token is a number only when the whole token partitions into number words and connectors. `at`, `for`, and `on` by themselves still pass. |
+| `isviii` and `theviii` passed | Those connectors peel off a Roman core of at least three characters. `vi`, `iv`, `ii`, and `isvi` stay accepted on purpose. |
+| `Al`, `Jo`, and `Ann` passed | Server account records supply the names. Two or more characters match as a whole token after case and Unicode folding. `also`, `almost`, `annual`, and `joining` stay accepted. A one-character name is not matched. |
+
+`buyitnow` and `buyit now` are rejected as order instructions. `buying now` stays commentary. Neither form calls `open_order`. `approved` and `order_opened` stay false.
+
+Fresh tests on this remediation, not the earlier 312 result:
+
+- `ops/test_experience_product.py`: 11 passed.
+- `ops/test_*.py` and `tests/test_h4.py`: 313 passed in 80.93s.
+
+No provider was called. Chromium was not rerun: the customer UI and the response shape did not change, and the hosted provider is still unconfigured. Evidence: `docs/release-evidence/experience/pr98-remediation.json`.
+
+The worktree data files were restored to their pre-suite bytes after the run. The evaluation writer was not started. Status of this commit: ready for independent re-review. Do not merge and do not deploy.
+
