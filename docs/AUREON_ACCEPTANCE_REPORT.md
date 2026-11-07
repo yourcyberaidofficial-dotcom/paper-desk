@@ -9,7 +9,7 @@
 | Experience report | `06547d192f4d4533e011270387b32632771cfb95` |
 | Verification implementation | `06fa8cf33f6aa3d6777daba89f240e021c6daadb` |
 | Verification report | `f462d8556a4b9afa195b69832231aa86856b736c` |
-| Final gate | The commit that adds the output-validation closure and this report. |
+| Final gate | `5e37628e7a24839e949300680d2062375cca9f81` |
 | Work branch | `product/experience-transformation` |
 | Production | Unchanged. Not deployed, not restarted, not reconfigured. Still `eaf78b1`. |
 | PR #97 | Left OPEN on `product/recovery`. This branch was not merged. |
