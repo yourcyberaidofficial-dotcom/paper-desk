@@ -10,8 +10,6 @@ from __future__ import annotations
 import json
 import os
 import re
-import urllib.error
-import urllib.request
 
 from ops.ai_safety import (
     foreign_evidence,
@@ -92,14 +90,21 @@ def configured():
 
 
 def status():
+    from ops.model_host import requirements
+
+    spec = requirements()
     ready = configured()
     return {
         "compulsory": True,
         "customer_toggle": False,
         "operational": "READY" if ready else "BLOCKED",
         "reason": None if ready else "provider_not_configured",
-        "provider": "hosted" if ready else None,
-        "live_model": "NOT TESTED" if not ready else os.environ.get("AUREON_AI_MODEL", "").strip(),
+        "provider": "openai-compatible" if ready else None,
+        "primary_model": spec["primary_model"],
+        "fallback_model": spec["fallback_model"],
+        "missing": list(spec["missing"]),
+        "live_model": "NOT TESTED",
+        "local_model": False,
         "note": (
             "Aureon AI is part of the desk. The hosted model is not configured, so this is not an analysis."
             if not ready else
@@ -175,13 +180,22 @@ def _account_usage(user_id, called):
     return {"requests": row["requests"], "provider_calls": row["provider_calls"], "durable_billing": False}
 
 
-def _finish(user_id, body, called):
+def _finish(user_id, body, called, meta=None):
+    from ops.model_host import requirements
+
+    spec = requirements()
+    meta = meta or {}
     body["prompt_version"] = PROMPT_VERSION
+    body["model_id"] = meta.get("model_id")
     body["usage"] = {
         "provider_called": bool(called),
-        "retries": 0,
-        "timeout_seconds": 8,
+        "retries": int(meta.get("retries") or 0),
+        "timeout_seconds": spec["timeout_seconds"],
         "prompt_version": PROMPT_VERSION,
+        "model_id": meta.get("model_id"),
+        "fallback_used": bool(meta.get("fallback_used")),
+        "latency_ms": meta.get("latency_ms"),
+        "evidence_refs": list(meta.get("evidence_refs") or []),
         "account": _account_usage(user_id, called),
     }
     try:
@@ -248,7 +262,7 @@ def complete(user_id, page, question=None, symbol=None, interval=None, transport
     }
     body.update(status())
     if not configured():
-        return _finish(user_id, body, False)
+        return _finish(user_id, body, False, {"evidence_refs": evidence["refs"]})
     payload = {
         "model": os.environ.get("AUREON_AI_MODEL", "").strip(),
         "prompt_version": PROMPT_VERSION,
@@ -257,6 +271,7 @@ def complete(user_id, page, question=None, symbol=None, interval=None, transport
             {"role": "user", "content": json.dumps({"facts": evidence["facts"], "refs": evidence["refs"], "question": (question or "")[:500]})[:4000]},
         ],
     }
+    decoded = {}
     try:
         if transport is not None:
             code, decoded = transport("POST", os.environ.get("AUREON_AI_BASE_URL", ""), payload)
@@ -265,16 +280,17 @@ def complete(user_id, page, question=None, symbol=None, interval=None, transport
     except Exception:
         body["reason"] = "provider_unavailable"
         body["operational"] = "BLOCKED"
-        return _finish(user_id, body, True)
+        return _finish(user_id, body, True, _call_meta(decoded, evidence["refs"]))
+    meta = _call_meta(decoded, evidence["refs"])
     if code != 200 or not isinstance(decoded, dict):
         body["reason"] = "provider_unavailable"
         body["operational"] = "BLOCKED"
-        return _finish(user_id, body, True)
+        return _finish(user_id, body, True, meta)
     raw_summary = decoded.get("summary")
     if not isinstance(raw_summary, str):
         body["reason"] = "invalid_output"
         body["analysis"] = None
-        return _finish(user_id, body, True)
+        return _finish(user_id, body, True, meta)
     summary = raw_summary
     from ops.ai_safety import policy_text
 
@@ -292,11 +308,11 @@ def complete(user_id, page, question=None, symbol=None, interval=None, transport
     ):
         body["reason"] = "invalid_output"
         body["analysis"] = None
-        return _finish(user_id, body, True)
+        return _finish(user_id, body, True, meta)
     body["ok"] = True
     body["analysis"] = summary
     body["label"] = "ai_commentary_not_a_signal"
-    return _finish(user_id, body, True)
+    return _finish(user_id, body, True, meta)
 
 
 def _refused(reason, task, page="/overview"):
@@ -315,18 +331,35 @@ def _refused(reason, task, page="/overview"):
     return refused
 
 
+def _call_meta(decoded, refs):
+    decoded = decoded if isinstance(decoded, dict) else {}
+    model = decoded.get("model_id") or os.environ.get("AUREON_AI_MODEL", "").strip() or None
+    return {
+        "model_id": model,
+        "latency_ms": decoded.get("latency_ms"),
+        "retries": decoded.get("retries") or 0,
+        "fallback_used": bool(decoded.get("fallback_used")),
+        "evidence_refs": list(refs or []),
+    }
+
+
 def _post(payload):
-    request = urllib.request.Request(
-        os.environ.get("AUREON_AI_BASE_URL", "").rstrip("/") + "/v1/chat",
-        data=json.dumps(payload).encode(),
-        headers={
-            "Content-Type": "application/json",
-            "Authorization": "Bearer " + os.environ.get("AUREON_AI_API_KEY", "").strip(),
-        },
-        method="POST",
-    )
-    try:
-        with urllib.request.urlopen(request, timeout=8) as response:
-            return response.status, json.loads(response.read().decode() or "{}")
-    except urllib.error.HTTPError as exc:
-        return exc.code, {}
+    from ops.model_host import chat
+
+    result = chat(payload.get("messages") or [], prompt_version=payload.get("prompt_version"))
+    if not result.get("ok"):
+        return int(result.get("status") or 503), {
+            "reason": result.get("reason"),
+            "model_id": result.get("model_id"),
+            "latency_ms": result.get("latency_ms"),
+            "retries": result.get("retries"),
+            "fallback_used": result.get("fallback_used"),
+        }
+    return 200, {
+        "summary": result.get("summary"),
+        "evidence_used": [],
+        "model_id": result.get("model_id"),
+        "latency_ms": result.get("latency_ms"),
+        "retries": result.get("retries"),
+        "fallback_used": result.get("fallback_used"),
+    }
