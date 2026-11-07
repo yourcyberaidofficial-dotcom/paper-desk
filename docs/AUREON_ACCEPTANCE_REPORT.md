@@ -132,3 +132,21 @@ No provider was called. Chromium was not rerun: the customer UI and the response
 
 The worktree data files were restored to their pre-suite bytes after the run. The evaluation writer was not started. Status of this commit: ready for independent re-review. Do not merge and do not deploy.
 
+## 14. Account-name collision
+
+Reviewed tip `034c529162fc716b1443046866b99dca11a3879b` was REQUEST CHANGES. An account named `Is` made ordinary uses of `is` fail, and registration still accepted `B` and `Is`. The fix is `e5dbed061f38fe27cc0f857c8fb64434573acb73`. This is not reviewer approval.
+
+`display_name_token` is the identity rule. A normalized one-character name, or any `_GLUE` word, is not a foreign-name token. `Al`, `Jo`, and `Ann` still are. `also`, `almost`, `annual`, and `joining` still are not.
+
+`POST /api/register` and `POST /api/profile` use `accept_display_name` after NFKC and hidden-character removal. A refusal returns `invalid or duplicate` and does not write. `POST /api/experience` refuses the same names and does not save the rest of that request. A name change cannot grant a role, an entitlement, or broker access.
+
+The worktree account store contained 0 ambiguous legacy names. No account was renamed, locked, or deleted. An owner-approved rename is an edit of the stored `name` to a value `accept_display_name` accepts, with the same account id and password hash. Until that happens the matcher ignores the ambiguous name.
+
+Fresh tests, not the earlier 313 result:
+
+- `ops/test_experience_product.py`: 12 passed.
+- `ops/test_*.py` and `tests/test_h4.py`: 314 passed in 82.51s.
+
+No provider was called. Chromium was not rerun. Evidence: `docs/release-evidence/experience/pr98-identity.json`.
+
+
