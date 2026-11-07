@@ -30,11 +30,16 @@ The customer shell posts `{page, question}` from the header panel and from the L
 | Case | Result |
 | --- | --- |
 | Question asks to place a trade or approve a strategy | `order_request_refused`. No model call. |
-| Question contains another account id, or another account name of at least four characters | `other_account_refused`. Stored facts are not returned. |
-| Summary contains order language, including a hidden character, spaced letters, a digit used as a letter, or the word purchase, or a number that was not in the facts, including a short digit run, a spelled number, or a Roman numeral | `invalid_output`. `analysis` stays null. |
-| Summary contains another account id or name, or a hyphenated identifier that is not in the facts or refs, including a spaced or possessive form | `invalid_output`. |
+| Question contains another account id, or another account name of at least two characters | `other_account_refused`. Stored facts are not returned. A one-character name is not matched, because that would reject ordinary prose. |
+| Summary contains order language, including a hidden character, spaced letters, a digit used as a letter, `purchase`, `buyitnow`, or `buyit now` | `invalid_output`. `analysis` stays null. `buying now` is commentary, not an instruction. It still cannot open an order. |
+| Summary contains a number that was not in the facts, including a short digit run, a spelled number, a connector glued to that number (`ateight`, `foreight`, `oneight`), a Roman numeral, or that numeral glued to a connector (`isviii`, `theviii`) | `invalid_output`. |
+| Summary contains another account id or name, including `Al`, `Jo`, and `Ann` | `invalid_output`. The name must be the whole token after Unicode and case folding. `also`, `almost`, `annual`, and `joining` stay valid. Names come from server account records, not from the client body. |
 | `evidence_used` cites text that is not in the facts or refs | `invalid_output`. |
 | Valid summary | `ai_commentary_not_a_signal`. `approved` and `order_opened` are forced false. |
+
+`vi`, `iv`, and `ii` are not treated as Roman numerals, alone or glued (`isvi`). That exclusion is intentional. A numeral of three or more characters, such as `viii`, is rejected.
+
+The signed-in account's own name is not a foreign name. Another account's id, password, paper book, and private evidence are not returned.
 
 The signal engine does not import `hosted_ai` or `ollama`. Signal generation does not wait on the model.
 

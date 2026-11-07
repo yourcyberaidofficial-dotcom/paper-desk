@@ -188,23 +188,51 @@ _NUMBER_WORDS = frozenset(
 )
 
 
-_GLUE = frozenset({"a", "an", "is", "of", "pct", "percent", "rate", "the"})
+_GLUE = frozenset({
+    "a",
+    "an",
+    "at",
+    "for",
+    "in",
+    "is",
+    "of",
+    "on",
+    "pct",
+    "percent",
+    "rate",
+    "the",
+    "to",
+})
 
 
-def _only_number_words(token):
+def _number_construction(token):
+    """True when the whole token is number words plus connectors.
+
+    ``ateight`` is ``at`` + ``eight``. ``someone`` and ``weight`` are not,
+    because the extra letters are not connectors. A connector by itself,
+    such as ``at``, ``for``, or ``on``, is not a number.
+    """
     if not token:
         return False
-    words = sorted(_NUMBER_WORDS, key=len, reverse=True)
+    pieces = sorted(set(_NUMBER_WORDS) | set(_GLUE), key=len, reverse=True)
+    memo = {}
 
-    def walk(index):
+    def walk(index, saw_number):
+        key = (index, saw_number)
+        if key in memo:
+            return memo[key]
         if index == len(token):
-            return True
-        for word in words:
-            if token.startswith(word, index) and walk(index + len(word)):
-                return True
-        return False
+            memo[key] = saw_number
+            return saw_number
+        found = False
+        for piece in pieces:
+            if token.startswith(piece, index) and walk(index + len(piece), saw_number or piece in _NUMBER_WORDS):
+                found = True
+                break
+        memo[key] = found
+        return found
 
-    return walk(0)
+    return walk(0, False)
 
 
 def unknown_number_words(text, allowed_text):
@@ -215,7 +243,7 @@ def unknown_number_words(text, allowed_text):
     for word in re.findall(r"[a-z]+", folded):
         if word in allowed or word in found:
             continue
-        if _only_number_words(word):
+        if _number_construction(word):
             found.append(word)
     for word in _NUMBER_WORDS:
         if word in allowed or word in found:
@@ -224,28 +252,6 @@ def unknown_number_words(text, allowed_text):
         pattern = r"(?<![a-z0-9])" + r"[^a-z0-9]*".join(parts) + r"(?![a-z0-9])"
         if re.search(pattern, folded):
             found.append(word)
-    long_words = [word for word in _NUMBER_WORDS if len(word) >= 6]
-    for token in re.findall(r"[a-z]+", folded):
-        if token in allowed:
-            continue
-        for word in long_words:
-            if word in token and word not in found:
-                found.append(word)
-                break
-    for token in re.findall(r"[a-z]+", folded):
-        if token in allowed or token in found:
-            continue
-        for word in _NUMBER_WORDS:
-            if len(word) < 5 or word in allowed:
-                continue
-            extra = None
-            if token.startswith(word):
-                extra = token[len(word):]
-            elif token.endswith(word):
-                extra = token[:-len(word)]
-            if extra in _GLUE and word not in found:
-                found.append(word)
-                break
     return found
 
 
@@ -273,7 +279,14 @@ def unknown_digit_runs(text, allowed):
         if token not in known and token not in unknown:
             unknown.append(token)
     for token in re.findall(r"[a-z]+", folded):
-        value = _roman_value(token)
+        value = _glued_roman_value(token)
+        if value is None:
+            continue
+        token = str(value)
+        if token not in known and token not in unknown:
+            unknown.append(token)
+    for match in re.finditer(r"(?<![a-z0-9])([ivxlcdm](?:[^a-z0-9]+[ivxlcdm]){2,})(?![a-z0-9])", folded):
+        value = _roman_value(re.sub(r"[^ivxlcdm]", "", match.group(1)))
         if value is None:
             continue
         token = str(value)
@@ -291,7 +304,13 @@ _ROMAN_VALUES = {"i": 1, "v": 5, "x": 10, "l": 50, "c": 100, "d": 500, "m": 1000
 
 
 def _roman_value(token):
-    """ASCII Roman numerals such as LXXX. A normal word such as mix is not a number."""
+    """ASCII Roman numerals such as LXXX. A normal word such as mix is not a number.
+
+    ``vi``, ``iv``, and ``ii`` are intentionally not numerals. Each is shorter
+    than 3 and has none of ``x``, ``l``, ``c``, ``d``, or ``m``. Gluing a
+    connector in front of one of those short forms does not change that.
+    ``isvi`` stays a word. ``viii`` and ``isviii`` do not.
+    """
     if not token or token in _ROMAN_IGNORE or not re.fullmatch(_ROMAN, token):
         return None
     if len(token) < 3 and not any(ch in token for ch in "xlcdm"):
@@ -306,6 +325,40 @@ def _roman_value(token):
             total += value
             prev = value
     return total or None
+
+
+def _glued_roman_value(token):
+    """``viii`` itself, or the same numeral glued to connectors such as ``is`` or ``the``.
+
+    A peeled core must be at least three characters. Otherwise ``Ada`` becomes
+    ``d`` after the connector ``a`` is removed from both ends, and ``d`` is 500.
+    """
+    if not token:
+        return None
+    direct = _roman_value(token)
+    if direct is not None:
+        return direct
+    glues = sorted(_GLUE, key=len, reverse=True)
+    text = token
+    for _ in range(8):
+        if len(text) >= 3 and text != token:
+            value = _roman_value(text)
+            if value is not None:
+                return value
+        peeled = None
+        for glue in glues:
+            if text.startswith(glue) and len(text) > len(glue):
+                peeled = text[len(glue):]
+                break
+            if text.endswith(glue) and len(text) > len(glue):
+                peeled = text[:-len(glue)]
+                break
+        if peeled is None:
+            break
+        text = peeled
+    if text != token and len(text) >= 3:
+        return _roman_value(text)
+    return None
 
 
 def unknown_identifiers(text, allowed_text):
@@ -332,7 +385,15 @@ def unknown_identifiers(text, allowed_text):
 
 
 _LEET = str.maketrans({"0": "o", "1": "i", "3": "e", "4": "a", "5": "s", "7": "t"})
-_ORDER_PAIRS = (("buy", "now"), ("sell", "now"), ("place", "trade"), ("open", "position"), ("open", "order"))
+_ORDER_PAIRS = (
+    ("buy", "now"),
+    ("sell", "now"),
+    ("buyit", "now"),
+    ("sellit", "now"),
+    ("place", "trade"),
+    ("open", "position"),
+    ("open", "order"),
+)
 
 
 def _identifier_words(text):
@@ -342,6 +403,12 @@ def _identifier_words(text):
 
 
 def order_language(text):
+    """Order instructions, not a bare mention of buying.
+
+    ``buy now``, ``buyitnow``, and ``buyit now`` are instructions. ``buying now``
+    is ordinary commentary. Neither form can open an order. The route still
+    forces ``approved`` and ``order_opened`` false.
+    """
     folded = _folded(text).translate(_LEET)
     if any(token in folded for token in ORDER_TOKENS):
         return True
@@ -357,6 +424,8 @@ _ORDER_COMPACT = (
     "order",
     "buynow",
     "sellnow",
+    "buyitnow",
+    "sellitnow",
     "placeatrade",
     "placeanorder",
     "openaposition",

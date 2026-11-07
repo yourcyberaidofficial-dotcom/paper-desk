@@ -346,8 +346,33 @@ def test_hosted_output_rejects_unicode_and_separator_bypasses(tmp_path, monkeypa
         "The win rate is eighty-five.",
         "The win rate iseighty.",
         "The win rate iseight.",
+        "The win rate is EIGHT.",
+        "The win rate is ateight.",
+        "The win rate is ATEIGHT.",
+        "The win rate is AtEight.",
+        "The win rate is at eight.",
+        "The win rate is at-eight.",
+        "The win rate is at/eight.",
+        "The win rate is at\u200beight.",
+        "The win rate is foreight.",
+        "The win rate is FOR-EIGHT.",
+        "The win rate is oneight.",
+        "The win rate is OnEight.",
         "The chance is viii.",
+        "The chance is VIII.",
+        "The chance is isviii.",
+        "The chance is theviii.",
+        "The chance is ISVIII.",
+        "The chance is TheViii.",
+        "The chance is the\u200bviii.",
+        "The chance is the viii.",
+        "The chance is is-viii.",
+        "The chance is v i i i.",
         "Please purchase now.",
+        "Please buyitnow.",
+        "Please buyit now.",
+        "Please BUYITNOW.",
+        "Please buy-it-now.",
         "The win rate is eightypercent.",
         "The win rate is fourscore.",
         "The win rate is LXXX.",
@@ -411,6 +436,188 @@ def test_hosted_output_rejects_unicode_and_separator_bypasses(tmp_path, monkeypa
     assert payload["reason"] == "invalid_output"
     assert payload["approved"] is False and payload["order_opened"] is False
     assert "win rate" not in json.dumps(payload).lower()
+    del users
+
+
+def test_route_rejects_glued_forms_and_short_names(tmp_path, monkeypatch):
+    app, users = _boot(tmp_path, monkeypatch)
+    ada, ada_body = _login(app, "Ada")
+    benny, ben_body = _login(app, "Benny")
+    _al, al_body = _login(app, "Al")
+    _jo, jo_body = _login(app, "Jo")
+    _ann, ann_body = _login(app, "Ann")
+    monkeypatch.setenv("AUREON_AI_API_KEY", "test-key-not-real")
+    monkeypatch.setenv("AUREON_AI_BASE_URL", "https://ai.example.test")
+    monkeypatch.setenv("AUREON_AI_MODEL", "example-model")
+    monkeypatch.setenv("AUREON_AI_SPEND_APPROVED", "1")
+    from ops.ai_safety import order_language, unknown_digit_runs, unknown_number_words
+    import ops.paperbook as paperbook
+
+    assert unknown_number_words("ateight", "") == ["ateight"]
+    assert unknown_number_words("foreight", "") == ["foreight"]
+    assert unknown_number_words("oneight", "") == ["oneight"]
+    assert unknown_number_words("iseight", "") == ["iseight"]
+    assert unknown_number_words("weight", "") == []
+    assert unknown_number_words("someone", "") == []
+    assert unknown_number_words("another", "") == []
+    assert unknown_number_words("alone", "") == []
+    assert unknown_number_words("forest", "") == []
+    assert unknown_number_words("for", "") == []
+    assert unknown_number_words("at", "") == []
+    assert unknown_number_words("on", "") == []
+    assert unknown_digit_runs("isviii", []) == ["8"]
+    assert unknown_digit_runs("theviii", []) == ["8"]
+    assert unknown_digit_runs("viii", []) == ["8"]
+    assert unknown_digit_runs("vi", []) == []
+    assert unknown_digit_runs("iv", []) == []
+    assert unknown_digit_runs("ii", []) == []
+    assert unknown_digit_runs("isvi", []) == []
+    assert unknown_digit_runs("isiv", []) == []
+    assert unknown_digit_runs("isii", []) == []
+    assert order_language("Please buyitnow.") is True
+    assert order_language("Please buyit now.") is True
+    assert order_language("Please buying now.") is False
+    opened = []
+
+    def refuse_open(*_args, **_kwargs):
+        opened.append(True)
+        raise AssertionError("open_order")
+
+    monkeypatch.setattr(paperbook, "open_order", refuse_open)
+    state = {"summary": "", "calls": 0}
+
+    def route_post(_payload):
+        state["calls"] += 1
+        return 200, {
+            "summary": state["summary"],
+            "evidence_used": ["broker false"],
+            "approved": True,
+            "order_opened": True,
+            "analysis": state["summary"],
+        }
+
+    monkeypatch.setattr("ops.hosted_ai._post", route_post)
+    foreign_ids = (ada_body["id"], ben_body["id"], al_body["id"], jo_body["id"], ann_body["id"])
+
+    def post(summary, client=ada):
+        state["summary"] = summary
+        response = client.post("/api/aureon-ai", json={
+            "page": "/overview",
+            "question": "Explain",
+            "summary": summary,
+            "analysis": summary,
+            "approved": True,
+            "order_opened": True,
+            "transport": "http://evil",
+        })
+        body = response.get_json()
+        blob = json.dumps(body)
+        return response.status_code, body, blob
+
+    rejected = [
+        "The win rate is 80.",
+        "Please buy\u200b now.",
+        "Benny has a quiet book.",
+        "See account " + ben_body["id"] + ".",
+        "The win rate iseight.",
+        "The win rate is EIGHT.",
+        "The chance is viii.",
+        "The chance is VIII.",
+        "Please purchase now.",
+        "The win rate is ateight.",
+        "The win rate is ATEIGHT.",
+        "The win rate is AtEight.",
+        "The win rate is at eight.",
+        "The win rate is at-eight.",
+        "The win rate is at/eight.",
+        "The win rate is at\u200beight.",
+        "The win rate is foreight.",
+        "The win rate is FOR-EIGHT.",
+        "The win rate is oneight.",
+        "The win rate is OnEight.",
+        "The chance is isviii.",
+        "The chance is theviii.",
+        "The chance is ISVIII.",
+        "The chance is TheViii.",
+        "The chance is the\u200bviii.",
+        "The chance is the viii.",
+        "The chance is is-viii.",
+        "The chance is v i i i.",
+        "Al has a quiet book.",
+        "See Al.",
+        "AL has a quiet book.",
+        "A l has a quiet book.",
+        "Jo has a quiet book.",
+        "Jo's book is quiet.",
+        "J\u200bo has a quiet book.",
+        "Ann has a quiet book.",
+        "Ann's book is quiet.",
+        "a-n-n has a quiet book.",
+        "Please buyitnow.",
+        "Please buyit now.",
+        "Please BUYITNOW.",
+        "Please buy-it-now.",
+    ]
+    for summary in rejected:
+        status, body, blob = post(summary)
+        assert status == 200, summary
+        assert body["reason"] == "invalid_output", summary
+        assert body["analysis"] is None, summary
+        assert body["approved"] is False and body["order_opened"] is False, summary
+        assert summary not in blob, summary
+        assert "password" not in blob.lower(), summary
+        assert all(item not in blob for item in foreign_ids), summary
+        assert opened == [], summary
+    named = post("Ada has a quiet book.", benny)
+    assert named[1]["reason"] == "invalid_output"
+    assert named[1]["analysis"] is None
+    own = post("Ada has a quiet book.")
+    assert own[1]["ok"] is True and own[1]["analysis"] == "Ada has a quiet book."
+    assert own[1]["approved"] is False and own[1]["order_opened"] is False
+    kept = [
+        "Stored observation is none. Broker is false.",
+        "Stored observation is none for the broker.",
+        "The observation is none on paper.",
+        "Stored observation is none at broker.",
+        "Broker is false also.",
+        "Broker is false almost.",
+        "Broker is false annual.",
+        "Broker is false joining.",
+        "Broker is false weight.",
+        "Broker is false someone.",
+        "The chance is vi.",
+        "The chance is iv.",
+        "The chance is ii.",
+        "The chance is isvi.",
+        "Broker is false. Buying now.",
+    ]
+    for summary in kept:
+        status, body, blob = post(summary)
+        assert status == 200, summary
+        assert body["ok"] is True, summary
+        assert body["analysis"] == summary, summary
+        assert body["approved"] is False and body["order_opened"] is False, summary
+        assert "password" not in blob.lower(), summary
+        assert all(item not in blob for item in foreign_ids), summary
+    before = state["calls"]
+    monkeypatch.delenv("AUREON_AI_SPEND_APPROVED")
+
+    def explode(_payload):
+        state["calls"] += 1
+        raise AssertionError("provider")
+
+    monkeypatch.setattr("ops.hosted_ai._post", explode)
+    status, body, blob = post("The win rate is ateight.")
+    assert status == 200
+    assert body["reason"] == "provider_not_configured"
+    assert body["analysis"] is None
+    assert body["approved"] is False and body["order_opened"] is False
+    assert state["calls"] == before
+    assert "ateight" not in blob
+    assert "win rate" not in blob.lower()
+    paper = users.ROOT / "paper"
+    assert not paper.exists() or list(paper.glob("*.json")) == []
+    assert opened == []
     del users
 
 

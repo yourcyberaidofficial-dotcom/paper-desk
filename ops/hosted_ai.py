@@ -144,7 +144,10 @@ def _foreign_account(user_id, question):
         if other.lower() in text:
             return True
         name_compact = re.sub(r"[^a-z0-9]", "", policy_text(name))
-        if len(name_compact) >= 4 and re.search(
+        # A one-character name is not matched. "a" would reject ordinary prose.
+        # Two- and three-character names match only as a whole token, so "al"
+        # rejects "Al" and not "also", "almost", "annual", or "joining".
+        if len(name_compact) >= 2 and re.search(
             r"(?<![a-z0-9])" + r"[^a-z0-9]*".join(re.escape(ch) for ch in name_compact) + r"(?![a-z0-9])",
             text,
         ):
