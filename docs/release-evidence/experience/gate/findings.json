@@ -1,0 +1,287 @@
+[
+  {
+    "name": "operator-register",
+    "status": "PASS",
+    "detail": "http://127.0.0.1:47729/onboarding"
+  },
+  {
+    "name": "register-short-password",
+    "status": "PASS",
+    "detail": "Name is required and the password must be at least 8 characters."
+  },
+  {
+    "name": "customer-register",
+    "status": "PASS",
+    "detail": "http://127.0.0.1:47729/onboarding"
+  },
+  {
+    "name": "login-failure",
+    "status": "PASS",
+    "detail": "Name or password is incorrect."
+  },
+  {
+    "name": "menu-320",
+    "status": "PASS",
+    "detail": "opened=True url=http://127.0.0.1:47729/orders"
+  },
+  {
+    "name": "public-Landing",
+    "status": "PASS",
+    "detail": "Aureon Trading Lab Brought to you by Cyber Aid Signal styles Research & risk Sign in Create account Paper trading and research See the market clearly. Research "
+  },
+  {
+    "name": "public-Login",
+    "status": "PASS",
+    "detail": "Aureon Trading Lab Brought to you by Cyber Aid Sign in Name Password Show Sign in Need an account? Create one Back to Aureon Aureon AI is on every signed-in pag"
+  },
+  {
+    "name": "public-Register",
+    "status": "PASS",
+    "detail": "Aureon Trading Lab Brought to you by Cyber Aid Create account Name Password Show Create account Already have an account? Sign in Back to Aureon Aureon AI is on "
+  },
+  {
+    "name": "customer-role-chip",
+    "status": "PASS",
+    "detail": "Benny \u00b7 customer \u00b7 No persona"
+  },
+  {
+    "name": "customer-accounts-nav-hidden",
+    "status": "PASS",
+    "detail": ""
+  },
+  {
+    "name": "search-does-not-reveal-operator",
+    "status": "PASS",
+    "detail": "hidden=True filtered=False visible=False"
+  },
+  {
+    "name": "search-empty",
+    "status": "PASS",
+    "detail": "No page matches that search."
+  },
+  {
+    "name": "search-risk",
+    "status": "PASS",
+    "detail": "True"
+  },
+  {
+    "name": "help-overview",
+    "status": "PASS",
+    "detail": "Overview shows this account's paper capital, persona, and whether a verified market reading exists. It does not invent a price."
+  },
+  {
+    "name": "ai-panel-blocked",
+    "status": "PASS",
+    "detail": "Aureon AI is part of the desk. The hosted model is not configured, so this is not an analysis."
+  },
+  {
+    "name": "ai-no-fabricated-analysis",
+    "status": "PASS",
+    "detail": "Aureon AI is part of the desk. The hosted model is not configured, so this is not an analysis."
+  },
+  {
+    "name": "ai-request-page",
+    "status": "PASS",
+    "detail": "{\"page\":\"/overview\",\"question\":\"What is Adanna's balance?\"}"
+  },
+  {
+    "name": "display-invalid-timezone",
+    "status": "PASS",
+    "detail": "Display settings were not saved."
+  },
+  {
+    "name": "save-persona-capital",
+    "status": "PASS",
+    "detail": "Saved. Active style and currency are stored on this account."
+  },
+  {
+    "name": "display-propagation",
+    "status": "PASS",
+    "detail": "{\"note\": \"Saved. This account now uses America/New_York, compact density, market layout, light theme.\", \"density\": \"compact\", \"depth\": \"concise\", \"layout\": \"market\", \"theme\": \"light\", \"contrast\": \"high\", \"motion\": \"reduced\", \"zone\": \"Times use America/New_York\", \"padding\": \"12px\", \"transition\": \"0s\", \"bg\": \"rgb(255, 255, 255)\", \"guideHidden\": true}"
+  },
+  {
+    "name": "privilege-refused",
+    "status": "PASS",
+    "detail": "{\"status\": 403, \"role\": null, \"error\": \"not_permitted\"}"
+  },
+  {
+    "name": "display-survives-reload",
+    "status": "PASS",
+    "detail": "light Times use America/New_York"
+  },
+  {
+    "name": "market-layout-order",
+    "status": "PASS",
+    "detail": "ov-market,ov-account"
+  },
+  {
+    "name": "overview-timezone",
+    "status": "PASS",
+    "detail": "Times use America/New_York"
+  },
+  {
+    "name": "concise-hides-guide",
+    "status": "PASS",
+    "detail": "True"
+  },
+  {
+    "name": "lab-profile-save",
+    "status": "PASS",
+    "detail": "Saved on this account."
+  },
+  {
+    "name": "lab-journal-visible",
+    "status": "PASS",
+    "detail": "token present"
+  },
+  {
+    "name": "academy-wrong-check",
+    "status": "PASS",
+    "detail": "The check does not match the lesson. Completion was not saved."
+  },
+  {
+    "name": "academy-complete",
+    "status": "PASS",
+    "detail": "candles"
+  },
+  {
+    "name": "plan-save",
+    "status": "PASS",
+    "detail": "Plan saved."
+  },
+  {
+    "name": "scanner-filter",
+    "status": "PASS",
+    "detail": "XAUUSD \u00b7 1m Unavailable \u2014 This timeframe is not available."
+  },
+  {
+    "name": "signals-ask",
+    "status": "PASS",
+    "detail": "Stored record. Not an analysis.\n\nAureon AI BLOCKED \u00b7 provider_not_configured\n\ntask explain_signal stored observations 0 latest observation none latest research not_promoted latest execution not_eligib"
+  },
+  {
+    "name": "terminal-evaluate",
+    "status": "PASS",
+    "detail": "BTCUSDT 15m A verified live reading is not available. No evaluation was calculated. The manual paper plan on this page is empty until you type it."
+  },
+  {
+    "name": "manual-paper",
+    "status": "PASS",
+    "detail": "Your levels. Entry 100.00. Stop 90.00. Target 140.00. Not a feed plan. Not a broker fill.\n\nPaper trade recorded. It is an estimate, not a broker fill."
+  },
+  {
+    "name": "portfolio-empty-or-real",
+    "status": "PASS",
+    "detail": "This account Benny \u00b7 customer \u00b7 Apex Momentum \u00b7 market layout Aureon AI BLOCKED. Aureon AI is part of the desk. The hosted model is not configured, so this is n"
+  },
+  {
+    "name": "orders-page",
+    "status": "PASS",
+    "detail": "Orders"
+  },
+  {
+    "name": "history-page",
+    "status": "PASS",
+    "detail": "Trade History"
+  },
+  {
+    "name": "risk-persona",
+    "status": "PASS",
+    "detail": "This account Benny \u00b7 customer \u00b7 Apex Momentum \u00b7 market layout Aureon AI BLOCKED. Aureon AI is part of the desk. The hosted model is not configured, so this is n"
+  },
+  {
+    "name": "inbox-page",
+    "status": "PASS",
+    "detail": "This account Benny \u00b7 customer \u00b7 Apex Momentum \u00b7 market layout Aureon AI BLOCKED. Aureon AI is part of the desk. The hosted model is not configured, so this is n"
+  },
+  {
+    "name": "inbox-badge",
+    "status": "PASS",
+    "detail": "Inbox (2)"
+  },
+  {
+    "name": "inbox-mark-read",
+    "status": "PASS",
+    "detail": "Inbox (1)"
+  },
+  {
+    "name": "live-activities",
+    "status": "PASS",
+    "detail": "This account Benny \u00b7 customer \u00b7 Apex Momentum \u00b7 market layout Aureon AI BLOCKED. Aureon AI is part of the desk. The hosted model is not configured, so this is not an analysis. Expl"
+  },
+  {
+    "name": "system-ai-blocked",
+    "status": "PASS",
+    "detail": "This account Benny \u00b7 customer \u00b7 Apex Momentum \u00b7 market layout Aureon AI BLOCKED. Aureon AI is part of the desk. The hosted model is not configured, so this is not an analysis. Explain this page System"
+  },
+  {
+    "name": "customer-accounts-denied",
+    "status": "PASS",
+    "detail": "This account Benny \u00b7 customer \u00b7 Apex Momentum \u00b7 market layout Aureon AI BLOCKED. Aureon AI is part of the desk. The hosted model is not configured, so this is not an analysis. Explain this page Accoun"
+  },
+  {
+    "name": "strategies",
+    "status": "PASS",
+    "detail": "Strategies"
+  },
+  {
+    "name": "research",
+    "status": "PASS",
+    "detail": "Backtesting & Research"
+  },
+  {
+    "name": "export-and-pagination-controls",
+    "status": "NOT IMPLEMENTED",
+    "detail": "no export or pager control in the shell"
+  },
+  {
+    "name": "sign-out",
+    "status": "PASS",
+    "detail": "http://127.0.0.1:47729/"
+  },
+  {
+    "name": "preference-after-new-login",
+    "status": "PASS",
+    "detail": "light|compact|Times use America/New_York"
+  },
+  {
+    "name": "operator-role",
+    "status": "PASS",
+    "detail": "Adanna \u00b7 operator \u00b7 No persona"
+  },
+  {
+    "name": "operator-not-customer-timezone",
+    "status": "PASS",
+    "detail": "Times use Africa/Lagos"
+  },
+  {
+    "name": "account-isolation-journal",
+    "status": "PASS",
+    "detail": "absent"
+  },
+  {
+    "name": "operator-directory",
+    "status": "PASS",
+    "detail": "This account Adanna \u00b7 operator \u00b7 No persona \u00b7 guided layout Times use Africa/Lagos. Learning not_stated. Onboarding still needed: choose_persona, choose_currency. Density comfortable. Theme dark. Aureon AI BLOCKED. Aureon AI is part of the "
+  },
+  {
+    "name": "operator-nav-accounts",
+    "status": "PASS",
+    "detail": "True"
+  },
+  {
+    "name": "operator-layout-option",
+    "status": "PASS",
+    "detail": "True"
+  },
+  {
+    "name": "operator-layout-applied",
+    "status": "PASS",
+    "detail": "operator"
+  },
+  {
+    "name": "operator-system",
+    "status": "PASS",
+    "detail": "System Status"
+  }
+]

@@ -1,0 +1,16 @@
+{
+  "findings": {
+    "PASS": 56,
+    "NOT IMPLEMENTED": 1
+  },
+  "layout_rows": 18,
+  "layout_bad": 0,
+  "shots": [
+    "menu-open-320.png",
+    "ai-panel-overview-1280.png",
+    "settings-display-light-1280.png",
+    "overview-market-light-1280.png",
+    "terminal-1280.png",
+    "operator-accounts-1280.png"
+  ]
+}

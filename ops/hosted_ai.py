@@ -13,10 +13,50 @@ import re
 import urllib.error
 import urllib.request
 
-from ops.ai_safety import foreign_evidence, invented_numbers, order_language, question_requests_action
+from ops.ai_safety import (
+    foreign_evidence,
+    invented_numbers,
+    order_language,
+    question_requests_action,
+    suspicious_characters,
+    unexpected_letters,
+    unknown_digit_runs,
+    unknown_identifiers,
+    unknown_number_words,
+)
 
 PROMPT_VERSION = "aureon-hosted-1"
 _USAGE = {}
+_NAME_STOP = frozenset({
+    "account",
+    "approved",
+    "aureon",
+    "broker",
+    "closed",
+    "customer",
+    "eligible",
+    "execution",
+    "false",
+    "history",
+    "journal",
+    "latest",
+    "lesson",
+    "market",
+    "none",
+    "notes",
+    "observation",
+    "open",
+    "operator",
+    "paper",
+    "persona",
+    "positions",
+    "research",
+    "signal",
+    "stored",
+    "system",
+    "trades",
+    "true",
+})
 
 PAGE_TASK = {
     "/overview": "portfolio",
@@ -79,12 +119,11 @@ def _facts(user_id, task, symbol, interval):
 
 
 def _foreign_account(user_id, question):
-    text = (question or "").lower()
-    if not text:
-        return False
+    from ops.ai_safety import policy_text
     from ops.users import ROOT
 
-    if not ROOT.exists():
+    text = policy_text(question)
+    if not text or not ROOT.exists():
         return False
     for path in ROOT.glob("*.json"):
         other = path.stem
@@ -98,10 +137,25 @@ def _foreign_account(user_id, question):
             name = ""
         if not other or other == user_id:
             continue
+        other_compact = re.sub(r"[^a-z0-9]", "", other.lower())
+        summary_compact = re.sub(r"[^a-z0-9]", "", text)
+        if len(other_compact) >= 8 and other_compact in summary_compact:
+            return True
         if other.lower() in text:
             return True
-        if len(name) >= 4 and re.search(r"\b" + re.escape(name) + r"\b", text):
+        name_compact = re.sub(r"[^a-z0-9]", "", policy_text(name))
+        if len(name_compact) >= 4 and re.search(
+            r"(?<![a-z0-9])" + r"[^a-z0-9]*".join(re.escape(ch) for ch in name_compact) + r"(?![a-z0-9])",
+            text,
+        ):
             return True
+        if len(name_compact) >= 5 and name_compact not in _NAME_STOP and name_compact in summary_compact:
+            return True
+        parts = re.findall(r"[a-z0-9]+", policy_text(name))
+        if parts and sum(len(part) for part in parts) >= 4:
+            pattern = r"\b" + r"\W+".join(re.escape(part) for part in parts) + r"\b"
+            if re.search(pattern, text):
+                return True
     return False
 
 
@@ -141,25 +195,21 @@ def _finish(user_id, body, called):
     return body
 
 
-_IDENTIFIER = re.compile(r"[A-Za-z0-9]+(?:[-_:][A-Za-z0-9]+){1,}")
-_SHORT_NUMBER = re.compile(r"\b\d{1,2}\b")
-
-
 def _validate(summary, facts, refs, used):
     allowed_lines = list(facts) + list(refs)
     allowed_text = "\n".join(allowed_lines)
+    if suspicious_characters(summary) or any(suspicious_characters(item) for item in used or []):
+        return False
+    if unexpected_letters(summary, allowed_text) or any(unexpected_letters(item, allowed_text) for item in used or []):
+        return False
     if order_language(summary) or invented_numbers(summary, allowed_lines):
         return False
-    known_numbers = set()
-    for item in allowed_lines:
-        known_numbers.update(re.findall(r"\d+", str(item)))
-    for raw in _SHORT_NUMBER.findall(str(summary)):
-        if raw not in known_numbers:
-            return False
-    haystack = allowed_text.lower()
-    for token in _IDENTIFIER.findall(str(summary)):
-        if token.lower() not in haystack:
-            return False
+    if unknown_digit_runs(summary, allowed_lines):
+        return False
+    if unknown_number_words(summary, allowed_text):
+        return False
+    if unknown_identifiers(summary, allowed_text):
+        return False
     if foreign_evidence(used, allowed_text):
         return False
     return True
@@ -212,10 +262,28 @@ def complete(user_id, page, question=None, symbol=None, interval=None, transport
         body["reason"] = "provider_unavailable"
         body["operational"] = "BLOCKED"
         return _finish(user_id, body, True)
-    summary = str(decoded.get("summary") or "")
-    used = decoded.get("evidence_used") if isinstance(decoded.get("evidence_used"), list) else []
-    if not summary or not _validate(summary, evidence["facts"], evidence["refs"], used):
+    raw_summary = decoded.get("summary")
+    if not isinstance(raw_summary, str):
         body["reason"] = "invalid_output"
+        body["analysis"] = None
+        return _finish(user_id, body, True)
+    summary = raw_summary
+    from ops.ai_safety import policy_text
+
+    raw_used = decoded.get("evidence_used")
+    if isinstance(raw_used, str):
+        used = [raw_used]
+    elif isinstance(raw_used, list):
+        used = [str(item) for item in raw_used]
+    else:
+        used = []
+    if (
+        not policy_text(summary)
+        or not _validate(summary, evidence["facts"], evidence["refs"], used)
+        or _foreign_account(user_id, summary)
+    ):
+        body["reason"] = "invalid_output"
+        body["analysis"] = None
         return _finish(user_id, body, True)
     body["ok"] = True
     body["analysis"] = summary

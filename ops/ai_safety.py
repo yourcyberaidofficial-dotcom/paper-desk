@@ -29,7 +29,17 @@ CLOUD_MARKERS = (
     "o1-",
     "o3-",
 )
-ORDER_TOKENS = ("approve", "order", "buy now", "sell now", "place a trade", "open a position")
+ORDER_TOKENS = (
+    "approve",
+    "order",
+    "buy now",
+    "sell now",
+    "purchase",
+    "place a trade",
+    "place the trade",
+    "open a position",
+    "open the position",
+)
 NUMBER = re.compile(
     r"\d{1,3}(?:,\d{3})+(?:\.\d+)?|\d+(?:\.\d+)?[eE][+-]?\d+|\d+\.\d+|\d{3,}"
 )
@@ -95,14 +105,263 @@ def redact_numbers(text):
     return NUMBER.sub("[withheld]", _plain(text))
 
 
+_BLANK_SPOOF = frozenset({
+    "\u115f",
+    "\u1160",
+    "\u3164",
+    "\uffa0",
+    "\u2800",
+    "\u3000",
+})
+
+
+def suspicious_characters(text):
+    """Format, combining, control, or blank-glyph characters that can hide a phrase."""
+    for ch in str(text or ""):
+        category = unicodedata.category(ch)
+        if category in {"Cf", "Mn", "Me"}:
+            return True
+        if category == "Cc" and ch not in "\n\r\t":
+            return True
+        if category in {"Zl", "Zp"}:
+            return True
+        if category == "Zs" and ch != " ":
+            return True
+        if ch in _BLANK_SPOOF:
+            return True
+    return False
+
+
+def policy_text(text):
+    """NFKC, drop hidden characters, and fold case for the output check."""
+    out = []
+    for ch in _plain(text):
+        category = unicodedata.category(ch)
+        if category in {"Cf", "Mn", "Me"} or (category == "Cc" and ch not in "\n\r\t"):
+            continue
+        if ch in _BLANK_SPOOF or category in {"Zs", "Zl", "Zp"}:
+            out.append(" ")
+            continue
+        out.append(ch)
+    return re.sub(r"\s+", " ", "".join(out)).strip().lower()
+
+
 def _folded(text):
-    cleaned = "".join(ch for ch in _plain(text) if unicodedata.category(ch) != "Cf")
-    return re.sub(r"\s+", " ", cleaned.lower().replace("\u00a0", " "))
+    return policy_text(text)
+
+
+def unexpected_letters(text, allowed_text):
+    """A non-Latin letter can redraw an order phrase or an account name.
+
+    ASCII letters stay. A non-Latin letter is kept only when that same
+    character is already in the stored facts or refs.
+    """
+    allowed = set()
+    for ch in str(allowed_text or ""):
+        if unicodedata.category(ch).startswith("L") and ch not in _ASCII_LETTERS:
+            allowed.add(ch)
+    for ch in str(text or ""):
+        if not unicodedata.category(ch).startswith("L"):
+            continue
+        if ch in _ASCII_LETTERS or ch in allowed:
+            continue
+        return True
+    return False
+
+
+_ASCII_LETTERS = frozenset("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ")
+
+
+def _decimal_token(value):
+    if isinstance(value, float) and value.is_integer():
+        return str(int(value))
+    return str(value)
+
+
+_NUMBER_WORDS = frozenset(
+    """
+    zero one two three four five six seven eight nine ten
+    eleven twelve thirteen fourteen fifteen sixteen seventeen eighteen nineteen
+    twenty thirty forty fifty sixty seventy eighty ninety
+    hundred thousand fourscore
+    """.split()
+)
+
+
+_GLUE = frozenset({"a", "an", "is", "of", "pct", "percent", "rate", "the"})
+
+
+def _only_number_words(token):
+    if not token:
+        return False
+    words = sorted(_NUMBER_WORDS, key=len, reverse=True)
+
+    def walk(index):
+        if index == len(token):
+            return True
+        for word in words:
+            if token.startswith(word, index) and walk(index + len(word)):
+                return True
+        return False
+
+    return walk(0)
+
+
+def unknown_number_words(text, allowed_text):
+    """A spelled win rate is the same claim as digits, including ``e i g h t y``."""
+    allowed = set(re.findall(r"[a-z]+", policy_text(allowed_text)))
+    folded = policy_text(text)
+    found = []
+    for word in re.findall(r"[a-z]+", folded):
+        if word in allowed or word in found:
+            continue
+        if _only_number_words(word):
+            found.append(word)
+    for word in _NUMBER_WORDS:
+        if word in allowed or word in found:
+            continue
+        parts = [re.escape(ch) for ch in word]
+        pattern = r"(?<![a-z0-9])" + r"[^a-z0-9]*".join(parts) + r"(?![a-z0-9])"
+        if re.search(pattern, folded):
+            found.append(word)
+    long_words = [word for word in _NUMBER_WORDS if len(word) >= 6]
+    for token in re.findall(r"[a-z]+", folded):
+        if token in allowed:
+            continue
+        for word in long_words:
+            if word in token and word not in found:
+                found.append(word)
+                break
+    for token in re.findall(r"[a-z]+", folded):
+        if token in allowed or token in found:
+            continue
+        for word in _NUMBER_WORDS:
+            if len(word) < 5 or word in allowed:
+                continue
+            extra = None
+            if token.startswith(word):
+                extra = token[len(word):]
+            elif token.endswith(word):
+                extra = token[:-len(word)]
+            if extra in _GLUE and word not in found:
+                found.append(word)
+                break
+    return found
+
+
+def unknown_digit_runs(text, allowed):
+    """Digit runs after hidden characters are removed, including a short win rate.
+
+    A character with a Unicode numeric value is the same claim as that number,
+    even when NFKC does not turn it into an ASCII digit. Digits split by a
+    separator that contains no letter are one run, so ``8 0`` and ``8-0``
+    are ``80``. A letter between digits keeps the runs apart.
+    """
+    known = set()
+    for item in allowed or []:
+        known.update(re.findall(r"\d+", policy_text(item)))
+    folded = policy_text(text)
+    joined = re.sub(r"(?<=\d)[^a-z0-9]+(?=\d)", "", folded)
+    unknown = [run for run in re.findall(r"\d+", joined) if run not in known]
+    for ch in str(text or ""):
+        if "0" <= ch <= "9":
+            continue
+        value = unicodedata.numeric(ch, None)
+        if value is None:
+            continue
+        token = _decimal_token(value)
+        if token not in known and token not in unknown:
+            unknown.append(token)
+    for token in re.findall(r"[a-z]+", folded):
+        value = _roman_value(token)
+        if value is None:
+            continue
+        token = str(value)
+        if token not in known and token not in unknown:
+            unknown.append(token)
+    return unknown
+
+
+_IDENTIFIER = re.compile(r"[a-z0-9]+(?:[-_./:][a-z0-9]+){1,}")
+
+
+_ROMAN = re.compile(r"m{0,3}(cm|cd|d?c{0,3})(xc|xl|l?x{0,3})(ix|iv|v?i{0,3})")
+_ROMAN_IGNORE = frozenset({"mix"})
+_ROMAN_VALUES = {"i": 1, "v": 5, "x": 10, "l": 50, "c": 100, "d": 500, "m": 1000}
+
+
+def _roman_value(token):
+    """ASCII Roman numerals such as LXXX. A normal word such as mix is not a number."""
+    if not token or token in _ROMAN_IGNORE or not re.fullmatch(_ROMAN, token):
+        return None
+    if len(token) < 3 and not any(ch in token for ch in "xlcdm"):
+        return None
+    total = 0
+    prev = 0
+    for ch in reversed(token):
+        value = _ROMAN_VALUES[ch]
+        if value < prev:
+            total -= value
+        else:
+            total += value
+            prev = value
+    return total or None
+
+
+def unknown_identifiers(text, allowed_text):
+    haystack = policy_text(allowed_text)
+    found = []
+    for token in _IDENTIFIER.findall(policy_text(text)):
+        if token not in haystack and token not in found:
+            found.append(token)
+    words = _identifier_words(text)
+    allowed_words = " ".join(_identifier_words(allowed_text))
+    for index in range(len(words) - 2):
+        chunk = words[index:index + 3]
+        if not all(len(part) >= 4 for part in chunk):
+            continue
+        token = "-".join(chunk)
+        phrase = " ".join(chunk)
+        if token in haystack or phrase in haystack or token in found or phrase in allowed_words:
+            continue
+        found.append(token)
+    for token in re.findall(r"\b[0-9a-f]{8,}\b", policy_text(text)):
+        if token not in haystack and token not in found:
+            found.append(token)
+    return found
+
+
+_LEET = str.maketrans({"0": "o", "1": "i", "3": "e", "4": "a", "5": "s", "7": "t"})
+_ORDER_PAIRS = (("buy", "now"), ("sell", "now"), ("place", "trade"), ("open", "position"), ("open", "order"))
+
+
+def _identifier_words(text):
+    cleaned = policy_text(text).replace("\u2019", "'").replace("\u2018", "'")
+    cleaned = re.sub(r"'s\b", "", cleaned).replace("'", "")
+    return re.findall(r"[a-z0-9]+", cleaned)
 
 
 def order_language(text):
-    folded = _folded(text)
-    return any(token in folded for token in ORDER_TOKENS)
+    folded = _folded(text).translate(_LEET)
+    if any(token in folded for token in ORDER_TOKENS):
+        return True
+    compact = re.sub(r"[^a-z0-9]", "", folded)
+    if any(token in compact for token in _ORDER_COMPACT):
+        return True
+    words = set(re.findall(r"[a-z]+", folded))
+    return any(left in words and right in words for left, right in _ORDER_PAIRS)
+
+
+_ORDER_COMPACT = (
+    "approve",
+    "order",
+    "buynow",
+    "sellnow",
+    "placeatrade",
+    "placeanorder",
+    "openaposition",
+    "openanorder",
+)
 
 
 def question_requests_action(text):

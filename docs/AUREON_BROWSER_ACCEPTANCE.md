@@ -52,8 +52,14 @@ The header now shows the unread count returned by the inbox API.
 
 Hosted validation, after an independent review of the previous implementation, now rejects a one- or two-digit number that is not in the facts, an order phrase with a hidden format character, and a hyphenated identifier in the summary that is not in the facts. A test transport is not called unless the provider is configured.
 
+## Gate rerun
+
+`AUREON_BROWSER_FOCUS=1` reran the customer and operator journeys and wrote `docs/release-evidence/experience/gate/`. Result: 56 PASS, 1 NOT IMPLEMENTED, 18 layout rows at 1280, 0 overflow. The eight-width sweep was not repeated.
+
+`export-and-pagination-controls` is NOT IMPLEMENTED on purpose. The check searches the shell for export, download csv, next page, or previous page. Those controls are not a product requirement, and no dead button was added.
+
 ## Not claimed
 
 - A live model response. Status remains BLOCKED.
 - Export or pagination. Those controls do not exist.
-- A second independent review of this fix. The review that found the validation and search holes looked at `5b1c77c`. The author re-ran the suite and this browser harness after the fixes.
+- A human sign-off. A separate probe of `complete()` and the route closed the three earlier validation holes. See the acceptance report. The author is not that reviewer.

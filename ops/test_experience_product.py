@@ -264,6 +264,156 @@ def test_hosted_ai_rejects_invented_numbers_orders_and_other_accounts(tmp_path, 
     del users
 
 
+def test_hosted_output_rejects_unicode_and_separator_bypasses(tmp_path, monkeypatch):
+    app, users = _boot(tmp_path, monkeypatch)
+    ada, ada_body = _login(app, "Ada")
+    _ben, ben_body = _login(app, "Benny")
+    monkeypatch.setenv("AUREON_AI_API_KEY", "test-key-not-real")
+    monkeypatch.setenv("AUREON_AI_BASE_URL", "https://ai.example.test")
+    monkeypatch.setenv("AUREON_AI_MODEL", "example-model")
+    monkeypatch.setenv("AUREON_AI_SPEND_APPROVED", "1")
+    from ops.ai_safety import order_language, unknown_digit_runs
+    from ops.hosted_ai import complete
+
+    assert unknown_digit_runs("The win rate is 8 0.", ["cap 8", "count 0"]) == ["80"]
+    assert unknown_digit_runs("The win rate is 8-0.", ["cap 8", "count 0"]) == ["80"]
+    assert unknown_digit_runs("Journal notes 0. Observations 12.", ["journal notes 0", "stored observations 12"]) == []
+    assert order_language("Please b u y now.") is True
+    assert order_language("Please a p p r o v e this.") is True
+    assert order_language("Stored observation is none. Broker is false.") is False
+
+    calls = {"n": 0}
+
+    def accept(summary, used=None):
+        def transport(_method, _url, _payload):
+            calls["n"] += 1
+            body = {"summary": summary}
+            if used is not None:
+                body["evidence_used"] = used
+            else:
+                body["evidence_used"] = ["broker false"]
+            return 200, body
+        return transport
+
+    blocked = [
+        "The win rate is 80.",
+        "The win rate is ⁸⁰.",
+        "The win rate is 80x.",
+        "The win rate is is80.",
+        "The win rate is 80pct.",
+        "The win rate is 8\u200b0.",
+        "The reading is 0\u200b0.",
+        "Please buy\u200b now.",
+        "Please buy\u034f now.",
+        "Please buy\u3164now.",
+        "Please buy\x00 now.",
+        "\u202ewon yub",
+        "Open\u2060a position.",
+        "See other-customer-ledger.",
+        "See other\u200b-customer\u200b-ledger.",
+        "See other customer ledger.",
+        "See other.customer.ledger.",
+        "See other/customer.",
+        "Benny has a quiet book.",
+        "See account deadbeefcafebabe.",
+        "See account " + ben_body["id"] + ".",
+        "The win rate is ⓼.",
+        "The win rate is ፹.",
+        "The win rate is Ⅷ.",
+        "The score is ⅬⅩⅩⅩ.",
+        "Please bуy now.",
+        "Please bуy\u200bnow.",
+        "The win rate is 8\u200a0.",
+        "The win rate is 8\u20280.",
+        "The win rate is 8\u20090.",
+        "Ben\u200any has a quiet book.",
+        "Please b u y now.",
+        "Please buy it now.",
+        "Please sell n0w.",
+        "Please 0rder now.",
+        "Open the position.",
+        "Place the trade.",
+        "Please a p p r o v e this.",
+        "Please o r d e r it.",
+        "PLEASE BUY NOW.",
+        "The win rate is 8 0.",
+        "The win rate is 8-0.",
+        "The win rate is 8/0.",
+        "The win rate is 8,0.",
+        "The win rate is ８０.",
+        "The win rate is eighty.",
+        "The win rate is e i g h t y.",
+        "The win rate is eighty-five.",
+        "The win rate iseighty.",
+        "The win rate iseight.",
+        "The chance is viii.",
+        "Please purchase now.",
+        "The win rate is eightypercent.",
+        "The win rate is fourscore.",
+        "The win rate is LXXX.",
+        "See other customer's ledger.",
+        "See other customer\u2019s ledger.",
+        "Customer xBenny is noted.",
+        "The account is B\u00b7e\u00b7n\u00b7n\u00b7y.",
+        "B e n n y has a quiet book.",
+    ]
+    for summary in blocked:
+        result = complete(ada_body["id"], "/overview", question="Explain", transport=accept(summary))
+        assert result["analysis"] is None, summary
+        assert result["reason"] == "invalid_output", summary
+        assert result["approved"] is False and result["order_opened"] is False
+        assert result.get("analysis") is None
+
+    shaped = complete(ada_body["id"], "/overview", question="Explain", transport=lambda *_args: (200, {"analysis": "The win rate is 80.", "text": "Please buy now."}))
+    assert shaped["analysis"] is None
+    assert shaped["reason"] == "invalid_output"
+    not_text = complete(ada_body["id"], "/overview", question="Explain", transport=lambda *_args: (200, {"summary": {"rate": 80}, "evidence_used": ["broker false"]}))
+    assert not_text["analysis"] is None
+    assert not_text["reason"] == "invalid_output"
+    blank = complete(ada_body["id"], "/overview", question="Explain", transport=lambda *_args: (200, {"summary": "   ", "evidence_used": ["broker false"]}))
+    assert blank["analysis"] is None
+    assert blank["reason"] == "invalid_output"
+
+    quoted = complete(
+        ada_body["id"],
+        "/overview",
+        question="Explain",
+        transport=accept("Stored observation is none. Broker is false.", "other-customer-ledger"),
+    )
+    assert quoted["analysis"] is None
+    assert quoted["reason"] == "invalid_output"
+
+    kept = complete(
+        ada_body["id"],
+        "/overview",
+        question="Explain my record",
+        transport=accept("Stored observation is none. Broker is false."),
+    )
+    assert kept["ok"] is True
+    assert kept["analysis"] == "Stored observation is none. Broker is false."
+    assert kept["approved"] is False and kept["order_opened"] is False
+
+    monkeypatch.delenv("AUREON_AI_SPEND_APPROVED")
+    def explode(*_args, **_kwargs):
+        raise AssertionError("transport")
+    silent = complete(ada_body["id"], "/overview", question="Explain", transport=explode)
+    assert silent["analysis"] is None
+    assert silent["reason"] == "provider_not_configured"
+    assert silent["usage"]["provider_called"] is False
+
+    monkeypatch.setenv("AUREON_AI_SPEND_APPROVED", "1")
+    def route_post(_payload):
+        return 200, {"summary": "The win rate is ⁸⁰.", "evidence_used": ["broker false"]}
+    monkeypatch.setattr("ops.hosted_ai._post", route_post)
+    route = ada.post("/api/aureon-ai", json={"page": "/overview", "question": "Explain", "summary": "The win rate is 80.", "analysis": "approved", "transport": "http://evil"})
+    payload = route.get_json()
+    assert payload["analysis"] is None
+    assert payload["reason"] == "invalid_output"
+    assert payload["approved"] is False and payload["order_opened"] is False
+    assert "win rate" not in json.dumps(payload).lower()
+    del users
+
+
 def test_signal_engine_does_not_import_hosted_ai_or_ollama():
     source = Path("/tmp/aureon-experience/ops/signal_engine.py").read_text(encoding="utf-8")
     assert "hosted_ai" not in source

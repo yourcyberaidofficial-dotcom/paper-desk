@@ -118,6 +118,9 @@ def _user_id(data, name):
 
 
 def main():
+    global OUT
+    if os.environ.get("AUREON_BROWSER_FOCUS") == "1":
+        OUT = OUT / "gate"
     OUT.mkdir(parents=True, exist_ok=True)
     data = Path("/tmp/aureon-experience-browser")
     if data.exists():
@@ -200,7 +203,8 @@ def main():
                 )
 
             layout_rows = []
-            for width in WIDTHS:
+            widths = [1280] if os.environ.get("AUREON_BROWSER_FOCUS") == "1" else WIDTHS
+            for width in widths:
                 page.set_viewport_size({"width": width, "height": 900})
                 for path, title in PAGES:
                     if path in {"/", "/login", "/register"}:
@@ -235,6 +239,17 @@ def main():
                     page.wait_for_timeout(400)
                     note("menu-320", "PASS" if opened and "/orders" in page.url else "FAIL", f"opened={opened} url={page.url}")
                     shot("menu-open-320.png")
+            if os.environ.get("AUREON_BROWSER_FOCUS") == "1":
+                page.set_viewport_size({"width": 320, "height": 900})
+                page.goto(base + "/overview", wait_until="domcontentloaded")
+                settle()
+                page.click("#menu")
+                opened = page.evaluate("() => document.getElementById('nav').classList.contains('open')")
+                page.click("aside a[href='/orders']")
+                page.wait_for_timeout(400)
+                note("menu-320", "PASS" if opened and "/orders" in page.url else "FAIL", f"opened={opened} url={page.url}")
+                shot("menu-open-320.png")
+                page.set_viewport_size({"width": 1280, "height": 900})
 
             public = browser.new_context(viewport={"width": 390, "height": 800})
             guest = public.new_page()
