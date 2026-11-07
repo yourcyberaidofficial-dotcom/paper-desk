@@ -30,14 +30,18 @@ The customer shell posts `{page, question}` from the header panel and from the L
 | Case | Result |
 | --- | --- |
 | Question asks to place a trade or approve a strategy | `order_request_refused`. No model call. |
-| Question contains another account id, or another account name of at least two characters | `other_account_refused`. Stored facts are not returned. A one-character name is not matched, because that would reject ordinary prose. |
+| Question contains another account id, or a name that is safe to treat as an identity | `other_account_refused`. Stored facts are not returned. One-character names and glue words are not identity tokens. |
 | Summary contains order language, including a hidden character, spaced letters, a digit used as a letter, `purchase`, `buyitnow`, or `buyit now` | `invalid_output`. `analysis` stays null. `buying now` is commentary, not an instruction. It still cannot open an order. |
 | Summary contains a number that was not in the facts, including a short digit run, a spelled number, a connector glued to that number (`ateight`, `foreight`, `oneight`), a Roman numeral, or that numeral glued to a connector (`isviii`, `theviii`) | `invalid_output`. |
-| Summary contains another account id or name, including `Al`, `Jo`, and `Ann` | `invalid_output`. The name must be the whole token after Unicode and case folding. `also`, `almost`, `annual`, and `joining` stay valid. Names come from server account records, not from the client body. |
+| Summary contains another account id or a protected name, including `Al`, `Jo`, and `Ann` | `invalid_output`. The name must be the whole token after Unicode and case folding. `also`, `almost`, `annual`, and `joining` stay valid even if a legacy account is named `Is`. |
 | `evidence_used` cites text that is not in the facts or refs | `invalid_output`. |
 | Valid summary | `ai_commentary_not_a_signal`. `approved` and `order_opened` are forced false. |
 
 `vi`, `iv`, and `ii` are not treated as Roman numerals, alone or glued (`isvi`). That exclusion is intentional. A numeral of three or more characters, such as `viii`, is rejected.
+
+Registration and `POST /api/profile` refuse a display name that normalizes to one character or to a glue word. The same NFKC and hidden-character rules are used. A refusal does not create or modify the account. `POST /api/experience` also refuses that name and does not save the rest of the request. Neither path changes a role, an entitlement, or broker access. The settings screen does not send a name.
+
+The worktree account store had no ambiguous legacy names when this was checked. The count is the only figure recorded. If an older record already uses one of those names, leave it in place. Do not rename, lock, or delete it from this product path. An owner-approved rename is a separate edit of that record's `name` field to a value `accept_display_name` accepts, keeping the same account id, password hash, and role. Until then the matcher ignores the ambiguous name, and the account can still sign in with the stored name.
 
 The signed-in account's own name is not a foreign name. Another account's id, password, paper book, and private evidence are not returned.
 

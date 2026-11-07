@@ -1230,6 +1230,7 @@ def user_logout():
 
 @app.post("/api/profile")
 def save_profile():
+    from ops.ai_safety import accept_display_name
     from ops.users import update_profile
     user_id = session.get("user_id")
     if not user_id:
@@ -1237,6 +1238,10 @@ def save_profile():
     body = request.get_json(silent=True)
     if not isinstance(body, dict):
         return jsonify({"error": "invalid_input"}), 400
+    if "name" in body:
+        from ops.users import update_display_name
+        if accept_display_name(body.get("name")) is None or update_display_name(user_id, body.get("name")) is None:
+            return jsonify({"error": "invalid or duplicate"}), 400
     expected = body.get("expected_revision")
     user = update_profile(user_id, body, expected_revision=expected)
     if isinstance(user, dict) and user.get("conflict"):
@@ -2302,6 +2307,9 @@ def experience_save():
         except Exception:
             pass
         return jsonify({"error": "not_permitted"}), 403
+    from ops.ai_safety import accept_display_name
+    if "name" in body and accept_display_name(body.get("name")) is None:
+        return jsonify({"error": "invalid or duplicate"}), 400
     from ops.access import resolve_role
     from ops.experience import resolve
     from ops.users import update_presentation

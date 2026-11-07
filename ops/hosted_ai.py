@@ -119,7 +119,7 @@ def _facts(user_id, task, symbol, interval):
 
 
 def _foreign_account(user_id, question):
-    from ops.ai_safety import policy_text
+    from ops.ai_safety import display_name_token, policy_text
     from ops.users import ROOT
 
     text = policy_text(question)
@@ -143,17 +143,22 @@ def _foreign_account(user_id, question):
             return True
         if other.lower() in text:
             return True
-        name_compact = re.sub(r"[^a-z0-9]", "", policy_text(name))
-        # A one-character name is not matched. "a" would reject ordinary prose.
+        name_compact = ""
+        token = display_name_token(name)
+        if token:
+            name_compact = token
+        # A one-character name or a connector such as "is" is not a token.
         # Two- and three-character names match only as a whole token, so "al"
         # rejects "Al" and not "also", "almost", "annual", or "joining".
-        if len(name_compact) >= 2 and re.search(
+        if name_compact and re.search(
             r"(?<![a-z0-9])" + r"[^a-z0-9]*".join(re.escape(ch) for ch in name_compact) + r"(?![a-z0-9])",
             text,
         ):
             return True
         if len(name_compact) >= 5 and name_compact not in _NAME_STOP and name_compact in summary_compact:
             return True
+        if not name_compact:
+            continue
         parts = re.findall(r"[a-z0-9]+", policy_text(name))
         if parts and sum(len(part) for part in parts) >= 4:
             pattern = r"\b" + r"\W+".join(re.escape(part) for part in parts) + r"\b"

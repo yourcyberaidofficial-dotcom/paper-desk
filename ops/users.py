@@ -87,17 +87,64 @@ def _by_name(name: str) -> dict | None:
     return None
 
 
+def _folded_taken(name: str, except_id: str | None = None) -> bool:
+    from ops.ai_safety import policy_text
+
+    folded = policy_text(name)
+    if not folded or not ROOT.exists():
+        return False
+    for path in ROOT.glob("*.json"):
+        try:
+            user = json.loads(path.read_text())
+        except (OSError, json.JSONDecodeError):
+            continue
+        if not isinstance(user, dict):
+            continue
+        if except_id and user.get("id") == except_id:
+            continue
+        if policy_text(user.get("name")) == folded:
+            return True
+    return False
+
+
+def ambiguous_name_count(root: Path | None = None) -> int:
+    """How many stored display names are not foreign-name tokens.
+
+    The count is the only result. Names and account ids are not returned.
+    """
+    from ops.ai_safety import display_name_token
+
+    folder = root or ROOT
+    if not folder.exists():
+        return 0
+    found = 0
+    for path in folder.glob("*.json"):
+        try:
+            user = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue
+        if not isinstance(user, dict):
+            continue
+        name = user.get("name")
+        if isinstance(name, str) and name.strip() and display_name_token(name) is None:
+            found += 1
+    return found
+
+
 def register(name: str, password: str) -> dict | None:
-    if not name or not password or len(password) < 8:
+    from ops.ai_safety import accept_display_name
+
+    cleaned = accept_display_name(name)
+    if cleaned is None or not password or len(password) < 8:
         return None
     handle = _root_lock()
     try:
-        if _by_name(name):
+        if _folded_taken(cleaned):
             return None
         user_id = secrets.token_hex(8)
         user = {
             "id": user_id,
-            "name": name[:40],
+            "name": cleaned,
             "password_hash": generate_password_hash(password),
             "created_at": time.time(),
             "telegram": None,
@@ -108,6 +155,23 @@ def register(name: str, password: str) -> dict | None:
         return {"id": user_id, "name": user["name"]}
     finally:
         _root_unlock(handle)
+
+
+def update_display_name(user_id: str, name: str) -> dict | None:
+    """Change the display name only. A refusal does not write."""
+    from ops.ai_safety import accept_display_name
+
+    cleaned = accept_display_name(name)
+    if cleaned is None:
+        return None
+
+    def mutator(user):
+        if _folded_taken(cleaned, except_id=user_id):
+            return {"__skip__": "duplicate"}
+        user["name"] = cleaned
+        return user
+
+    return _commit(user_id, mutator)
 
 
 def login(name: str, password: str) -> dict | None:

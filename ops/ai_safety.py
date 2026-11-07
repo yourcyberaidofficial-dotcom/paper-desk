@@ -134,6 +134,11 @@ def suspicious_characters(text):
 
 def policy_text(text):
     """NFKC, drop hidden characters, and fold case for the output check."""
+    return _visible_text(text, lower=True)
+
+
+def _visible_text(text, lower=False):
+    """NFKC text with hidden characters removed. Case is kept unless ``lower`` is set."""
     out = []
     for ch in _plain(text):
         category = unicodedata.category(ch)
@@ -143,7 +148,8 @@ def policy_text(text):
             out.append(" ")
             continue
         out.append(ch)
-    return re.sub(r"\s+", " ", "".join(out)).strip().lower()
+    cleaned = re.sub(r"\s+", " ", "".join(out)).strip()
+    return cleaned.lower() if lower else cleaned
 
 
 def _folded(text):
@@ -203,6 +209,34 @@ _GLUE = frozenset({
     "the",
     "to",
 })
+DISPLAY_NAME_MAX = 40
+
+
+def display_name_token(raw):
+    """Folded account name when it can be a foreign-identity token.
+
+    One-character names and connector words are not tokens. ``Al``, ``Jo``,
+    and ``Ann`` are. ``is`` and ``B`` are not, so a legacy account with one
+    of those names cannot make ordinary prose fail.
+    """
+    compact = re.sub(r"[^a-z0-9]", "", policy_text(raw))
+    if len(compact) < 2 or compact in _GLUE:
+        return None
+    return compact
+
+
+def accept_display_name(raw):
+    """Name safe to store, or None when creation or rename must refuse it.
+
+    The check uses the same NFKC and hidden-character rules as model text.
+    It does not change a role, an entitlement, or an account id.
+    """
+    cleaned = _visible_text(raw, lower=False)
+    if not cleaned or len(cleaned) > DISPLAY_NAME_MAX:
+        return None
+    if display_name_token(cleaned) is None:
+        return None
+    return cleaned
 
 
 def _number_construction(token):

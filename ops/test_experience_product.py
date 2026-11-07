@@ -621,6 +621,139 @@ def test_route_rejects_glued_forms_and_short_names(tmp_path, monkeypatch):
     del users
 
 
+def test_ambiguous_account_names_do_not_block_commentary(tmp_path, monkeypatch):
+    app, users = _boot(tmp_path, monkeypatch)
+    ada, ada_body = _login(app, "Ada")
+    before = sorted(path.name for path in users.ROOT.glob("*.json"))
+    reserved = ["B", " IS ", "At", "ON", "to", "For", "Ｉｓ", "I\u200bs", "o\u200bn", "B\u200b", "A" * 41]
+    for name in reserved:
+        created = app.test_client().post("/api/register", json={"name": name, "password": "password-s", "role": "operator", "entitlements": ["broker"]})
+        assert created.status_code == 400, name
+        assert created.get_json()["error"] == "invalid or duplicate"
+    assert sorted(path.name for path in users.ROOT.glob("*.json")) == before
+    stored = json.loads((users.ROOT / f"{ada_body['id']}.json").read_text(encoding="utf-8"))
+    assert stored["name"] == "Ada"
+    assert "role" not in stored and "entitlements" not in stored
+    refused = ada.post("/api/profile", json={"name": "Is", "role": "operator", "capital": 5, "signal_style": "orion_precision"})
+    assert refused.status_code == 400
+    untouched = json.loads((users.ROOT / f"{ada_body['id']}.json").read_text(encoding="utf-8"))
+    assert untouched["name"] == "Ada" and untouched["revision"] == stored["revision"]
+    assert "profile" not in untouched or untouched.get("profile", {}).get("capital") != 5
+    experience = ada.post("/api/experience", json={"name": "For", "density": "compact"})
+    assert experience.status_code == 400
+    assert "presentation" not in json.loads((users.ROOT / f"{ada_body['id']}.json").read_text(encoding="utf-8"))
+    from ops.users import update_display_name
+    assert update_display_name(ada_body["id"], "To") is None
+    assert json.loads((users.ROOT / f"{ada_body['id']}.json").read_text(encoding="utf-8"))["name"] == "Ada"
+    renamed = ada.post("/api/profile", json={"name": "Nia"})
+    assert renamed.status_code == 200
+    assert json.loads((users.ROOT / f"{ada_body['id']}.json").read_text(encoding="utf-8"))["name"] == "Nia"
+    assert ada.get("/api/experience").get_json()["security_role"] == "customer"
+    ada.post("/api/profile", json={"name": "Ada"})
+    for name in ("Al", "Jo", "Ann"):
+        assert app.test_client().post("/api/register", json={"name": name, "password": "password-s"}).status_code == 200
+    monkeypatch.setenv("AUREON_AI_API_KEY", "test-key-not-real")
+    monkeypatch.setenv("AUREON_AI_BASE_URL", "https://ai.example.test")
+    monkeypatch.setenv("AUREON_AI_MODEL", "example-model")
+    monkeypatch.setenv("AUREON_AI_SPEND_APPROVED", "1")
+    import ops.paperbook as paperbook
+    opened = []
+    monkeypatch.setattr(paperbook, "open_order", lambda *_args, **_kwargs: opened.append(True))
+    state = {"summary": "", "calls": 0}
+
+    def route_post(_payload):
+        state["calls"] += 1
+        return 200, {"summary": state["summary"], "evidence_used": ["broker false"], "approved": True, "order_opened": True}
+
+    monkeypatch.setattr("ops.hosted_ai._post", route_post)
+
+    def plant(name, user_id):
+        record = {"id": user_id, "name": name, "password_hash": "not-used", "created_at": 0, "telegram": None, "prefs": {}, "revision": 1}
+        path = users.ROOT / f"{user_id}.json"
+        path.write_text(json.dumps(record), encoding="utf-8")
+        return path
+
+    def ask(summary):
+        state["summary"] = summary
+        response = ada.post("/api/aureon-ai", json={"page": "/overview", "question": "Explain", "summary": summary, "analysis": summary, "approved": True, "order_opened": True, "transport": "http://evil"})
+        body = response.get_json()
+        return body, json.dumps(body)
+
+    kept = [
+        "Stored observation is none. Broker is false.",
+        "Stored observation is none for the broker.",
+        "The observation is none on paper.",
+        "Stored observation is none at broker.",
+        "The win rate is at.",
+        "Broker is false also.",
+        "Broker is false almost.",
+        "Broker is false annual.",
+        "Broker is false joining.",
+        "The chance is vi.",
+        "The chance is iv.",
+        "The chance is ii.",
+        "The chance is isvi.",
+        "Broker is false. Buying now.",
+        "Ada has a quiet book.",
+    ]
+    legacy = (("B", "legacy-b"), ("Is", "legacy-is"), ("At", "legacy-at"), ("On", "legacy-on"), ("To", "legacy-to"), ("For", "legacy-for"))
+    for name, user_id in legacy:
+        path = plant(name, user_id)
+        for summary in kept:
+            body, blob = ask(summary)
+            assert body["ok"] is True and body["analysis"] == summary, (name, summary)
+            assert body["approved"] is False and body["order_opened"] is False
+            assert "password" not in blob.lower() and user_id not in blob
+        path.unlink()
+    for name, user_id in legacy:
+        plant(name, user_id)
+    from ops.users import ambiguous_name_count
+    assert ambiguous_name_count(users.ROOT) == len(legacy)
+    for summary in kept:
+        body, _blob = ask(summary)
+        assert body["ok"] is True and body["analysis"] == summary, summary
+    rejected = [
+        "Al has a quiet book.",
+        "See Al.",
+        "AL has a quiet book.",
+        "A l has a quiet book.",
+        "Jo has a quiet book.",
+        "Jo's book is quiet.",
+        "J\u200bo has a quiet book.",
+        "Ann has a quiet book.",
+        "Ann's book is quiet.",
+        "a-n-n has a quiet book.",
+        "The win rate iseight.",
+        "The win rate is ateight.",
+        "The win rate is foreight.",
+        "The win rate is oneight.",
+        "The chance is isviii.",
+        "The chance is theviii.",
+        "Please purchase now.",
+        "Please buyitnow.",
+        "Please buyit now.",
+    ]
+    for summary in rejected:
+        body, blob = ask(summary)
+        assert body["reason"] == "invalid_output", summary
+        assert body["analysis"] is None and body["approved"] is False and body["order_opened"] is False
+        assert summary not in blob and "password" not in blob.lower()
+        assert all(user_id not in blob for _name, user_id in legacy)
+    assert opened == []
+    before_calls = state["calls"]
+    monkeypatch.delenv("AUREON_AI_SPEND_APPROVED")
+
+    def explode(_payload):
+        state["calls"] += 1
+        raise AssertionError("provider")
+
+    monkeypatch.setattr("ops.hosted_ai._post", explode)
+    body, blob = ask("Stored observation is none. Broker is false.")
+    assert body["reason"] == "provider_not_configured" and body["analysis"] is None
+    assert state["calls"] == before_calls and "Broker is false" not in blob
+    del users
+
+
 def test_signal_engine_does_not_import_hosted_ai_or_ollama():
     source = Path("/tmp/aureon-experience/ops/signal_engine.py").read_text(encoding="utf-8")
     assert "hosted_ai" not in source
