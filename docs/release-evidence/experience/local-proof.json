@@ -1,0 +1,181 @@
+{
+  "branch": "product/backend-recovery",
+  "environment": "local application process on this host, not the production container",
+  "production_vps": {
+    "name": "aureontradelab.tech",
+    "address": "88.223.95.249",
+    "ssh_22": "timeout",
+    "http_80": "timeout",
+    "https_443": "timeout",
+    "docker_seen": false,
+    "aureon_default_gateway": null,
+    "bind_changed": false,
+    "blocker": "TCP to 88.223.95.249 ports 22, 80 and 443 timed out. This host has no Docker socket and no bridge. The gateway was not invented. Ollama remains on 127.0.0.1:11434."
+  },
+  "ollama": {
+    "listen": "127.0.0.1:11434",
+    "model": "qwen2.5:1.5b",
+    "quantization": "Q4_K_M",
+    "context": 2048,
+    "parallel": 1,
+    "cpu_only": true,
+    "public_bind": false,
+    "llama_server_rss_kib": 1134136,
+    "ollama_serve_rss_kib": 30524,
+    "api_chat_warm_s": 0.152,
+    "customer_route_s": 3.41,
+    "mem_before": {
+      "available": 1560348,
+      "total": 4024496,
+      "swap": 0
+    },
+    "mem_after_chat": {
+      "available": 1557780,
+      "total": 4024496,
+      "swap": 0
+    }
+  },
+  "passed": 17,
+  "failed": 0,
+  "elapsed_s": 15.536,
+  "findings": [
+    {
+      "name": "ollama-tags",
+      "status": "PASS",
+      "detail": {
+        "status": 200,
+        "models": [
+          "qwen2.5:1.5b"
+        ]
+      }
+    },
+    {
+      "name": "ollama-api-chat",
+      "status": "PASS",
+      "detail": {
+        "status": 200,
+        "seconds": 0.152,
+        "excerpt": "Ready"
+      }
+    },
+    {
+      "name": "register",
+      "status": "PASS",
+      "detail": "http://127.0.0.1:48723/onboarding"
+    },
+    {
+      "name": "settings-reload",
+      "status": "PASS",
+      "detail": {
+        "zone": "Europe/London",
+        "density": "compact",
+        "capital": "4242"
+      }
+    },
+    {
+      "name": "overview-no-duplicate",
+      "status": "PASS",
+      "detail": {
+        "tile_label": 1,
+        "capital_shown": true,
+        "kpis": "Paper capital |  | $4,242.00 |  | Open paper positions |  | 0 |  | Closed paper trades |  | 0 |  | No closed paper trade. No win rate. |  | AutoPilot |  | Disabled",
+        "account_head": "Ada | Persona | Apex Momentum | Daily loss cap | 4% | Weekly loss limit | Not set | Risk per trade | 2.5% | Academy | 0 of 19 lessons |  | Broker execution is disabled. No strategy is "
+      }
+    },
+    {
+      "name": "terminal-blank-stop",
+      "status": "PASS",
+      "detail": "Your levels were not saved. stop: Enter a number.. No order was opened. This is not a broker order."
+    },
+    {
+      "name": "terminal-invalid-levels",
+      "status": "PASS",
+      "detail": "Your levels were not saved. stop: For a buy, the stop must be below the entry. target: For a buy, the target must be above the entry.. No order was opened. This is not a broker order."
+    },
+    {
+      "name": "terminal-plan-persisted",
+      "status": "PASS",
+      "detail": "Your levels. Entry 100.00. Stop 98.00. Target 104.00. Not a feed plan. Not a broker fill.\n\nConfirm manual paper order"
+    },
+    {
+      "name": "scanner-csv",
+      "status": "PASS",
+      "detail": {
+        "import": "Stored 21 user-provided candles. Duplicates 0. Not a live feed.",
+        "eval": "Historical evaluation FORMING for BTCUSDT 15m. Signal no. Live no. Not an approval and not an order."
+      }
+    },
+    {
+      "name": "signals-honest",
+      "status": "PASS",
+      "detail": "Live desk |  | Aureon AI is standard on this desk. The hosted model is not a customer switch. If it is not connected, no analysis is shown. The signal engine does not wait on it. A signal, a research result and an AutoPilot decision are three d"
+    },
+    {
+      "name": "activities-events",
+      "status": "PASS",
+      "detail": {
+        "unread": [
+          "3 unread for this account.",
+          "Unread \u00b7 Nov 08, 2026, 03:56 PM \u00b7 Europe/London"
+        ],
+        "head": "Live Activities |  | AutoPilot Disabled. New automated paper entries are not eligible. Permission is not active. New automated entries are blocked. |  | 3 unread for this account. |  | Permission, an approved strategy, and execution eligibility are thr"
+      }
+    },
+    {
+      "name": "ai-page",
+      "status": "PASS",
+      "detail": "AI commentary. Not a signal and not an order. |  | Local commentary from the installed model. The hosted provider was not called. |  | The latest observation is none, and the latest research is not promoted."
+    },
+    {
+      "name": "ai-route-inference",
+      "status": "PASS",
+      "detail": {
+        "seconds": 3.41,
+        "inference": true,
+        "reason": "provider_not_configured",
+        "model": "qwen2.5:1.5b",
+        "analysis": "The latest observation is none. The latest research is not promoted.",
+        "persona_in_record": true,
+        "record_head": [
+          "task explain_signal",
+          "stored observations 0",
+          "latest observation none",
+          "latest research not_promoted"
+        ]
+      }
+    },
+    {
+      "name": "ai-ungrounded-rejected-or-absent",
+      "status": "PASS",
+      "detail": {
+        "digits_in_analysis": false,
+        "analysis": "The latest observation is none. The latest research is not promoted."
+      }
+    },
+    {
+      "name": "account-isolation",
+      "status": "PASS",
+      "detail": {
+        "nia_messages": 0,
+        "leaked": false
+      }
+    },
+    {
+      "name": "sessions-distinct",
+      "status": "PASS",
+      "detail": {
+        "ada": "Ada",
+        "nia": "Nia"
+      }
+    },
+    {
+      "name": "model-failure-safe",
+      "status": "PASS",
+      "detail": {
+        "reason": "provider_not_configured",
+        "ollama": "offline",
+        "message": null
+      }
+    }
+  ]
+}

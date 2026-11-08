@@ -112,3 +112,34 @@ def test_ollama_schema_keeps_a_short_citation_and_not_a_roman_rate(monkeypatch):
     assert _validate("The chance is VIII.", facts, [], ["observation"]) is False
     assert _validate(result["explanation"]["summary"], facts, [], result["explanation"]["evidence_used"]) is True
 
+
+def test_historical_import_activity_uses_the_clock_not_the_candle(tmp_path, monkeypatch):
+    monkeypatch.setenv("AUREON_DATA", str(tmp_path))
+    import time
+
+    from ops.activity import read as read_activity
+    from ops.candle_import import evaluate, import_rows, parse_csv
+
+    start = 1_700_006_400_000
+    step = 900_000
+    lines = ["instrument,interval,open_time_ms,open,high,low,close"]
+    for index in range(21):
+        open_ms = start + index * step
+        close = 100 + index
+        lines.append(f"BTCUSDT,15m,{open_ms},{close - 1},{close + 1},{close - 2},{close}")
+    parsed = parse_csv("\n".join(lines))
+    imported = import_rows("ada", parsed["rows"], now_ms=start + 21 * step)
+    assert imported["stored"] == 21 and imported["live"] is False
+    before = int(time.time() * 1000) - 5_000
+    result = evaluate("ada", "BTCUSDT", "15m")
+    assert result["live"] is False
+    events = [row for row in read_activity(account_id="ada") if row.get("event_type") == "signal_forming"]
+    assert len(events) == 1
+    event = events[0]
+    assert event["created_ms"] >= before
+    assert event["created_ms"] != result["row"]["now_ms"]
+    assert event["detail"]["observed_ms"] == result["row"]["now_ms"]
+    assert event["detail"]["live"] is False
+    assert "Historical import" in event["detail"]["note"]
+    assert "live reading" in event["detail"]["note"]
+

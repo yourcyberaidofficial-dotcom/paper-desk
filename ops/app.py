@@ -3323,7 +3323,11 @@ function bindAsk(){
           const label = document.createElement("p");
           label.textContent = body.analysis ? "AI commentary. Not a signal and not an order." : "Stored record. Not an analysis.";
           const state = document.createElement("p");
-          state.textContent = "Aureon AI " + (body.operational || "unknown") + (body.reason ? " · " + body.reason : "");
+          const local = body.ollama || {};
+          let stateText = "Aureon AI " + (body.operational || "unknown") + (body.reason ? " · " + body.reason : "");
+          if (body.analysis && local.inference === true) stateText = "Local commentary from the installed model. The hosted provider was not called.";
+          else if (!body.analysis) stateText = "No commentary was produced. No price was invented.";
+          state.textContent = stateText;
           const text = document.createElement("p");
           text.textContent = body.analysis || (body.stored_record || []).join(" ") || body.note || body.reason || "No analysis was produced.";
           out.append(label, state, text);

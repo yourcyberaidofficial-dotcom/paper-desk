@@ -187,18 +187,25 @@ def _activity(account_id, row):
     if not kind:
         return
     entity = f"{row.get('symbol')}:{row.get('interval')}:UNAVAILABLE" if row.get("lifecycle") == "UNAVAILABLE" else f"{row.get('opportunity_id')}:{row.get('lifecycle')}"
+    observed = row.get("now_ms")
+    historical = row.get("live") is False and row.get("source_label") == "user_provided_historical"
+    note = f"{row.get('symbol')} {row.get('interval')} is {row.get('lifecycle')}. Not an order."
+    if historical:
+        note = f"{row.get('symbol')} {row.get('interval')} is {row.get('lifecycle')}. Historical import, not a live reading. Not an order."
     record_once(
         kind,
         entity=entity,
         component="signal_pipeline",
         account_id=account_id,
         detail={
-            "note": f"{row.get('symbol')} {row.get('interval')} is {row.get('lifecycle')}. Not an order.",
+            "note": note,
             "opportunity_id": row.get("opportunity_id"),
             "symbol": row.get("symbol"),
             "interval": row.get("interval"),
             "lifecycle": row.get("lifecycle"),
             "signal": False if row.get("lifecycle") == "UNAVAILABLE" else bool(row.get("signal")),
+            "observed_ms": observed,
+            "live": row.get("live") is True,
+            "source_label": row.get("source_label"),
         },
-        now_ms=row.get("now_ms"),
     )
