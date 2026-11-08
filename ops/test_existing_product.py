@@ -3,6 +3,18 @@
 from ops.inbox import build_user_plan, record_scan
 
 
+def test_overview_account_card_does_not_repeat_the_tiles():
+    from ops.app import DASHBOARD
+
+    start = DASHBOARD.index("async function overview()")
+    end = DASHBOARD.index("async function loadDesk()")
+    body = DASHBOARD[start:end]
+    assert body.count(">Paper capital<") == 2
+    assert "<span>Paper capital</span>" not in body
+    assert "<span>Open paper positions</span>" not in body
+    assert "shown once in the tiles" in body
+
+
 def test_manual_plan_names_the_blank_field():
     blank = build_user_plan({}, {"decision": "BUY", "entry": "100", "stop": "", "target": "104"})
     assert blank["ok"] is False

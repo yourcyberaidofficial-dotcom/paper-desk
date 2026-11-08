@@ -2565,18 +2565,33 @@ def aureon_ai():
     result["approved"] = False
     result["order_opened"] = False
     result["customer_toggle"] = False
-    result["ollama"] = _accept_local_model(result, question)
+    asked = isinstance(question, str) and bool(question.strip())
+    if asked:
+        result["ollama"] = _accept_local_model(result, question)
+    else:
+        from ops.ollama import health as ollama_health
+
+        model = ollama_health()
+        result["ollama"] = {
+            "available": model.get("available") is True,
+            "reason": model.get("reason"),
+            "model": model.get("model"),
+            "installed": list(model.get("installed") or []),
+            "reachable": model.get("reachable"),
+            "inference": False,
+            "customer_toggle": False,
+        }
     from ops.bot_thread import append, history
 
-    if question:
+    if asked:
         append(user_id, "customer", question)
-    if result.get("analysis"):
-        reply = result["analysis"]
-    elif result.get("stored_record"):
-        reply = "No model analysis was completed. Stored record: " + " ".join(str(item) for item in result["stored_record"])[:900]
-    else:
-        reply = result.get("message") or "Aureon AI is temporarily unavailable."
-    append(user_id, "aureon", reply)
+        if result.get("analysis"):
+            reply = result["analysis"]
+        elif result.get("stored_record"):
+            reply = "No model analysis was completed. Stored record: " + " ".join(str(item) for item in result["stored_record"])[:900]
+        else:
+            reply = result.get("message") or "Aureon AI is temporarily unavailable."
+        append(user_id, "aureon", reply)
     result["thread"] = [
         {key: value for key, value in row.items() if key != "account_id"}
         for row in history(user_id, limit=20)
@@ -3086,7 +3101,11 @@ document.getElementById("aiopen").onclick = async () => {
   panel.hidden = false;
   const health = await fetch("/api/aureon-ai", {method:"POST", credentials:"same-origin", headers:{"Content-Type":"application/json"}, body: JSON.stringify({page: path})});
   const body = health.ok ? await health.json() : {operational:"BLOCKED", note:"Aureon AI could not be reached."};
-  document.getElementById("aistatus").textContent = body.note || body.reason || "Aureon AI status was not confirmed.";
+  const local = body.ollama || {};
+  const localText = local.available === true
+    ? ("Local model " + (local.model || "configured") + " is reachable. An answer is produced only when you ask. It is not a signal.")
+    : ("Local model is not connected (" + (local.reason || "not configured") + "). No analysis was invented.");
+  document.getElementById("aistatus").textContent = localText;
 };
 document.getElementById("aiclose").onclick = () => { document.getElementById("aipanel").hidden = true; };
 document.getElementById("whobadge").onclick = () => { location.href = "/settings"; };
@@ -3165,7 +3184,14 @@ document.getElementById("aiask").onclick = async () => {
     const response = await fetch("/api/aureon-ai", {method:"POST", credentials:"same-origin", headers:{"Content-Type":"application/json"}, body: JSON.stringify({page: path, question: document.getElementById("aiquestion").value})});
     const body = await response.json();
     if (body.analysis) answer.textContent = body.analysis + " This is commentary, not a signal and not an order.";
-    else answer.textContent = (body.note || body.reason || "No analysis was produced.") + (body.stored_record && body.stored_record.length ? " Stored record: " + body.stored_record.join(" ") : "");
+    else {
+      const local = body.ollama || {};
+      const localText = local.available === true
+        ? ("Local model " + (local.reason || "did not accept a reply") + ". No analysis was invented.")
+        : ("Local model is not connected (" + (local.reason || "not configured") + "). No analysis was invented.");
+      const stored = body.stored_record && body.stored_record.length ? " Stored record: " + body.stored_record.join(" ") : "";
+      answer.textContent = localText + stored;
+    }
   } catch (err) {
     answer.textContent = "Aureon AI could not be reached. No analysis was invented. The desk is still available.";
   }
@@ -3441,8 +3467,8 @@ async function overview(){
     if (!profile.currency) steps.push(`<li><a href="/settings">Set a base currency.</a> Amounts are not converted.</li>`);
     const lessons = lab && lab.completed_lessons ? lab.completed_lessons.length : 0;
     const lessonTotal = lab && lab.lessons ? lab.lessons.length : 0;
-    const openRows = book && book.open && book.open.length ? book.open.map(row => `<div class="row"><span>${row.symbol} ${row.direction}</span><span>Open paper</span></div>`).join("") : `<div class="row"><span>Open paper positions</span><span>None</span></div>`;
-    account.innerHTML = `<h2>${who}</h2>${openRows}<div class="row"><span>Persona</span><span>${styleName}</span></div><div class="row"><span>Paper capital</span><span>${balance}</span></div><div class="row"><span>Recorded paper result</span><span>${figures.trades ? realised : "—"}</span></div><div class="row"><span>Daily loss cap</span><span>${profile.max_daily_loss_percent == null ? "Not set" : profile.max_daily_loss_percent + "%"}</span></div><div class="row"><span>Weekly loss limit</span><span>${plan ? weekLimit : "Not loaded"}</span></div><div class="row"><span>Risk per trade</span><span>${profile.max_risk_pct == null ? "Not set" : profile.max_risk_pct + "%"}</span></div><div class="row"><span>Academy</span><span>${lessonTotal ? lessons + " of " + lessonTotal + " lessons" : (lab ? "Available" : "Not loaded")}</span></div><p class="muted guide">${autoSentence(bot)} Broker execution is disabled. No strategy is promoted. ${profile.currency ? "Amounts use " + profile.currency + "." : "Choose a base currency before treating the balance as money."} ${figures.trades ? "" : "No closed paper trade. No win rate."}</p>${steps.length ? `<h3>Next step</h3><ul>${steps.join("")}</ul>` : `<p><a href="/learn">Continue in the Academy</a> · <a href="/lab">Trading Lab</a> · <a href="/settings">Settings</a></p>`}`;
+    const openRows = book && book.open && book.open.length ? book.open.map(row => `<div class="row"><span>${row.symbol} ${row.direction}</span><span>Open paper</span></div>`).join("") : "";
+    account.innerHTML = `<h2>${who}</h2>${openRows}<div class="row"><span>Persona</span><span>${styleName}</span></div><div class="row"><span>Daily loss cap</span><span>${profile.max_daily_loss_percent == null ? "Not set" : profile.max_daily_loss_percent + "%"}</span></div><div class="row"><span>Weekly loss limit</span><span>${plan ? weekLimit : "Not loaded"}</span></div><div class="row"><span>Risk per trade</span><span>${profile.max_risk_pct == null ? "Not set" : profile.max_risk_pct + "%"}</span></div><div class="row"><span>Academy</span><span>${lessonTotal ? lessons + " of " + lessonTotal + " lessons" : (lab ? "Available" : "Not loaded")}</span></div><p class="muted guide">Broker execution is disabled. No strategy is promoted. ${profile.currency ? "Amounts use " + profile.currency + "." : "Choose a base currency before treating the balance as money."} Capital, open positions, closed trades and AutoPilot are shown once in the tiles above.</p>${steps.length ? `<h3>Next step</h3><ul>${steps.join("")}</ul>` : `<p><a href="/learn">Continue in the Academy</a> · <a href="/lab">Trading Lab</a> · <a href="/settings">Settings</a></p>`}`;
   }
   if (kpis) kpis.innerHTML = `<article class="card"><p class="muted">Paper capital</p><p class="price">${balance}</p></article><article class="card"><p class="muted">Open paper positions</p><p class="price num">${openCount}</p></article><article class="card"><p class="muted">Closed paper trades</p><p class="price num">${closedCount}</p><p class="muted">${figures.trades ? "Recorded result " + realised + ". Not a win rate." : "No closed paper trade. No win rate."}</p></article><article class="card"><p class="muted">AutoPilot</p><p class="price quiet">${bot ? (bot.facing || "Disabled") : "Not loaded"}</p></article>`;
   const market = document.getElementById("ov-market");

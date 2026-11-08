@@ -1,0 +1,59 @@
+{
+  "branch": "product/backend-recovery",
+  "parent": "6f3f127b3ceb9f4ec3f7681914d81e153615112f",
+  "merged": false,
+  "deployed": false,
+  "pushed": false,
+  "tests": "332 passed",
+  "production_vps": {
+    "name": "aureontradelab.tech",
+    "address": "88.223.95.249",
+    "ssh_port_22": "timed out",
+    "https_443": "timed out",
+    "docker_network_seen": false,
+    "aureon_default_gateway": null,
+    "bind_changed": false,
+    "allow_list_extended": false,
+    "blocker": "This environment cannot open SSH or HTTPS to the VPS, and the host that actually runs Ollama has no Docker socket and no bridge. The gateway was not invented. Ollama stays on 127.0.0.1:11434."
+  },
+  "ollama": {
+    "binary": "/opt/ollama/bin/ollama",
+    "models": "/opt/ollama-models",
+    "listen": "127.0.0.1:11434",
+    "public_bind": false,
+    "model": "qwen2.5:1.5b",
+    "quantization": "Q4_K_M",
+    "context": 2048,
+    "parallel": 1,
+    "max_loaded_models": 1,
+    "cpu_only": true,
+    "cloud": false,
+    "second_model_pulled": false,
+    "systemd": false,
+    "init": "catatonit",
+    "persistent_across_vps_reboot": false,
+    "tags_ms": 3,
+    "api_chat_s": 6.192,
+    "customer_route_s": 5.61,
+    "mem_available_before_kib": 2675184,
+    "mem_available_after_chat_kib": 1612232,
+    "mem_total_kib": 4024496,
+    "swap_kib": 0,
+    "customer_route": {
+      "inference": true,
+      "analysis": "The latest observation is data_unavailable, and the latest research is not_promoted.",
+      "approved": false,
+      "order_opened": false,
+      "viii_and_99999_not_in_analysis": true,
+      "other_account_thread": [],
+      "failure_port_9": {"analysis": null, "inference": false, "reason": "offline"}
+    }
+  },
+  "browser": {
+    "engine": "local Playwright Chromium",
+    "target": "http://127.0.0.1:8091",
+    "production_site": "not reached",
+    "passed": ["overview capital shown once", "settings timezone and density reload", "scanner CSV stored 21 and historical FORMING", "signals not a live price", "activities unread count", "AI reachable status and accepted commentary"],
+    "terminal_plan": "A scrolled click saved entry 100 stop 98 target 104 and did not open an order."
+  }
+}
