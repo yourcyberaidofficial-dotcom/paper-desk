@@ -130,7 +130,11 @@ def test_compose_binds_the_container_but_publishes_only_loopback():
     from ops.ai_safety import endpoint_allowed
 
     assert endpoint_allowed("http://127.0.0.1:11434") is True
-    assert endpoint_allowed("http://ollama:11434") is False
+    assert endpoint_allowed("http://ollama:11434") is True
+    assert endpoint_allowed("http://ollama:11435") is False
+    assert endpoint_allowed("http://ollama.example.com:11434") is False
+    assert endpoint_allowed("https://ollama:11434") is False
+    assert endpoint_allowed("http://evil.com:11434") is False
 
 
 def test_compose_startup_command_answers_on_loopback_and_records_the_listen_address(tmp_path):

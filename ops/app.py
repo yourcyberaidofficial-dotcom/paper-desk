@@ -2096,12 +2096,13 @@ def scanner_api():
                 "target": None,
                 "approved": False,
                 "evaluated": False,
-                "scanner_state": "BLOCKED" if minute else "WAIT",
-                "decision_label": "UNAVAILABLE" if minute else "WAIT",
-                "status": "unavailable" if minute else "scanning",
+                "customer_status": "reading_unavailable",
+                "scanner_state": "UNAVAILABLE",
+                "decision_label": "UNAVAILABLE",
+                "status": "unavailable",
                 "blocked": "xau_minute_unlicensed" if minute else None,
-                "message": row.get("reason") or "No reading was returned. No price was invented.",
-                "reading_class": "unavailable" if minute else "insufficient",
+                "message": "Gold 1-minute and 3-minute are not licensed." if minute else "A verified live reading is not available. This is not a zero-setup scan.",
+                "reading_class": "unavailable",
                 "autopilot_eligible": False,
                 "probability": None,
             })
@@ -2175,6 +2176,7 @@ def desk_plan():
         return jsonify({
             "ok": False,
             "reason": built.get("reason"),
+            "fields": built.get("fields") or {},
             "order_opened": False,
             "broker": False,
             "levels_persisted": False,
@@ -2209,7 +2211,56 @@ def desk_plan():
         "approved": False,
         "order_opened": False,
         "broker": False,
+        "fields": {},
     })
+
+
+@app.get("/api/candles/import")
+def candle_import_history():
+    user_id, _user = _session_user()
+    if not user_id:
+        return jsonify({"error": "unauthorized"}), 401
+    from ops.candle_import import history
+
+    return jsonify({"imports": history(user_id), "live": False, "source": "user_provided_historical", "broker": False})
+
+
+@app.post("/api/candles/import")
+def candle_import_post():
+    user_id, _user = _session_user()
+    if not user_id:
+        return jsonify({"error": "unauthorized"}), 401
+    from ops.candle_import import import_rows, parse_csv
+
+    body = request.get_json(silent=True) or {}
+    if not isinstance(body, dict):
+        return jsonify({"error": "invalid_input", "message": "The import could not be read."}), 400
+    parsed = parse_csv(body.get("csv") if isinstance(body.get("csv"), str) else "")
+    if not parsed.get("ok"):
+        return jsonify({"ok": False, "reason": parsed.get("reason"), "fields": parsed.get("fields") or {}, "live": False, "stored": 0, "broker": False}), 400
+    result = import_rows(user_id, parsed["rows"])
+    result["errors"] = parsed.get("errors") or []
+    return jsonify(result)
+
+
+@app.post("/api/candles/evaluate")
+def candle_import_evaluate():
+    user_id, _user = _session_user()
+    if not user_id:
+        return jsonify({"error": "unauthorized"}), 401
+    from ops.candle_import import INSTRUMENTS, INTERVALS, evaluate
+
+    body = request.get_json(silent=True) or {}
+    symbol = body.get("symbol") if isinstance(body, dict) else None
+    interval = body.get("interval") if isinstance(body, dict) else None
+    if symbol not in INSTRUMENTS or interval not in INTERVALS:
+        return jsonify({"ok": False, "reason": "unsupported", "live": False, "signal": False, "broker": False}), 400
+    if symbol == "XAUUSD" and interval in {"1m", "3m"}:
+        return jsonify({"ok": False, "reason": "xau_minute_unlicensed", "live": False, "signal": False, "broker": False}), 400
+    result = evaluate(user_id, symbol, interval)
+    result["approved"] = False
+    result["order_opened"] = False
+    return jsonify(result)
 
 
 @app.get("/api/workspace")
@@ -2420,7 +2471,7 @@ def account_directory():
     return jsonify({"allowed": True, "security_role": role, "accounts": rows, "broker": False})
 
 
-def _accept_local_model(result):
+def _accept_local_model(result, question=None):
     """Use the existing Ollama client only when discovery says the selected model is installed.
 
     A missing model does not open a socket and does not become an analysis.
@@ -2447,15 +2498,17 @@ def _accept_local_model(result):
         "observation": next((item for item in facts if item.startswith("latest observation")), "none"),
         "research": next((item for item in facts if item.startswith("latest research")), "not_promoted"),
         "execution": next((item for item in facts if item.startswith("latest execution")), "not_eligible"),
-        "note": " ".join(facts)[:400],
+        "note": " ".join(item for item in facts if item.startswith(("latest observation", "latest research", "latest execution")))[:400],
     }
+    if isinstance(question, str) and question.strip():
+        evidence["question"] = question.strip()[:280]
     from ops.ai_provider import _LOCK
 
     if not _LOCK.acquire(blocking=False):
         status["reason"] = "busy"
         return status
     try:
-        explained = explain(evidence)
+        explained = explain(evidence, timeout=20)
     finally:
         _LOCK.release()
     summary = None
@@ -2512,7 +2565,7 @@ def aureon_ai():
     result["approved"] = False
     result["order_opened"] = False
     result["customer_toggle"] = False
-    result["ollama"] = _accept_local_model(result)
+    result["ollama"] = _accept_local_model(result, question)
     from ops.bot_thread import append, history
 
     if question:
@@ -3085,7 +3138,12 @@ function arrangeOverview(){
 }
 function paintExperienceStrip(){
   if (!deskProfile || typeof view === "undefined" || !view) return;
+  const overview = path === "/overview" || path === "/";
   let strip = document.getElementById("experience-strip");
+  if (!overview) {
+    if (strip) strip.remove();
+    return;
+  }
   if (!strip) {
     strip = document.createElement("article");
     strip.id = "experience-strip";
@@ -3265,7 +3323,9 @@ function bindManualPlan(){
     const sent = await fetch("/api/desk/plan", {method:"POST", credentials:"same-origin", headers:{"Content-Type":"application/json"}, body: JSON.stringify({symbol: data.get("symbol"), interval: data.get("interval"), authored: true, decision: data.get("decision"), entry: data.get("entry"), stop: data.get("stop"), target: data.get("target")})});
     const mine = await sent.json().catch(() => ({}));
     if (!sent.ok || !mine.opportunity_id || mine.levels_persisted !== true) {
-      if (slot) slot.innerHTML = `<p>Your levels were not saved. ${plainReason(mine.reason || "not available")}. No order was opened.</p>`;
+      const fields = mine.fields || {};
+      const lines = Object.keys(fields).map(name => name + ": " + fields[name]).join(" ");
+      if (slot) slot.innerHTML = `<p>Your levels were not saved. ${escapeHtml(lines || plainReason(mine.reason || "not available"))}. No order was opened. This is not a broker order.</p>`;
       return;
     }
     const allow = mine.paper && mine.paper.allowed;
@@ -3653,11 +3713,14 @@ async function terminal(){
   async function history(){
     const response = await fetch("/api/terminal/history", {credentials:"same-origin"});
     const body = response.ok ? await response.json() : {items:[]};
-    const rows = (body.items||[]).map(item => {
-      const historical = item.interval === "4h" || item.interval === "1d" ? "Historical research record. Not a current desk timeframe. " : "";
-      return `<div class="row" data-symbol="${item.symbol||""}"><span>${item.decision_label || item.decision}</span><span>${item.symbol} ${item.interval}</span></div><div class="muted">${historical}Request ${item.request_id||item.id||"saved"}. Strategy ${item.requested_strategy||item.strategy||""}. Validation ${item.validation_status||"unknown"}. Not delivered. Not filled. ${plainReason(item.reason||"")}</div>`;
-    }).join("");
-    document.getElementById("termhist").innerHTML = rows || "<p>No requested evaluation yet.</p>";
+    const rows = (body.items||[]).filter(item => (item.symbol||"") === symbolEl.value && (item.interval||"") === intervalEl.value);
+    const older = (body.items||[]).filter(item => item.interval === "4h" || item.interval === "1d");
+    const current = rows[0];
+    const statusLine = current
+      ? `<p>Current ${escapeHtml(current.symbol||"")} ${escapeHtml(current.interval||"")}: ${escapeHtml(current.decision_label || current.decision || "unavailable")}. ${escapeHtml(plainReason(current.reason||""))} Not a broker fill.</p>`
+      : `<p>No evaluation is stored for this selection. A missing reading is not a setup.</p>`;
+    const collapsed = older.length ? `<p class="muted">${older.length} older research rows (4h or 1d) are not listed as the current desk. They are not repeated here.</p>` : "";
+    document.getElementById("termhist").innerHTML = statusLine + collapsed;
   }
   document.getElementById("generate").onclick = async () => {
     const status = document.getElementById("termstatus");
@@ -3811,7 +3874,7 @@ async function researchLab(){
 }
 async function scannerPage(){
   let lastBody = null;
-  view.innerHTML = `<article class="card"><h2>Live Scanner</h2><p id="scanstatus" role="status">Checking which prices can be shown.</p><div class="fieldrow"><label>Instrument <select id="scan-symbol"><option value="">All instruments</option><option>BTCUSDT</option><option>ETHUSDT</option><option>XAUUSD</option></select></label><label>Timeframe <select id="scan-interval"><option value="">All timeframes</option><option value="1m">1m</option><option value="3m">3m</option><option value="15m">15m</option><option value="1h">1h</option></select></label></div><p class="muted" id="scanwhen">A reading uses the latest completed candle. It is not a tick feed and not an order.</p><p id="scanstale" class="stale-note" hidden></p><div id="scancards"><p class="muted">Loading coverage. No price is invented while this loads.</p></div></article><article class="card" id="scanboard"><h2>Market coverage</h2><div class="skeleton lg"></div></article>`;
+  view.innerHTML = `<article class="card"><h2>Live Scanner</h2><p id="scanstatus" role="status">Checking which prices can be shown.</p><div class="fieldrow"><label>Instrument <select id="scan-symbol"><option value="">All instruments</option><option>BTCUSDT</option><option>ETHUSDT</option><option>XAUUSD</option></select></label><label>Timeframe <select id="scan-interval"><option value="">All timeframes</option><option value="1m">1m</option><option value="3m">3m</option><option value="15m">15m</option><option value="1h">1h</option></select></label></div><p class="muted" id="scanwhen">A reading uses the latest completed candle. It is not a tick feed and not an order. A missing feed is not a zero-setup scan.</p><p id="scanstale" class="stale-note" hidden></p><div id="scancards"><p class="muted">Loading coverage. No price is invented while this loads.</p></div></article><article class="card" id="scan-import"><h2>Your historical candles</h2><p class="muted">CSV columns: instrument, interval, open_time_ms, open, high, low, close. This is user-provided history, not a live exchange feed. Gold 1-minute and 3-minute are still refused.</p><textarea id="csvbox" rows="4" aria-label="Historical candle CSV"></textarea><p><button type="button" id="csvimport">Import CSV</button> <button type="button" id="csveval">Evaluate imported history</button></p><p id="csvnote" class="muted"></p></article><article class="card" id="scanboard"><h2>Market coverage</h2><div class="skeleton lg"></div></article>`;
   const draw = (body, staleNote) => {
     const symbolFilter = (document.getElementById("scan-symbol") || {}).value || "";
     const frameFilter = (document.getElementById("scan-interval") || {}).value || "";
@@ -3826,7 +3889,7 @@ async function scannerPage(){
     const cards = markets.map(m => {
       if (m.customer_status === "reading_unavailable") {
         const minute = m.blocked === "xau_minute_unlicensed";
-        return `<article class="card" data-symbol="${m.symbol}"><h2>${m.symbol} · ${m.interval||""}</h2><div class="row"><span>${minute ? "Unavailable" : "WAIT"}</span><span class="num">—</span></div><p class="muted">${minute ? "This timeframe is not available." : "A verified live reading is not available."}</p></article>`;
+        return `<article class="card" data-symbol="${m.symbol}"><h2>${m.symbol} · ${m.interval||""}</h2><div class="row"><span>Unavailable</span><span class="num">—</span></div><p class="muted">${minute ? "This timeframe is not available." : "A verified live reading is not available. This is not a zero-setup scan."}</p></article>`;
       }
       const headline = m.decision_label || m.scanner_state || m.state || "WAIT";
       if (isRightsHold(headline, m.scanner_state, m.status)) {
@@ -3924,6 +3987,25 @@ async function scannerPage(){
   };
   document.getElementById("scan-symbol").onchange = () => { if (lastBody) draw(lastBody, null); };
   document.getElementById("scan-interval").onchange = () => { if (lastBody) draw(lastBody, null); };
+  const csvNote = document.getElementById("csvnote");
+  const csvButton = document.getElementById("csvimport");
+  if (csvButton) csvButton.onclick = async () => {
+    csvNote.textContent = "Importing. This does not contact an exchange.";
+    const response = await fetch("/api/candles/import", {method:"POST", credentials:"same-origin", headers:{"Content-Type":"application/json"}, body: JSON.stringify({csv: document.getElementById("csvbox").value})});
+    const payload = await response.json().catch(() => ({}));
+    const fields = payload.fields || {};
+    const detail = Object.keys(fields).map(name => fields[name]).join(" ");
+    csvNote.textContent = response.ok ? ("Stored " + (payload.stored || 0) + " user-provided candles. Duplicates " + (payload.duplicates || 0) + ". Not a live feed.") : ("Not imported. " + (detail || payload.reason || "The CSV was rejected.") + " No live price was created.");
+  };
+  const evalButton = document.getElementById("csveval");
+  if (evalButton) evalButton.onclick = async () => {
+    const symbol = document.getElementById("scan-symbol").value || "BTCUSDT";
+    const interval = document.getElementById("scan-interval").value || "15m";
+    const response = await fetch("/api/candles/evaluate", {method:"POST", credentials:"same-origin", headers:{"Content-Type":"application/json"}, body: JSON.stringify({symbol, interval})});
+    const payload = await response.json().catch(() => ({}));
+    const row = payload.row || {};
+    csvNote.textContent = payload.ok ? ("Historical evaluation " + (row.lifecycle || "unavailable") + " for " + symbol + " " + interval + ". Signal " + (row.signal === true ? "yes" : "no") + ". Live no. Not an approval and not an order.") : ("Evaluation was not run. " + (payload.reason || "unavailable") + ".");
+  };
   await loadScan();
   if (window.__scanTimer) clearInterval(window.__scanTimer);
   window.__scanTimer = setInterval(loadScan, 15000);
@@ -4032,13 +4114,23 @@ async function inboxPage(){
   if (response.status === 401) { view.innerHTML = `<article class="card"><h2>Sign in required</h2><p><a href="/login">Sign in</a> to see your inbox.</p></article>`; return; }
   const body = await response.json();
   const rows = body.items || [];
-  const list = rows.map(item => {
+  const groups = [];
+  const index = {};
+  rows.forEach(item => {
+    const repetitive = item.kind === "status" || item.decision === "WAIT" || item.state === "WAIT" || item.state === "BLOCKED" || item.state === "UNAVAILABLE";
+    const key = repetitive ? [item.symbol || "", item.interval || "", item.decision || item.state || "", item.message || ""].join("|") : ("one:" + (item.id || groups.length));
+    if (repetitive && Object.prototype.hasOwnProperty.call(index, key)) groups[index[key]].items.push(item);
+    else { index[key] = groups.length; groups.push({key, items: [item]}); }
+  });
+  const list = groups.map(group => {
+    const item = group.items[0];
+    const extra = group.items.length > 1 ? `<p class="muted">${group.items.length} similar notices are grouped. Stored records were not deleted. Unread in this group: ${group.items.filter(row => !row.read).length}.</p>` : "";
     const freshness = item.freshness || (item.created_ms ? ((Date.now() - item.created_ms) > 3*86400000 ? "historical" : (Date.now() - item.created_ms) > 86400000 ? "stale" : "current") : "unknown");
     const ageLabel = item.age_label || (item.created_ms ? when(item.created_ms) : "time not available");
     const noticeClass = item.notice_class || (item.decision === "WAIT" ? "WAIT notification" : "inbox notice");
     const shownTime = item.created_ms ? when(item.created_ms) : "time not available";
     const researchLevels = `<p class="muted">Research levels, not a paper order. Entry ${item.entry==null?"—":priceText(item.symbol, item.entry)}. Stop ${item.stop==null?"—":priceText(item.symbol, item.stop)}. Target ${item.target==null?"—":priceText(item.symbol, item.target)}.</p>`;
-    return `<article class="card ${noticeClass.includes("WAIT") || noticeClass.includes("blocked") ? "blocked" : "research"}" data-kind="${item.kind||""}" data-symbol="${item.symbol||""}"><p class="badge ${item.read ? "" : "block"}">${item.read_state || (item.read ? "read" : "unread")}</p><p class="badge">${freshness}</p><p class="badge research">${noticeClass}</p><h2>${item.lifecycle==="superseded"||item.lifecycle==="expired" ? item.lifecycle.toUpperCase()+" · " : ""}${item.decision || item.state || "Notice"} · ${item.symbol || "Desk"} ${item.interval || ""}</h2><p>${item.lifecycle_note || item.label || ""}</p><p>${plainReason(item.message || "")}</p>${researchLevels}<p class="muted">${ageLabel}. ${shownTime}. ${item.strategy || "no strategy"}. Validation ${item.validation_status || "n/a"}. ${item.approved?"Approved.":"Not approved."} This inbox notice is not a paper order.</p>${item.decision==="BUY"||item.decision==="SELL"?`<button type="button" data-paper="${item.opportunity_id||""}">Open paper trade</button><p class="muted">Opening a paper trade is a separate action. The notice itself does not create one.</p>`:""}${item.actionable ? "" : "<p>Not an approved trade.</p>"}<button type="button" data-id="${item.id}">Mark read</button></article>`;
+    return `<article class="card ${noticeClass.includes("WAIT") || noticeClass.includes("blocked") ? "blocked" : "research"}" data-kind="${item.kind||""}" data-symbol="${item.symbol||""}"><p class="badge ${item.read ? "" : "block"}">${item.read_state || (item.read ? "read" : "unread")}</p><p class="badge">${freshness}</p><p class="badge research">${noticeClass}</p><h2>${item.lifecycle==="superseded"||item.lifecycle==="expired" ? item.lifecycle.toUpperCase()+" · " : ""}${item.decision || item.state || "Notice"} · ${item.symbol || "Desk"} ${item.interval || ""}</h2>${extra}<p>${item.lifecycle_note || item.label || ""}</p><p>${plainReason(item.message || "")}</p>${researchLevels}<p class="muted">${ageLabel}. ${shownTime}. ${item.strategy || "no strategy"}. Validation ${item.validation_status || "n/a"}. ${item.approved?"Approved.":"Not approved."} This inbox notice is not a paper order.</p>${item.decision==="BUY"||item.decision==="SELL"?`<button type="button" data-paper="${item.opportunity_id||""}">Open paper trade</button><p class="muted">Opening a paper trade is a separate action. The notice itself does not create one.</p>`:""}${item.actionable ? "" : "<p>Not an approved trade.</p>"}<button type="button" data-id="${item.id}">Mark read</button></article>`;
   }).join("");
   view.innerHTML = `<p role="status">${body.unread || 0} unread.</p>${list || "<article class='card'><h2>No notifications</h2><p>A quiet scan is recorded once a day. A research note appears only if you opted in. Nothing here is a trade alert unless a strategy has been approved. None has.</p></article>"}<button id="readall" type="button">Mark all read</button>`;
   paintInbox(body.unread);
@@ -4201,7 +4293,7 @@ async function systemPage(){
     const localLine = local.inference === true
       ? "Inference succeeded for this request."
       : ("Inference has not succeeded. " + (local.reason || "model_not_configured") + ". Reachable: " + String(local.reachable) + ". Installed: " + ((local.installed || []).join(", ") || "none") + ".");
-    box.innerHTML = `<h2>Aureon AI</h2><p>Hosted service ${escapeHtml(operational)}. Ollama connected: ${local.available === true ? "yes" : "no"}.</p><p class="muted">${escapeHtml(localLine)} ${escapeHtml((ai && (ai.note || ai.reason)) || "No analysis was produced.")} A stored record is not an analysis. The model is not a signal.</p>`;
+    box.innerHTML = `<h2>Aureon AI</h2><p>Hosted service ${escapeHtml(operational)}. Ollama model installed: ${local.available === true ? "yes" : "no"}.</p><p class="muted">${escapeHtml(localLine)} ${escapeHtml((ai && (ai.note || ai.reason)) || "No analysis was produced.")} A stored record is not an analysis. The model is not a signal.</p>`;
   }).catch(() => {
     const box = document.getElementById("ai-status");
     if (box) box.innerHTML = `<h2>Aureon AI</h2><p>BLOCKED</p><p class="muted">The status check failed. Trading did not stop. No analysis was invented. Local AI status is separate from the customer desk.</p>`;
@@ -4221,8 +4313,9 @@ async function systemPage(){
   }).catch(() => {});
 }
 async function settings(){
-  const me = await fetch("/api/me").then(r => r.ok ? r.json() : null);
-  const catalog = await fetch("/api/profiles").then(r=>r.json());
+  try {
+  const me = await fetch("/api/me", {credentials:"same-origin"}).then(r => r.ok ? r.json() : null).catch(() => null);
+  const catalog = await fetch("/api/profiles", {credentials:"same-origin"}).then(r => r.ok ? r.json() : {}).catch(() => ({}));
   if (!me) {
     view.innerHTML = `<article class="card"><h2>Sign in required</h2><p><a href="/login">Sign in</a> or <a href="/register">create an account</a>.</p></article>`;
     return;
@@ -4348,8 +4441,17 @@ async function settings(){
     if (r.ok && d.token) document.getElementById("tglinkout").textContent = "Open: https://t.me/AureonLabBot?start=" + d.token;
   };
   document.getElementById("out").onclick = async () => { await fetch("/api/logout", {method:"POST", credentials:"same-origin"}); location.href = "/"; };
+  } catch (err) {
+    view.innerHTML = `<article class="card"><h2>Settings could not be loaded</h2><p>The settings page did not finish. No preference was changed. You can retry.</p><p><button type="button" id="settings-retry">Retry</button></p></article>`;
+    const again = document.getElementById("settings-retry");
+    if (again) again.onclick = () => settings();
+  }
 }
-load();
+load().catch(() => {
+  view.innerHTML = `<article class="card"><h2>This page could not be loaded</h2><p>Loading stopped. No order was opened and no price was invented.</p><p><button type="button" id="page-retry">Retry</button></p></article>`;
+  const again = document.getElementById("page-retry");
+  if (again) again.onclick = () => load().catch(() => {});
+});
 </script>
 </body>
 </html>

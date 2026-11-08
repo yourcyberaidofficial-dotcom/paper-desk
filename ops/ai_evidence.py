@@ -104,6 +104,23 @@ def build(user_id, task, symbol=None, interval=None, signal_id=None, lesson_id=N
         facts.append("saved markets " + str(len(profile["markets"])))
     else:
         facts.append("markets not set")
+    if symbol:
+        facts.append("focus symbol " + str(symbol))
+    try:
+        from ops.activity import read as read_activity
+
+        facts.append("activity history present" if read_activity(account_id=user_id) else "activity history empty")
+    except Exception:
+        facts.append("activity history empty")
+    if symbol:
+        try:
+            from ops.signal_pipeline import read_pipeline
+
+            own = [row for row in read_pipeline() if row.get("symbol") == symbol]
+            if own:
+                facts.append("stored lifecycle " + str(own[-1].get("lifecycle") or "none"))
+        except Exception:
+            pass
     if profile.get("missing"):
         facts.append("missing context " + " ".join(profile["missing"]))
     persona_key = profile.get("persona_key") or ""

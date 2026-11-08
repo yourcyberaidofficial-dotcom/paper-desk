@@ -62,11 +62,18 @@ def local_model_allowed(name):
 
 
 def endpoint_allowed(url):
-    """Loopback or RFC1918 only. Documentation, reserved, and public hosts are refused."""
+    """Loopback, RFC1918, or the single private compose service name.
+
+    `ollama` is the Docker network name in deploy/private-inference. It is
+    allowed only on port 11434. Any other hostname, including a public DNS
+    name, is refused. This does not allow an arbitrary model host.
+    """
     parsed = urlparse(url or "")
     if parsed.scheme != "http" or parsed.username or parsed.password or parsed.query or parsed.fragment:
         return False
     host = (parsed.hostname or "").strip().lower()
+    if host == "ollama":
+        return parsed.port == 11434
     if host == "localhost":
         return True
     try:

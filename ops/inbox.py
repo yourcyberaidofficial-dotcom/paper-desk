@@ -537,15 +537,31 @@ def record_scan(user_id, body, plan, now_ms):
         elif row.get("scanner_state") == "APPROVED_SIGNAL":
             stored.append(offer(user_id, {**row, "id": row.get("event_id"), "kind": "official", "strategy": row.get("rule")}, registry=[]))
     if not actionable:
-        names = ", ".join(row.get("symbol") or "?" for row in markets) or "the configured markets"
-        stored.append(offer(user_id, {
-            "id": f"quiet:{day}",
-            "kind": "status",
-            "state": "WAIT",
-            "message": f"Scan completed for {names}. No qualifying setup.",
-            "created_ms": now_ms,
-        }))
+        unavailable = not markets or all(_scan_unavailable(row) for row in markets)
+        if unavailable:
+            stored.append(offer(user_id, {
+                "id": f"unavailable:{day}",
+                "kind": "status",
+                "state": "UNAVAILABLE",
+                "decision": "UNAVAILABLE",
+                "message": "No verified reading was returned. This is not a zero-setup scan.",
+                "created_ms": now_ms,
+            }))
+        else:
+            names = ", ".join(row.get("symbol") or "?" for row in markets) or "the configured markets"
+            stored.append(offer(user_id, {
+                "id": f"quiet:{day}",
+                "kind": "status",
+                "state": "WAIT",
+                "message": f"Scan completed for {names}. No qualifying setup.",
+                "created_ms": now_ms,
+            }))
     return stored
+
+
+def _scan_unavailable(row):
+    state = row.get("scanner_state") or row.get("decision_label") or ""
+    return state in {"BLOCKED", "UNAVAILABLE", "DATA_UNAVAILABLE"} or row.get("reading_class") == "unavailable" or row.get("evaluated") is False
 
 
 def inbox_settings(user):
@@ -841,7 +857,8 @@ def build_user_plan(card, body):
     """Levels typed by the account. They are refused when they copy the feed plan.
 
     The stored anchor is a hash of the typed levels. A provider snapshot,
-    candle time, or reference price is not attached.
+    candle time, or reference price is not attached. Each typed field is
+    checked on its own so a blank stop is not reported as a generic failure.
     """
     import hashlib
 
@@ -851,19 +868,44 @@ def build_user_plan(card, body):
     body = body or {}
     decision = body.get("decision") or body.get("side")
     if decision not in {"BUY", "SELL"}:
-        return {"ok": False, "reason": "not_a_plan"}
-    try:
-        entry = float(body["entry"])
-        stop = float(body["stop"])
-        target = float(body["target"])
-    except (TypeError, ValueError, KeyError):
-        return {"ok": False, "reason": "incomplete"}
+        return {"ok": False, "reason": "not_a_plan", "fields": {"decision": "Choose buy or sell."}}
+    fields = {}
+    parsed = {}
+    for name in ("entry", "stop", "target"):
+        raw = body.get(name)
+        if raw is None or (isinstance(raw, str) and not str(raw).strip()):
+            fields[name] = "Enter a number."
+            continue
+        try:
+            value = float(raw)
+        except (TypeError, ValueError):
+            fields[name] = "Use a positive number."
+            continue
+        if value != value or value <= 0:
+            fields[name] = "Use a positive number."
+            continue
+        parsed[name] = value
+    if fields:
+        return {"ok": False, "reason": "incomplete", "fields": fields}
+    entry, stop, target = parsed["entry"], parsed["stop"], parsed["target"]
+    if decision == "BUY":
+        if not stop < entry:
+            fields["stop"] = "For a buy, the stop must be below the entry."
+        if not target > entry:
+            fields["target"] = "For a buy, the target must be above the entry."
+    else:
+        if not stop > entry:
+            fields["stop"] = "For a sell, the stop must be above the entry."
+        if not target < entry:
+            fields["target"] = "For a sell, the target must be below the entry."
+    if fields:
+        return {"ok": False, "reason": "invalid_levels", "fields": fields}
     if matches_feed_levels(card, entry, stop, target):
-        return {"ok": False, "reason": "feed_copy", "order_opened": False, "levels_persisted": False}
+        return {"ok": False, "reason": "feed_copy", "order_opened": False, "levels_persisted": False, "fields": {"entry": "These levels match a feed reading. Type your own."}}
     symbol = str(body.get("symbol") or card.get("symbol") or card.get("instrument") or "")
     interval = str(body.get("interval") or card.get("interval") or card.get("timeframe") or "")
     if symbol in ("", "None") or interval in ("", "None"):
-        return {"ok": False, "reason": "unsupported"}
+        return {"ok": False, "reason": "unsupported", "fields": {"symbol": "Choose a supported market and timeframe."}}
     anchor = int(hashlib.sha256(f"{symbol}|{interval}|{decision}|{entry}|{stop}|{target}".encode()).hexdigest()[:15], 16)
     return {
         "ok": True,

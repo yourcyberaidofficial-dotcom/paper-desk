@@ -27,7 +27,7 @@ class SignalBook:
 
     def evaluate(self, candles, *, symbol, interval, now_ms, rights="missing", step_ms=None, account_id=None):
         """Append one lifecycle row. Earlier rows are not rewritten."""
-        if rights not in {"approved", "fixture"}:
+        if rights not in {"approved", "fixture", "user_provided"}:
             return self._store(self._unavailable(symbol, interval, now_ms, "rights_not_approved"), account_id)
         usable = [row for row in candles or [] if row.get("complete") is True and int(row.get("close_time_ms") or 0) <= int(now_ms)]
         usable.sort(key=lambda row: int(row["open_time_ms"]))
@@ -73,10 +73,13 @@ class SignalBook:
             "reward_risk": reward,
             "bar_open_ms": int(last["open_time_ms"]),
             "source_id": last.get("source_id"),
-            "rights": "fixture_only" if rights == "fixture" else "approved",
+            "rights": "user_provided" if rights == "user_provided" else ("fixture_only" if rights == "fixture" else "approved"),
             "live": False,
             "now_ms": int(now_ms),
         }
+        if rights == "user_provided":
+            row["source_label"] = "user_provided_historical"
+            row["live"] = False
         return self._store(row, account_id)
 
     def _store(self, row, account_id):
