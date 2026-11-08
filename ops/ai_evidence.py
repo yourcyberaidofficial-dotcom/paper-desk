@@ -116,7 +116,7 @@ def build(user_id, task, symbol=None, interval=None, signal_id=None, lesson_id=N
         try:
             from ops.signal_pipeline import read_pipeline
 
-            own = [row for row in read_pipeline() if row.get("symbol") == symbol]
+            own = [row for row in read_pipeline(user_id) if row.get("symbol") == symbol]
             if own:
                 facts.append("stored lifecycle " + str(own[-1].get("lifecycle") or "none"))
         except Exception:

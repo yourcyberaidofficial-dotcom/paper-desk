@@ -143,3 +143,34 @@ def test_historical_import_activity_uses_the_clock_not_the_candle(tmp_path, monk
     assert "Historical import" in event["detail"]["note"]
     assert "live reading" in event["detail"]["note"]
 
+
+def test_imported_lifecycle_is_visible_only_to_that_account(tmp_path, monkeypatch):
+    monkeypatch.setenv("AUREON_DATA", str(tmp_path))
+    from ops.candle_import import evaluate, import_rows, parse_csv
+    from ops.signal_pipeline import read_pipeline
+
+    start = 1_700_006_400_000
+    step = 900_000
+    lines = ["instrument,interval,open_time_ms,open,high,low,close"]
+    for index in range(21):
+        open_ms = start + index * step
+        close = 100 + index
+        lines.append(f"BTCUSDT,15m,{open_ms},{close - 1},{close + 1},{close - 2},{close}")
+    parsed = parse_csv("\n".join(lines))
+    assert import_rows("ada", parsed["rows"], now_ms=start + 21 * step)["stored"] == 21
+    stored = evaluate("ada", "BTCUSDT", "15m")
+    opportunity = stored["row"]["opportunity_id"]
+    own = read_pipeline("ada")
+    assert len(own) == 1
+    assert own[0]["opportunity_id"] == opportunity
+    assert own[0]["live"] is False
+    assert own[0]["source_label"] == "user_provided_historical"
+    assert read_pipeline("nia") == []
+    assert read_pipeline() == []
+    shared = tmp_path / "signals" / "pipeline"
+    shared.mkdir(parents=True)
+    (shared / "lifecycle.jsonl").write_text('{"opportunity_id":"opp:shared","symbol":"ETHUSDT","live":true}\n', encoding="utf-8")
+    again = read_pipeline("ada")
+    assert [row["opportunity_id"] for row in again] == [opportunity]
+    assert all(row.get("live") is not True for row in again)
+

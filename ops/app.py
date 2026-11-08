@@ -742,7 +742,7 @@ def _lifecycle_view(user_id):
         "history": history,
         "history_count": len(history),
         "account_events": account_events,
-        "pipeline": __import__("ops.signal_pipeline", fromlist=["read_pipeline"]).read_pipeline(),
+        "pipeline": __import__("ops.signal_pipeline", fromlist=["read_pipeline"]).read_pipeline(user_id),
         "truncated": False,
         "broker": False,
         "read_only": True,
@@ -2568,6 +2568,10 @@ def aureon_ai():
     asked = isinstance(question, str) and bool(question.strip())
     if asked:
         result["ollama"] = _accept_local_model(result, question)
+        local = result.get("ollama") or {}
+        if local.get("inference") is True and result.get("analysis") and result.get("reason") == "provider_not_configured":
+            result["reason"] = None
+            result["note"] = "Local commentary from the installed model. Not a signal and not an order. The hosted provider was not called."
     else:
         from ops.ollama import health as ollama_health
 
@@ -3104,7 +3108,9 @@ document.getElementById("aiopen").onclick = async () => {
   const local = body.ollama || {};
   const localText = local.available === true
     ? ("Local model " + (local.model || "configured") + " is reachable. An answer is produced only when you ask. It is not a signal.")
-    : ("Local model is not connected (" + (local.reason || "not configured") + "). No analysis was invented.");
+    : (local.reason === "offline"
+      ? "The local model is offline. No analysis was invented."
+      : "The local model is not configured. No analysis was invented.");
   document.getElementById("aistatus").textContent = localText;
 };
 document.getElementById("aiclose").onclick = () => { document.getElementById("aipanel").hidden = true; };
@@ -3188,7 +3194,9 @@ document.getElementById("aiask").onclick = async () => {
       const local = body.ollama || {};
       const localText = local.available === true
         ? ("Local model " + (local.reason || "did not accept a reply") + ". No analysis was invented.")
-        : ("Local model is not connected (" + (local.reason || "not configured") + "). No analysis was invented.");
+        : (local.reason === "offline"
+          ? "The local model is offline. No analysis was invented."
+          : "The local model is not configured. No analysis was invented.");
       const stored = body.stored_record && body.stored_record.length ? " Stored record: " + body.stored_record.join(" ") : "";
       answer.textContent = localText + stored;
     }

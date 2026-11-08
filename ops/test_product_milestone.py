@@ -152,6 +152,7 @@ def test_customer_route_accepts_a_validated_ollama_double(tmp_path, monkeypatch)
         assert body["analysis"].startswith("Stored observation")
         assert body["approved"] is False and body["order_opened"] is False
         assert body["ollama"]["inference"] is True
+        assert body["reason"] is None
         assert body["ollama"]["available"] is True
         assert body["ollama"]["model"] == "qwen-test"
         assert "Traceback" not in json.dumps(body)

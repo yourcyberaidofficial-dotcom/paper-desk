@@ -149,9 +149,16 @@ class SignalBook:
         return {"stored": True, "reason": "stored", "row": row}
 
 
-def read_pipeline():
-    """Stored pipeline rows only. Missing rights do not create a row on read."""
-    path = Path(os.environ.get("AUREON_DATA") or "data") / "signals" / "pipeline" / "lifecycle.jsonl"
+def read_pipeline(account_id=None):
+    """Imported lifecycle rows for one account. A missing account reads nothing.
+
+    Evaluations are stored under that account's import book. The old shared
+    path is not opened, so one account cannot see another's historical rows.
+    """
+    safe = "".join(ch for ch in str(account_id or "") if ch.isalnum())
+    if not safe:
+        return []
+    path = Path(os.environ.get("AUREON_DATA") or "data") / "imports" / safe / "signals" / "lifecycle.jsonl"
     if not path.is_file():
         return []
     rows = []

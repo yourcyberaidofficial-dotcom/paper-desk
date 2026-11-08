@@ -2,7 +2,7 @@
   {
     "name": "operator-register",
     "status": "PASS",
-    "detail": "http://127.0.0.1:47729/onboarding"
+    "detail": "http://127.0.0.1:46427/onboarding"
   },
   {
     "name": "register-short-password",
@@ -12,7 +12,7 @@
   {
     "name": "customer-register",
     "status": "PASS",
-    "detail": "http://127.0.0.1:47729/onboarding"
+    "detail": "http://127.0.0.1:46427/onboarding"
   },
   {
     "name": "login-failure",
@@ -22,7 +22,7 @@
   {
     "name": "menu-320",
     "status": "PASS",
-    "detail": "opened=True url=http://127.0.0.1:47729/orders"
+    "detail": "opened=True url=http://127.0.0.1:46427/orders"
   },
   {
     "name": "public-Landing",
@@ -72,12 +72,12 @@
   {
     "name": "ai-panel-blocked",
     "status": "PASS",
-    "detail": "Aureon AI is part of the desk. The hosted model is not configured, so this is not an analysis."
+    "detail": "The local model is not configured. No analysis was invented."
   },
   {
     "name": "ai-no-fabricated-analysis",
     "status": "PASS",
-    "detail": "Aureon AI is part of the desk. The hosted model is not configured, so this is not an analysis."
+    "detail": "The local model is not configured. No analysis was invented."
   },
   {
     "name": "ai-request-page",
@@ -97,7 +97,7 @@
   {
     "name": "display-propagation",
     "status": "PASS",
-    "detail": "{\"note\": \"Saved. This account now uses America/New_York, compact density, market layout, light theme.\", \"density\": \"compact\", \"depth\": \"concise\", \"layout\": \"market\", \"theme\": \"light\", \"contrast\": \"high\", \"motion\": \"reduced\", \"zone\": \"Times use America/New_York\", \"padding\": \"12px\", \"transition\": \"0s\", \"bg\": \"rgb(255, 255, 255)\", \"guideHidden\": true}"
+    "detail": "{\"note\": \"Saved. This account now uses America/New_York, compact density, market layout, light theme.\", \"density\": \"compact\", \"depth\": \"concise\", \"layout\": \"market\", \"theme\": \"light\", \"contrast\": \"high\", \"motion\": \"reduced\", \"zone\": \"Times use America/New_York\", \"padding\": \"12px\", \"transition\": \"0s\", \"bg\": \"rgb(255, 255, 255)\", \"guideHidden\": null}"
   },
   {
     "name": "privilege-refused",
@@ -157,7 +157,7 @@
   {
     "name": "signals-ask",
     "status": "PASS",
-    "detail": "Stored record. Not an analysis.\n\nAureon AI BLOCKED \u00b7 provider_not_configured\n\ntask explain_signal stored observations 0 latest observation none latest research not_promoted latest execution not_eligib"
+    "detail": "Stored record. Not an analysis.\n\nNo commentary was produced. No price was invented.\n\ntask explain_signal stored observations 0 latest observation none latest research not_promoted latest execution not"
   },
   {
     "name": "terminal-evaluate",
@@ -172,7 +172,7 @@
   {
     "name": "portfolio-empty-or-real",
     "status": "PASS",
-    "detail": "This account Benny \u00b7 customer \u00b7 Apex Momentum \u00b7 market layout Aureon AI BLOCKED. Aureon AI is part of the desk. The hosted model is not configured, so this is n"
+    "detail": "Portfolio Open paper positions 1 Closed paper trades 0 Recorded paper result \u2014 No win rate until a trade is closed. No completed paper trade. No win rate is sho"
   },
   {
     "name": "orders-page",
@@ -187,12 +187,12 @@
   {
     "name": "risk-persona",
     "status": "PASS",
-    "detail": "This account Benny \u00b7 customer \u00b7 Apex Momentum \u00b7 market layout Aureon AI BLOCKED. Aureon AI is part of the desk. The hosted model is not configured, so this is n"
+    "detail": "Risk Active style Apex Momentum Risk posture aggressive Max risk per trade 2.5% Max daily loss 4% Max open risk 5% Open paper risk now 2.50% Minimum reward/risk"
   },
   {
     "name": "inbox-page",
     "status": "PASS",
-    "detail": "This account Benny \u00b7 customer \u00b7 Apex Momentum \u00b7 market layout Aureon AI BLOCKED. Aureon AI is part of the desk. The hosted model is not configured, so this is n"
+    "detail": "2 unread. UNREAD CURRENT RESEARCH OBSERVATION BUY \u00b7 BTCUSDT 15m Experimental and unapproved. Not a validated or profitable strategy. The account supplied these "
   },
   {
     "name": "inbox-badge",
@@ -207,17 +207,17 @@
   {
     "name": "live-activities",
     "status": "PASS",
-    "detail": "This account Benny \u00b7 customer \u00b7 Apex Momentum \u00b7 market layout Aureon AI BLOCKED. Aureon AI is part of the desk. The hosted model is not configured, so this is not an analysis. Expl"
+    "detail": "Live Activities AutoPilot Disabled. New automated paper entries are not eligible. Permission is not active. New automated entries are blocked. 12 unread for this account. Permissio"
   },
   {
     "name": "system-ai-blocked",
     "status": "PASS",
-    "detail": "This account Benny \u00b7 customer \u00b7 Apex Momentum \u00b7 market layout Aureon AI BLOCKED. Aureon AI is part of the desk. The hosted model is not configured, so this is not an analysis. Explain this page System"
+    "detail": "System A verified live reading is not available. This is not a fresh market and not a provider outage. Application Operational Worker Not confirmed Market data Not available Feed health Not checked Hi"
   },
   {
     "name": "customer-accounts-denied",
     "status": "PASS",
-    "detail": "This account Benny \u00b7 customer \u00b7 Apex Momentum \u00b7 market layout Aureon AI BLOCKED. Aureon AI is part of the desk. The hosted model is not configured, so this is not an analysis. Explain this page Accoun"
+    "detail": "Accounts Account administration is limited to an operator named on the server. A preference cannot grant it. Your role is customer. A display preference cannot grant this page."
   },
   {
     "name": "strategies",
@@ -237,7 +237,7 @@
   {
     "name": "sign-out",
     "status": "PASS",
-    "detail": "http://127.0.0.1:47729/"
+    "detail": "http://127.0.0.1:46427/"
   },
   {
     "name": "preference-after-new-login",
@@ -262,7 +262,7 @@
   {
     "name": "operator-directory",
     "status": "PASS",
-    "detail": "This account Adanna \u00b7 operator \u00b7 No persona \u00b7 guided layout Times use Africa/Lagos. Learning not_stated. Onboarding still needed: choose_persona, choose_currency. Density comfortable. Theme dark. Aureon AI BLOCKED. Aureon AI is part of the "
+    "detail": "Accounts Names and roles only. Password hashes are not shown. This page does not change another account. Benny customer Adanna operator"
   },
   {
     "name": "operator-nav-accounts",

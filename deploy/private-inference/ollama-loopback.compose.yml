@@ -1,7 +1,7 @@
-# Private Ollama on the existing host. One CPU model. No public port.
-# Inside the Aureon Docker network the desk uses http://ollama:11434.
-# 127.0.0.1 inside another container is that container, not this service.
-# The published port is host loopback only, so 11434 is not a public port.
+# Private Ollama for a later measured host. One CPU model. No public port.
+# This file does not join the production desk network. That network was not
+# observed from this workspace, so no bridge and no service DNS name is declared.
+# The published port is host loopback only.
 services:
   ollama:
     image: ollama/ollama:latest
@@ -17,15 +17,10 @@ services:
     volumes:
       - ollama-models:/root/.ollama
     restart: "no"
-    networks:
-      - aureon_private
     deploy:
       resources:
         limits:
           cpus: "1.0"
-          memory: 2560M
-networks:
-  aureon_private:
-    name: aureon_private
+          memory: 1536M
 volumes:
   ollama-models:

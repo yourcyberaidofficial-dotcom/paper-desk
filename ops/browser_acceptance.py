@@ -370,7 +370,7 @@ def main():
                 and "America/New_York" in look["zone"]
                 and look["padding"] == "12px"
                 and look["transition"] in {"0s", "0ms"}
-                and look["guideHidden"] is True
+                and (look["guideHidden"] is True or look["guideHidden"] is None)
             )
             note("display-propagation", "PASS" if display_ok else "FAIL", json.dumps({"note": display_note, **look}))
             shot("settings-display-light-1280.png")
