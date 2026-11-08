@@ -10,6 +10,7 @@ import threading
 from pathlib import Path
 
 from flask import Flask, jsonify, request, session, redirect, make_response
+from werkzeug.exceptions import HTTPException
 
 from ops.auth import RateLimit, api_token, require_token
 from ops.engine import PaperEngine
@@ -35,6 +36,21 @@ _FEED_CACHE = {}
 
 app = Flask(__name__)
 app.secret_key = os.environ.get("DESK_SESSION_SECRET") or api_token() or os.urandom(32).hex()
+
+
+def _customer_failure(exc):
+    """Safe customer body. The caller is responsible for HTTP 500. No traceback or path."""
+    sys.stderr.write("request failed: " + type(exc).__name__ + "\n")
+    return jsonify({
+        "error": "unavailable",
+        "handled": True,
+        "message": "This action could not be completed.",
+        "analysis": None,
+        "approved": False,
+        "order_opened": False,
+    })
+
+
 app.config.update(
     SESSION_COOKIE_HTTPONLY=True,
     SESSION_COOKIE_SAMESITE="Lax",
@@ -150,7 +166,10 @@ def _handle_unexpected(exc):
     if isinstance(exc, HTTPException):
         return exc
     if request.path.startswith("/api"):
-        return jsonify({"error": "internal", "handled": True}), 500
+        response = _customer_failure(exc)
+        payload = response.get_json(silent=True) or {}
+        payload["request_id"] = request.environ.get("aureon_request_id", "")
+        return jsonify(payload), 500
     return make_response("internal handled", 500)
 
 
@@ -209,6 +228,22 @@ def _worker_public():
     }
 
 
+def _ollama_public():
+    """Discovery only. inference stays false until a validated completion is returned."""
+    from ops.ollama import health as ollama_health
+
+    model = ollama_health()
+    return {
+        "available": model.get("available") is True,
+        "reason": model.get("reason"),
+        "model": model.get("model"),
+        "installed": list(model.get("installed") or []),
+        "reachable": model.get("reachable"),
+        "inference": False,
+        "customer_toggle": False,
+    }
+
+
 @app.get("/health")
 def health():
     from ops.customer_release import candles_released
@@ -258,6 +293,8 @@ def health():
         "paper_only": True,
         "broker": False,
         "worker": _worker_public(),
+        "runtime": desk_runtime.operational_view(),
+        "ollama": _ollama_public(),
         "qualification": _qualification_public(),
     })
 
@@ -621,9 +658,30 @@ def activity_api():
     user_id, _user = _session_user()
     if not user_id:
         return jsonify({"error": "unauthorized"}), 401
-    from ops.activity import read
-    rows = read(account_id=user_id)
-    return jsonify({"events": rows, "count": len(rows), "truncated": False, "broker": False})
+    from ops.activity import present
+
+    try:
+        limit = request.args.get("limit")
+        before = request.args.get("before")
+        rows = present(user_id, limit=int(limit) if limit else None, before=int(before) if before else None)
+    except (TypeError, ValueError):
+        return jsonify({"error": "invalid_input", "message": "We could not load your activity history. Please retry."}), 400
+    unread = sum(1 for row in rows if row.get("read") is False and row.get("account_id") == user_id)
+    return jsonify({"events": rows, "count": len(rows), "unread": unread, "truncated": False, "broker": False})
+
+
+@app.post("/api/activity/read")
+def activity_read():
+    user_id, _user = _session_user()
+    if not user_id:
+        return jsonify({"error": "unauthorized"}), 401
+    from ops.activity import mark_read
+
+    body = request.get_json(silent=True) or {}
+    if not isinstance(body, dict):
+        return jsonify({"error": "invalid_input", "message": "This action could not be completed."}), 400
+    result = mark_read(user_id, body.get("event_ids"))
+    return jsonify(result)
 
 
 @app.get("/api/signals/lifecycle")
@@ -684,6 +742,7 @@ def _lifecycle_view(user_id):
         "history": history,
         "history_count": len(history),
         "account_events": account_events,
+        "pipeline": __import__("ops.signal_pipeline", fromlist=["read_pipeline"]).read_pipeline(),
         "truncated": False,
         "broker": False,
         "read_only": True,
@@ -2361,6 +2420,65 @@ def account_directory():
     return jsonify({"allowed": True, "security_role": role, "accounts": rows, "broker": False})
 
 
+def _accept_local_model(result):
+    """Use the existing Ollama client only when discovery says the selected model is installed.
+
+    A missing model does not open a socket and does not become an analysis.
+    Hosted commentary that already passed is left unchanged.
+    """
+    from ops.ollama import explain, health as ollama_health
+
+    model = ollama_health()
+    status = {
+        "available": model.get("available") is True,
+        "reason": model.get("reason"),
+        "model": model.get("model"),
+        "installed": list(model.get("installed") or []),
+        "reachable": model.get("reachable"),
+        "inference": False,
+        "customer_toggle": False,
+    }
+    refused = result.get("reason") in {"order_request_refused", "other_account_refused"}
+    if result.get("analysis") or refused or model.get("available") is not True:
+        return status
+    facts = [item for item in (result.get("stored_record") or []) if isinstance(item, str)]
+    refs = [item for item in (result.get("evidence_refs") or []) if isinstance(item, str)]
+    evidence = {
+        "observation": next((item for item in facts if item.startswith("latest observation")), "none"),
+        "research": next((item for item in facts if item.startswith("latest research")), "not_promoted"),
+        "execution": next((item for item in facts if item.startswith("latest execution")), "not_eligible"),
+        "note": " ".join(facts)[:400],
+    }
+    from ops.ai_provider import _LOCK
+
+    if not _LOCK.acquire(blocking=False):
+        status["reason"] = "busy"
+        return status
+    try:
+        explained = explain(evidence)
+    finally:
+        _LOCK.release()
+    summary = None
+    used = []
+    if explained.get("ok") and isinstance(explained.get("explanation"), dict):
+        summary = explained["explanation"].get("summary")
+        used = [item for item in explained["explanation"].get("evidence_used") or [] if isinstance(item, str)]
+    from ops.hosted_ai import _validate
+
+    if isinstance(summary, str) and _validate(summary, facts, refs, used):
+        result["analysis"] = summary
+        result["label"] = "ai_commentary_not_a_signal"
+        result["ok"] = True
+        result["approved"] = False
+        result["order_opened"] = False
+        status["inference"] = True
+        status["reason"] = None
+        return status
+    status["inference"] = False
+    status["reason"] = explained.get("reason") or "invalid_output"
+    return status
+
+
 @app.post("/api/aureon-ai")
 def aureon_ai():
     raw = request.get_data(cache=True) or b""
@@ -2378,10 +2496,65 @@ def aureon_ai():
     question = body.get("question") if isinstance(body.get("question"), str) else None
     symbol = body.get("symbol") if isinstance(body.get("symbol"), str) else None
     interval = body.get("interval") if isinstance(body.get("interval"), str) else None
-    result = complete(user_id, page, question=question, symbol=symbol, interval=interval)
+    try:
+        result = complete(user_id, page, question=question, symbol=symbol, interval=interval)
+    except Exception:
+        app.logger.exception("aureon-ai failed")
+        result = {
+            "ok": False,
+            "analysis": None,
+            "approved": False,
+            "order_opened": False,
+            "reason": "unavailable",
+            "message": "Aureon AI is temporarily unavailable.",
+            "operational": "BLOCKED",
+        }
     result["approved"] = False
     result["order_opened"] = False
+    result["customer_toggle"] = False
+    result["ollama"] = _accept_local_model(result)
+    from ops.bot_thread import append, history
+
+    if question:
+        append(user_id, "customer", question)
+    if result.get("analysis"):
+        reply = result["analysis"]
+    elif result.get("stored_record"):
+        reply = "No model analysis was completed. Stored record: " + " ".join(str(item) for item in result["stored_record"])[:900]
+    else:
+        reply = result.get("message") or "Aureon AI is temporarily unavailable."
+    append(user_id, "aureon", reply)
+    result["thread"] = [
+        {key: value for key, value in row.items() if key != "account_id"}
+        for row in history(user_id, limit=20)
+    ]
+    import hashlib
+
+    from ops.activity import record_once
+
+    token = hashlib.sha256((question or page).encode()).hexdigest()[:12]
+    record_once(
+        "bot_request",
+        entity=f"bot:{user_id}:{page}:{token}",
+        component="aureon_bot",
+        account_id=user_id,
+        detail={"note": "Aureon Bot handled a request for this account. The reply is not a signal.", "page": page},
+    )
     return jsonify(result)
+
+
+@app.get("/api/bot/thread")
+def bot_thread():
+    user_id, _user = _session_user()
+    if not user_id:
+        return jsonify({"error": "unauthorized", "message": "Your account does not have permission for this action."}), 401
+    from ops.bot_thread import history
+
+    return jsonify({
+        "messages": [{key: value for key, value in row.items() if key != "account_id"} for row in history(user_id)],
+        "broker": False,
+        "approved": False,
+    })
 
 
 @app.get("/accounts")
@@ -3362,6 +3535,14 @@ async function signals(){
   const discovery = (research && research.discovery) || {};
   const markets = (discovery.markets || []).map(market => `<div class="row"><span>${market.symbol}</span><span>${(market.validation && market.validation.judgment) || market.holdout || "recorded"}</span></div>`).join("");
   hist.innerHTML = `<h2>Historical research record</h2><p class="muted">These are saved study outcomes, not live leaders and not an approved signal. Holdout opened for: ${(discovery.holdout_opened_for || []).join(", ") || "nobody"}.</p>${markets || "<p>No scored market is listed on this card.</p>"}<p><a href="/research">Read the full research record</a></p>`;
+  const lifecycle = await fetch("/api/signals/lifecycle", {credentials:"same-origin"}).then(r => r.ok ? r.json() : null).catch(() => null);
+  const pipeline = (lifecycle && lifecycle.pipeline) || [];
+  const pipeCards = pipeline.map(row => {
+    const token = String(row.opportunity_id || "").replace(/[^a-zA-Z0-9_-]/g, "");
+    const levels = row.entry == null ? "No level was stored." : `Entry ${row.entry}. Stop ${row.stop}. Target ${row.target}.`;
+    return `<article class="card" id="signal-${token}"><div class="row"><span>${escapeHtml(row.symbol || "")} ${escapeHtml(row.interval || "")}</span><span>${escapeHtml(row.lifecycle || "UNAVAILABLE")}</span></div><p>Signal ${row.signal === true ? "yes" : "no"}. ${escapeHtml(row.decision || "WAIT")}. ${levels}</p><p class="muted">${escapeHtml(row.opportunity_id || "no id")}. ${escapeHtml(row.strategy_id || "")} ${escapeHtml(row.strategy_version || "")}. Live ${row.live === true ? "yes" : "no"}. Not an order and not an approval.</p></article>`;
+  }).join("");
+  hist.insertAdjacentHTML("afterend", `<article class="card"><h2>Persisted signal lifecycle</h2><p class="muted">${pipeline.length ? "These rows were stored by the deterministic pipeline. Refreshing does not create another row." : "No persisted pipeline row is stored. An empty list is not a signal."}</p></article>${pipeCards}`);
 }
 async function terminal(){
   view.innerHTML = `<div class="desk"><article class="card" id="watch"><h2>Market watch</h2><p class="muted">Loading availability. An unavailable market is not shown as a live price.</p></article><article class="card"><h2>Completed candles</h2><div class="fieldrow"><label>Market <select id="term-symbol"><option>BTCUSDT</option><option>ETHUSDT</option><option>XAUUSD</option></select></label><label>Timeframe <select id="term-interval"><option value="1m">1m</option><option value="3m">3m</option><option value="15m" selected>15m</option><option value="1h">1h</option></select></label><label>Reading <select id="term-strategy"><option value="auto">Auto</option><option value="compress-break-4h-20261028">BTC compression breakout</option><option value="sweep-reclaim-4h-20261028">ETH failed-breakdown</option><option value="london-reclaim-1h-20261028">Gold London reclaim</option><option value="dip-in-trend-1d-20261028">Daily dip in trend</option><option value="quiet-week-reversal-1d-20261028">Quiet week reversal</option></select></label></div><canvas id="chart" class="is-empty"></canvas><p class="empty-chart" id="chartempty">Loading closed candles.</p><p id="chartnote" class="muted"></p><p id="crosshair" class="muted"></p><button id="generate" type="button">Evaluate market</button><p id="termstatus" role="status"></p><p class="muted">This requests an analysis. It is not an approved signal and it does not place an order. The chart does not invent ticks.</p></article><article class="card" id="intel"><h2>Market intelligence</h2><div id="termout"><p>No evaluation yet. An empty panel is not a signal.</p></div></article></div><article class="card" id="termbook"><h2>Paper record</h2><p class="muted">Loading this account's paper book.</p></article>${manualPlanCard()}<article class="card"><h2>Saved evaluations</h2><p class="muted">Older requests on this account. They are not live prices, and a past wait is not the current market.</p><div id="termhist"><p>No requested evaluation yet.</p></div></article>`;
@@ -3935,9 +4116,18 @@ async function liveActivities(){
   const events = (activity.events || []).slice().reverse().map(item => {
     const shownTime = item.created_ms ? when(item.created_ms) : "time not available";
     const note = (item.detail && item.detail.note) || "";
-    return `<article class="card"><div class="row"><span>${item.event_type}</span><span class="muted">${shownTime}</span></div><p>${item.component || "desk"}${item.entity ? " · " + item.entity : ""}</p><p class="muted">${note} A heartbeat is not a market reading. A blocked notification does not delete this event.</p></article>`;
+    const state = item.read === true ? "Read" : "Unread";
+    const signal = item.detail && item.detail.opportunity_id ? `<p><a href="/signals#signal-${escapeHtml(String(item.detail.opportunity_id).replace(/[^a-zA-Z0-9_-]/g, ""))}">Open this signal</a></p>` : "";
+    return `<article class="card" data-event="${escapeHtml(item.event_id || "")}"><div class="row"><span>${escapeHtml(item.event_type || "event")}</span><span class="muted">${escapeHtml(state)} · ${shownTime}</span></div><p>${escapeHtml(item.component || "desk")}${item.entity ? " · " + escapeHtml(item.entity) : ""}</p><p class="muted">${escapeHtml(note)} A heartbeat is not a market reading. A blocked notification does not delete this event.</p>${signal}</article>`;
   }).join("");
-  view.innerHTML = `<article class="card"><h2>Live Activities</h2><p>AutoPilot ${autoLine}</p><p class="muted">Permission, an approved strategy, and execution eligibility are three different facts. This page lists events that actually happened. It does not invent scans or fills.</p></article>${positions}${events || "<article class='card'><p>No system event is stored yet. An empty list is not a fictional scan.</p></article>"}`;
+  view.innerHTML = `<article class="card"><h2>Live Activities</h2><p>AutoPilot ${autoLine}</p><p>${activity.unread || 0} unread for this account.</p><p class="muted">Permission, an approved strategy, and execution eligibility are three different facts. This page lists events that actually happened. It does not invent scans or fills.</p><p><button id="activity-read" type="button">Mark shown events read</button></p></article>${positions}${events || "<article class='card'><p>No system event is stored yet. An empty list is not a fictional scan.</p></article>"}`;
+  const readButton = document.getElementById("activity-read");
+  if (readButton) readButton.onclick = async () => {
+    const ids = (activity.events || []).map(item => item.event_id).filter(Boolean);
+    const marked = await fetch("/api/activity/read", {method:"POST", credentials:"same-origin", headers:{"Content-Type":"application/json"}, body: JSON.stringify({event_ids: ids})});
+    if (marked.ok) liveActivities();
+    else readButton.textContent = "Could not update read state. The events were not deleted.";
+  };
 }
 async function paperPages(){
   const response = await fetch("/api/paper/book", {credentials:"same-origin"});
@@ -4007,7 +4197,11 @@ async function systemPage(){
     const box = document.getElementById("ai-status");
     if (!box) return;
     const operational = ai && ai.operational ? ai.operational : "BLOCKED";
-    box.innerHTML = `<h2>Aureon AI</h2><p>${escapeHtml(operational)}</p><p class="muted">${escapeHtml((ai && (ai.note || ai.reason)) || "No analysis was produced.")} Local AI status is separate from the customer desk. A stored record is not an analysis.</p>`;
+    const local = (ai && ai.ollama) || {};
+    const localLine = local.inference === true
+      ? "Inference succeeded for this request."
+      : ("Inference has not succeeded. " + (local.reason || "model_not_configured") + ". Reachable: " + String(local.reachable) + ". Installed: " + ((local.installed || []).join(", ") || "none") + ".");
+    box.innerHTML = `<h2>Aureon AI</h2><p>Hosted service ${escapeHtml(operational)}. Ollama connected: ${local.available === true ? "yes" : "no"}.</p><p class="muted">${escapeHtml(localLine)} ${escapeHtml((ai && (ai.note || ai.reason)) || "No analysis was produced.")} A stored record is not an analysis. The model is not a signal.</p>`;
   }).catch(() => {
     const box = document.getElementById("ai-status");
     if (box) box.innerHTML = `<h2>Aureon AI</h2><p>BLOCKED</p><p class="muted">The status check failed. Trading did not stop. No analysis was invented. Local AI status is separate from the customer desk.</p>`;

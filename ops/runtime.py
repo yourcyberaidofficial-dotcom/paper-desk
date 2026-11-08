@@ -29,6 +29,28 @@ class DeskRuntime:
         self.phase = "created"
         self.last_result = None
 
+    def operational_view(self):
+        """State from the worker itself. A label is not a hardcoded healthy flag."""
+        phase = self.phase
+        last = self.last_result if isinstance(self.last_result, dict) else None
+        if phase == "running" and last and last.get("completed") is False:
+            state = "DEGRADED"
+        elif phase == "running":
+            state = "RUNNING"
+        elif phase == "stopping":
+            state = "DEGRADED"
+        elif phase == "interrupted":
+            state = "ERROR"
+        else:
+            state = "STOPPED"
+        return {
+            "state": state,
+            "phase": phase,
+            "last_cycle": last,
+            "inflight": self._inflight,
+            "accepting": state == "RUNNING",
+        }
+
     def running(self):
         return not self._stop.is_set() and self.phase == "running"
 

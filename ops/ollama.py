@@ -52,25 +52,30 @@ def _post(url, payload, timeout, transport):
 def health(timeout=1.5, transport=None):
     model = configured_model()
     if not model:
-        return {"available": False, "reason": "model_not_configured", "model": None, "broker": False}
+        return {"available": False, "reason": "model_not_configured", "model": None, "installed": [], "reachable": None, "inference": False, "broker": False}
     from ops.ai_safety import endpoint_allowed, local_model_allowed
 
     if not local_model_allowed(model):
-        return {"available": False, "reason": "cloud_model_refused", "model": model, "broker": False}
+        return {"available": False, "reason": "cloud_model_refused", "model": model, "installed": [], "reachable": None, "inference": False, "broker": False}
     if not endpoint_allowed(base_url()):
-        return {"available": False, "reason": "endpoint_refused", "model": model, "broker": False}
+        return {"available": False, "reason": "endpoint_refused", "model": model, "installed": [], "reachable": None, "inference": False, "broker": False}
     try:
         status, body = _get(base_url() + "/api/tags", timeout, transport)
     except Exception as exc:
-        return {"available": False, "reason": "offline", "model": model, "error": type(exc).__name__, "broker": False}
+        return {"available": False, "reason": "offline", "model": model, "installed": [], "reachable": False, "inference": False, "broker": False}
     names = []
+    reachable = False
     if isinstance(body, dict):
         names = [str((item or {}).get("name") or "") for item in body.get("models") or [] if isinstance(item, dict)]
-    present = status == 200 and any(name == model or name.startswith(model + ":") or model.startswith(name) for name in names)
+        reachable = status == 200
+    present = reachable and any(name == model or name.startswith(model + ":") or model.startswith(name) for name in names)
     return {
         "available": present,
         "reason": None if present else "model_missing",
         "model": model,
+        "installed": names if reachable else [],
+        "reachable": reachable,
+        "inference": False,
         "broker": False,
     }
 
@@ -169,13 +174,25 @@ def explain(evidence, timeout=8, transport=None, now_ms=None):
             {"role": "user", "content": json.dumps({"evidence": clean}, sort_keys=True)},
         ],
     }
-    try:
-        http_status, body = _post(base_url() + "/api/chat", prompt, timeout, transport)
-    except Exception as exc:
-        base["reason"] = "timeout" if "timeout" in type(exc).__name__.lower() or "timeout" in str(exc).lower() else "offline"
+    last_error = None
+    http_status, body = 0, {}
+    for _attempt in (1, 2):
+        try:
+            http_status, body = _post(base_url() + "/api/chat", prompt, timeout, transport)
+            last_error = None
+            break
+        except Exception as exc:
+            last_error = exc
+            timed_out = "timeout" in type(exc).__name__.lower() or "timeout" in str(exc).lower()
+            if _attempt == 1 and timed_out:
+                continue
+            base["reason"] = "timeout" if timed_out else "offline"
+            base["available"] = False
+            base["fallback"] = "The explanation timed out. Market retrieval was not waiting on it."
+            return base
+    if last_error is not None:
+        base["reason"] = "timeout"
         base["available"] = False
-        base["error"] = type(exc).__name__
-        base["fallback"] = "The explanation timed out. Market retrieval was not waiting on it."
         return base
     text = ""
     if isinstance(body, dict):

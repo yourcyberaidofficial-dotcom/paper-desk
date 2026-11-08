@@ -13,12 +13,15 @@ import pytest
 @pytest.fixture(autouse=True)
 def _restore_rate_limit():
     from ops.app import LIMITER
+    import ops.users as users
 
     previous = LIMITER.per_minute
+    original = users.ROOT
     LIMITER.hits.clear()
     yield
     LIMITER.per_minute = previous
     LIMITER.hits.clear()
+    users.ROOT = original
 
 
 def _boot(tmp_path, monkeypatch):
