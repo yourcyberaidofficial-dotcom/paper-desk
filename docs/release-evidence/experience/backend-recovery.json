@@ -1,0 +1,31 @@
+{
+  "branch": "product/backend-recovery",
+  "base": "c56e8dcd846ac6cc88a026f4c7c690969c27d40f",
+  "production": "eaf78b1bc246d2c47dd3cff72b576cfb71721aea",
+  "merged": false,
+  "deployed": false,
+  "live_model": false,
+  "live_market_feed": false,
+  "live_telegram": false,
+  "tests": "320 passed",
+  "hosted_ai": {
+    "transport": "openai-compatible /v1/chat/completions",
+    "local_model": false,
+    "missing_for_activation": [
+      "AUREON_AI_API_KEY",
+      "AUREON_AI_BASE_URL (https)",
+      "AUREON_AI_MODEL",
+      "AUREON_AI_SPEND_APPROVED=1"
+    ],
+    "optional": ["AUREON_AI_FALLBACK_MODEL", "AUREON_AI_TIMEOUT_SECONDS", "AUREON_AI_CONCURRENCY"]
+  },
+  "market_data": {
+    "binance_vision_klines": "prohibited",
+    "binance_spot_rest_klines": "rights_unconfirmed",
+    "dukascopy_datafeed_bi5": "rights_unconfirmed",
+    "xau_minute": "unlicensed",
+    "downloaded": false
+  },
+  "qualification": {"failed": 11, "insufficient": 2, "approved_for_paper": 0, "thresholds_changed": false},
+  "telegram": {"missing": "TELEGRAM_BOT_TOKEN and a verified per-account chat", "network_in_tests": false}
+}

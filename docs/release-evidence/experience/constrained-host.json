@@ -1,0 +1,59 @@
+{
+  "branch": "product/backend-recovery",
+  "parent": "947c01b159a882a0ac651ea6544c9eb843df993b",
+  "previous_evidence": "docs/release-evidence/experience/core-milestone.json",
+  "production": "eaf78b1bc246d2c47dd3cff72b576cfb71721aea",
+  "pr98": "c56e8dcd846ac6cc88a026f4c7c690969c27d40f",
+  "merged": false,
+  "deployed": false,
+  "pushed": false,
+  "tests": "331 passed",
+  "host": {
+    "mem_total_kib": 4024496,
+    "swap_total_kib": 0,
+    "disk_free": "41G of 50G",
+    "gpu": false,
+    "docker_engine": false,
+    "compose_started": false,
+    "inference_floor_lowered": false
+  },
+  "ollama": {
+    "distribution": "official CPU binary 0.40.15, not the Docker image",
+    "listen": "127.0.0.1:11434",
+    "public_bind": false,
+    "model": "qwen2.5:1.5b",
+    "quantization": "Q4_K_M",
+    "parameters": "1.5B",
+    "blob_bytes": 986061892,
+    "loaded_bytes": 1112318934,
+    "size_vram": 0,
+    "context_length": 2048,
+    "runner": "llamacpp",
+    "second_model_pulled": false,
+    "stream_first_token_s": 0.506,
+    "stream_full_s": 2.705,
+    "customer_route_s": 3.937,
+    "customer_route": {
+      "ok": true,
+      "inference": true,
+      "operational": "BLOCKED",
+      "analysis": "The latest observation is none, and the latest research is not promoted.",
+      "approved": false,
+      "order_opened": false,
+      "viii_analysis": null
+    }
+  },
+  "product": {
+    "manual_plan_blank_stop": "incomplete, field stop",
+    "manual_plan_saved": "entry 100 stop 98 target 104, order_opened false",
+    "csv_rows_stored": 21,
+    "csv_live": false,
+    "xau_1m": "xau_minute_unlicensed",
+    "historical_evaluation": "FORMING, signal false, source_label user_provided_historical",
+    "other_account_thread": [],
+    "browser_journeys": "not run; no Chrome binary in this sandbox"
+  },
+  "qualification": {"failed": 11, "insufficient": 2, "approved_for_paper": 0, "thresholds_changed": false},
+  "telegram": "deferred",
+  "hosted_ai_still_blocked": ["AUREON_AI_API_KEY", "https AUREON_AI_BASE_URL", "AUREON_AI_MODEL", "AUREON_AI_SPEND_APPROVED=1"]
+}

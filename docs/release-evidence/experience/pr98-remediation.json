@@ -1,0 +1,48 @@
+{
+  "pr": 98,
+  "branch": "product/experience-transformation",
+  "base": "eaf78b1bc246d2c47dd3cff72b576cfb71721aea",
+  "reviewed_head": "6c76d7d9089b88baadf4d91cc4635a6826066a27",
+  "review_decision": "REQUEST CHANGES",
+  "human_signoff": "outstanding",
+  "remediation_commit": "2020554f6dd5489a255ec8f5026cfb4e14e51753",
+  "findings": [
+    {
+      "id": "glued-number-words",
+      "was": "iseight rejected; ateight, foreight, and oneight accepted",
+      "fix": "A token is a number only when it partitions into number words and connectors. at, for, and on alone are not rejected."
+    },
+    {
+      "id": "glued-roman",
+      "was": "viii rejected; isviii and theviii accepted",
+      "fix": "The same connectors peel off a Roman core of at least three characters. vi, iv, and ii stay excluded, including isvi."
+    },
+    {
+      "id": "short-names",
+      "was": "Al, Jo, and Ann accepted",
+      "fix": "Server account names of two or more characters match as a whole token after NFKC and case folding. also, almost, annual, and joining stay valid. One-character names are not matched."
+    }
+  ],
+  "order_language_policy": {
+    "buyitnow": "rejected",
+    "buyit_now": "rejected",
+    "buying_now": "commentary, not an instruction",
+    "execution": "approved and order_opened stay false; open_order is not called"
+  },
+  "tests": {
+    "experience": "PYTHONPATH=. python3 -m pytest ops/test_experience_product.py -q --tb=line",
+    "experience_result": "11 passed",
+    "full": "PYTHONPATH=. python3 -m pytest ops/test_*.py tests/test_h4.py -q --tb=line -p no:cacheprovider",
+    "full_result": "313 passed in 80.93s",
+    "provider_calls": 0,
+    "live_model": false
+  },
+  "browser": "not rerun. The patch does not change the customer UI or the response shape. The provider is still unconfigured, so Chromium cannot reach the new validator branches.",
+  "data_baseline_restored": {
+    "activity/events.jsonl": "d83dcfb4165cd5581743e8e4ba98dfacaa798ce16bed56176940d3cf75ae8ab9",
+    "paper/ledger.jsonl": "96cd7466ed4ca59838bef6e9e072f9c6cfc36333d5ad67ef1ba56c51315d1169",
+    "signals/history.jsonl": "2a6d8404a2740a554c2decb79cad8042d44f4e1d5224e140e7319a60f190b4ea",
+    "paper/prefs.json": "a22cf93d608b8608bf7d79b1125fabe77ab8e0626f22dce47606c338d5a3ef1f",
+    "note": "The suite appended to the worktree copies. Those files were copied back to the pre-suite bytes. The evaluation writer was not started."
+  }
+}

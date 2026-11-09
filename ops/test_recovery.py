@@ -61,7 +61,10 @@ def test_lifecycle_route_does_not_invent_a_reading(tmp_path, monkeypatch):
     monkeypatch.setenv("AUREON_DATA", str(tmp_path))
     from ops.app import app
     from ops.users import register
+    import ops.users as users
 
+    users.ROOT = tmp_path / "users"
+    users.ROOT.mkdir(parents=True, exist_ok=True)
     app.config["TESTING"] = True
     client = app.test_client()
     anonymous = client.get("/api/signals/lifecycle")

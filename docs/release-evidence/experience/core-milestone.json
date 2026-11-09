@@ -1,0 +1,45 @@
+{
+  "branch": "product/backend-recovery",
+  "parent": "b6bd83c76908032ef6af1a507cd9ab8b645cb5a1",
+  "pr98": "c56e8dcd846ac6cc88a026f4c7c690969c27d40f",
+  "production": "eaf78b1bc246d2c47dd3cff72b576cfb71721aea",
+  "pr97": "unchanged",
+  "merged": false,
+  "deployed": false,
+  "tests": "327 passed",
+  "classification": {
+    "unit": ["persona context", "worker operational_view", "customer error body"],
+    "fixture": ["signal UNAVAILABLE activity dedupe", "bot thread isolation"],
+    "mocked_provider": ["ollama transport double", "customer route validated double"],
+    "genuine_external": "Ollama probe failed closed. Not a passing live test."
+  },
+  "ollama": {
+    "architecture_endpoint": "http://127.0.0.1:11434",
+    "tcp": "ConnectionRefusedError errno 111",
+    "http_api_tags": "URLError",
+    "binary_installed": false,
+    "OLLAMA_MODEL": "unset",
+    "weights_downloaded": false,
+    "inference": false,
+    "connected": false,
+    "dependency": "OLLAMA_MODEL must name a tag that is actually installed on the loopback service from deploy/private-inference/ollama-loopback.compose.yml. This host has no Ollama daemon and no model weights."
+  },
+  "hosted_ai_still_blocked": ["AUREON_AI_API_KEY", "https AUREON_AI_BASE_URL", "AUREON_AI_MODEL", "AUREON_AI_SPEND_APPROVED=1"],
+  "market_data": {
+    "binance_vision_klines": "prohibited",
+    "binance_spot_rest_klines": "rights_unconfirmed",
+    "dukascopy_datafeed_bi5": "rights_unconfirmed",
+    "xau_minute": "unlicensed",
+    "downloaded": false,
+    "live_feed": false
+  },
+  "qualification": {"failed": 11, "insufficient": 2, "approved_for_paper": 0, "thresholds_changed": false},
+  "telegram": "deferred",
+  "data_restored": {
+    "activity/events.jsonl": "d83dcfb4165cd5581743e8e4ba98dfacaa798ce16bed56176940d3cf75ae8ab9",
+    "paper/ledger.jsonl": "3dbf5c334058bfd3941ab2a6893810c1c97d19ac8931ebddbb7032be3f6db939",
+    "signals/history.jsonl": "2a6d8404a2740a554c2decb79cad8042d44f4e1d5224e140e7319a60f190b4ea",
+    "paper/prefs.json": "a22cf93d608b8608bf7d79b1125fabe77ab8e0626f22dce47606c338d5a3ef1f",
+    "users_json": 0
+  }
+}

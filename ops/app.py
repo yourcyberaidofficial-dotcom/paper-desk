@@ -10,6 +10,7 @@ import threading
 from pathlib import Path
 
 from flask import Flask, jsonify, request, session, redirect, make_response
+from werkzeug.exceptions import HTTPException
 
 from ops.auth import RateLimit, api_token, require_token
 from ops.engine import PaperEngine
@@ -35,6 +36,21 @@ _FEED_CACHE = {}
 
 app = Flask(__name__)
 app.secret_key = os.environ.get("DESK_SESSION_SECRET") or api_token() or os.urandom(32).hex()
+
+
+def _customer_failure(exc):
+    """Safe customer body. The caller is responsible for HTTP 500. No traceback or path."""
+    sys.stderr.write("request failed: " + type(exc).__name__ + "\n")
+    return jsonify({
+        "error": "unavailable",
+        "handled": True,
+        "message": "This action could not be completed.",
+        "analysis": None,
+        "approved": False,
+        "order_opened": False,
+    })
+
+
 app.config.update(
     SESSION_COOKIE_HTTPONLY=True,
     SESSION_COOKIE_SAMESITE="Lax",
@@ -150,7 +166,10 @@ def _handle_unexpected(exc):
     if isinstance(exc, HTTPException):
         return exc
     if request.path.startswith("/api"):
-        return jsonify({"error": "internal", "handled": True}), 500
+        response = _customer_failure(exc)
+        payload = response.get_json(silent=True) or {}
+        payload["request_id"] = request.environ.get("aureon_request_id", "")
+        return jsonify(payload), 500
     return make_response("internal handled", 500)
 
 
@@ -209,6 +228,22 @@ def _worker_public():
     }
 
 
+def _ollama_public():
+    """Discovery only. inference stays false until a validated completion is returned."""
+    from ops.ollama import health as ollama_health
+
+    model = ollama_health()
+    return {
+        "available": model.get("available") is True,
+        "reason": model.get("reason"),
+        "model": model.get("model"),
+        "installed": list(model.get("installed") or []),
+        "reachable": model.get("reachable"),
+        "inference": False,
+        "customer_toggle": False,
+    }
+
+
 @app.get("/health")
 def health():
     from ops.customer_release import candles_released
@@ -258,6 +293,8 @@ def health():
         "paper_only": True,
         "broker": False,
         "worker": _worker_public(),
+        "runtime": desk_runtime.operational_view(),
+        "ollama": _ollama_public(),
         "qualification": _qualification_public(),
     })
 
@@ -621,9 +658,30 @@ def activity_api():
     user_id, _user = _session_user()
     if not user_id:
         return jsonify({"error": "unauthorized"}), 401
-    from ops.activity import read
-    rows = read(account_id=user_id)
-    return jsonify({"events": rows, "count": len(rows), "truncated": False, "broker": False})
+    from ops.activity import present
+
+    try:
+        limit = request.args.get("limit")
+        before = request.args.get("before")
+        rows = present(user_id, limit=int(limit) if limit else None, before=int(before) if before else None)
+    except (TypeError, ValueError):
+        return jsonify({"error": "invalid_input", "message": "We could not load your activity history. Please retry."}), 400
+    unread = sum(1 for row in rows if row.get("read") is False and row.get("account_id") == user_id)
+    return jsonify({"events": rows, "count": len(rows), "unread": unread, "truncated": False, "broker": False})
+
+
+@app.post("/api/activity/read")
+def activity_read():
+    user_id, _user = _session_user()
+    if not user_id:
+        return jsonify({"error": "unauthorized"}), 401
+    from ops.activity import mark_read
+
+    body = request.get_json(silent=True) or {}
+    if not isinstance(body, dict):
+        return jsonify({"error": "invalid_input", "message": "This action could not be completed."}), 400
+    result = mark_read(user_id, body.get("event_ids"))
+    return jsonify(result)
 
 
 @app.get("/api/signals/lifecycle")
@@ -684,6 +742,7 @@ def _lifecycle_view(user_id):
         "history": history,
         "history_count": len(history),
         "account_events": account_events,
+        "pipeline": __import__("ops.signal_pipeline", fromlist=["read_pipeline"]).read_pipeline(user_id),
         "truncated": False,
         "broker": False,
         "read_only": True,
@@ -1230,6 +1289,7 @@ def user_logout():
 
 @app.post("/api/profile")
 def save_profile():
+    from ops.ai_safety import accept_display_name
     from ops.users import update_profile
     user_id = session.get("user_id")
     if not user_id:
@@ -1237,6 +1297,10 @@ def save_profile():
     body = request.get_json(silent=True)
     if not isinstance(body, dict):
         return jsonify({"error": "invalid_input"}), 400
+    if "name" in body:
+        from ops.users import update_display_name
+        if accept_display_name(body.get("name")) is None or update_display_name(user_id, body.get("name")) is None:
+            return jsonify({"error": "invalid or duplicate"}), 400
     expected = body.get("expected_revision")
     user = update_profile(user_id, body, expected_revision=expected)
     if isinstance(user, dict) and user.get("conflict"):
@@ -2032,12 +2096,13 @@ def scanner_api():
                 "target": None,
                 "approved": False,
                 "evaluated": False,
-                "scanner_state": "BLOCKED" if minute else "WAIT",
-                "decision_label": "UNAVAILABLE" if minute else "WAIT",
-                "status": "unavailable" if minute else "scanning",
+                "customer_status": "reading_unavailable",
+                "scanner_state": "UNAVAILABLE",
+                "decision_label": "UNAVAILABLE",
+                "status": "unavailable",
                 "blocked": "xau_minute_unlicensed" if minute else None,
-                "message": row.get("reason") or "No reading was returned. No price was invented.",
-                "reading_class": "unavailable" if minute else "insufficient",
+                "message": "Gold 1-minute and 3-minute are not licensed." if minute else "A verified live reading is not available. This is not a zero-setup scan.",
+                "reading_class": "unavailable",
                 "autopilot_eligible": False,
                 "probability": None,
             })
@@ -2111,6 +2176,7 @@ def desk_plan():
         return jsonify({
             "ok": False,
             "reason": built.get("reason"),
+            "fields": built.get("fields") or {},
             "order_opened": False,
             "broker": False,
             "levels_persisted": False,
@@ -2145,7 +2211,56 @@ def desk_plan():
         "approved": False,
         "order_opened": False,
         "broker": False,
+        "fields": {},
     })
+
+
+@app.get("/api/candles/import")
+def candle_import_history():
+    user_id, _user = _session_user()
+    if not user_id:
+        return jsonify({"error": "unauthorized"}), 401
+    from ops.candle_import import history
+
+    return jsonify({"imports": history(user_id), "live": False, "source": "user_provided_historical", "broker": False})
+
+
+@app.post("/api/candles/import")
+def candle_import_post():
+    user_id, _user = _session_user()
+    if not user_id:
+        return jsonify({"error": "unauthorized"}), 401
+    from ops.candle_import import import_rows, parse_csv
+
+    body = request.get_json(silent=True) or {}
+    if not isinstance(body, dict):
+        return jsonify({"error": "invalid_input", "message": "The import could not be read."}), 400
+    parsed = parse_csv(body.get("csv") if isinstance(body.get("csv"), str) else "")
+    if not parsed.get("ok"):
+        return jsonify({"ok": False, "reason": parsed.get("reason"), "fields": parsed.get("fields") or {}, "live": False, "stored": 0, "broker": False}), 400
+    result = import_rows(user_id, parsed["rows"])
+    result["errors"] = parsed.get("errors") or []
+    return jsonify(result)
+
+
+@app.post("/api/candles/evaluate")
+def candle_import_evaluate():
+    user_id, _user = _session_user()
+    if not user_id:
+        return jsonify({"error": "unauthorized"}), 401
+    from ops.candle_import import INSTRUMENTS, INTERVALS, evaluate
+
+    body = request.get_json(silent=True) or {}
+    symbol = body.get("symbol") if isinstance(body, dict) else None
+    interval = body.get("interval") if isinstance(body, dict) else None
+    if symbol not in INSTRUMENTS or interval not in INTERVALS:
+        return jsonify({"ok": False, "reason": "unsupported", "live": False, "signal": False, "broker": False}), 400
+    if symbol == "XAUUSD" and interval in {"1m", "3m"}:
+        return jsonify({"ok": False, "reason": "xau_minute_unlicensed", "live": False, "signal": False, "broker": False}), 400
+    result = evaluate(user_id, symbol, interval)
+    result["approved"] = False
+    result["order_opened"] = False
+    return jsonify(result)
 
 
 @app.get("/api/workspace")
@@ -2276,6 +2391,245 @@ def terminal_history():
     return jsonify({"items": rows[:40]})
 
 
+@app.get("/api/experience")
+def experience_profile():
+    user_id, user = _session_user()
+    if not user_id or not user:
+        return jsonify({"error": "unauthorized"}), 401
+    from ops.experience import resolve
+
+    return jsonify(resolve(user))
+
+
+@app.post("/api/experience")
+def experience_save():
+    user_id, user = _session_user()
+    if not user_id or not user:
+        return jsonify({"error": "unauthorized"}), 401
+    body = request.get_json(silent=True)
+    if not isinstance(body, dict):
+        return jsonify({"error": "invalid_input"}), 400
+    if any(key in body for key in ("role", "security_role", "entitlements", "password", "id")):
+        try:
+            from ops.activity import record
+
+            record("privilege_refused", account_id=user_id, component="experience", detail={"refused": True})
+        except Exception:
+            pass
+        return jsonify({"error": "not_permitted"}), 403
+    from ops.ai_safety import accept_display_name
+    if "name" in body and accept_display_name(body.get("name")) is None:
+        return jsonify({"error": "invalid or duplicate"}), 400
+    from ops.access import resolve_role
+    from ops.experience import resolve
+    from ops.users import update_presentation
+
+    saved = update_presentation(user_id, body, role=resolve_role(user))
+    if not saved:
+        return jsonify({"error": "invalid_input"}), 400
+    try:
+        from ops.activity import record
+
+        record("experience_saved", account_id=user_id, component="experience", detail={"saved": True})
+    except Exception:
+        pass
+    from ops.users import get
+
+    return jsonify(resolve(get(user_id)))
+
+
+@app.get("/api/accounts")
+def account_directory():
+    user_id, user = _session_user()
+    if not user_id or not user:
+        return jsonify({"error": "unauthorized"}), 401
+    from ops.access import resolve_role
+    from ops.users import ROOT
+    import json as _json
+
+    role = resolve_role(user)
+    if role != "operator":
+        return jsonify({
+            "allowed": False,
+            "security_role": role,
+            "reason": "Account administration is limited to an operator named on the server. A preference cannot grant it.",
+        })
+    rows = []
+    if ROOT.exists():
+        for path in sorted(ROOT.glob("*.json")):
+            try:
+                record = _json.loads(path.read_text(encoding="utf-8"))
+            except (OSError, ValueError):
+                continue
+            if not isinstance(record, dict):
+                continue
+            rows.append({
+                "id": record.get("id"),
+                "name": record.get("name"),
+                "security_role": resolve_role(record),
+            })
+    return jsonify({"allowed": True, "security_role": role, "accounts": rows, "broker": False})
+
+
+def _accept_local_model(result, question=None):
+    """Use the existing Ollama client only when discovery says the selected model is installed.
+
+    A missing model does not open a socket and does not become an analysis.
+    Hosted commentary that already passed is left unchanged.
+    """
+    from ops.ollama import explain, health as ollama_health
+
+    model = ollama_health()
+    status = {
+        "available": model.get("available") is True,
+        "reason": model.get("reason"),
+        "model": model.get("model"),
+        "installed": list(model.get("installed") or []),
+        "reachable": model.get("reachable"),
+        "inference": False,
+        "customer_toggle": False,
+    }
+    refused = result.get("reason") in {"order_request_refused", "other_account_refused"}
+    if result.get("analysis") or refused or model.get("available") is not True:
+        return status
+    facts = [item for item in (result.get("stored_record") or []) if isinstance(item, str)]
+    refs = [item for item in (result.get("evidence_refs") or []) if isinstance(item, str)]
+    evidence = {
+        "observation": next((item for item in facts if item.startswith("latest observation")), "none"),
+        "research": next((item for item in facts if item.startswith("latest research")), "not_promoted"),
+        "execution": next((item for item in facts if item.startswith("latest execution")), "not_eligible"),
+        "note": " ".join(item for item in facts if item.startswith(("latest observation", "latest research", "latest execution")))[:400],
+    }
+    if isinstance(question, str) and question.strip():
+        evidence["question"] = question.strip()[:280]
+    from ops.ai_provider import _LOCK
+
+    if not _LOCK.acquire(blocking=False):
+        status["reason"] = "busy"
+        return status
+    try:
+        explained = explain(evidence, timeout=20)
+    finally:
+        _LOCK.release()
+    summary = None
+    used = []
+    if explained.get("ok") and isinstance(explained.get("explanation"), dict):
+        summary = explained["explanation"].get("summary")
+        used = [item for item in explained["explanation"].get("evidence_used") or [] if isinstance(item, str)]
+    from ops.hosted_ai import _validate
+
+    if isinstance(summary, str) and _validate(summary, facts, refs, used):
+        result["analysis"] = summary
+        result["label"] = "ai_commentary_not_a_signal"
+        result["ok"] = True
+        result["approved"] = False
+        result["order_opened"] = False
+        status["inference"] = True
+        status["reason"] = None
+        return status
+    status["inference"] = False
+    status["reason"] = explained.get("reason") or "invalid_output"
+    return status
+
+
+@app.post("/api/aureon-ai")
+def aureon_ai():
+    raw = request.get_data(cache=True) or b""
+    if len(raw) > 8000:
+        return jsonify({"error": "payload_too_large"}), 413
+    user_id, _user = _session_user()
+    if not user_id:
+        return jsonify({"error": "unauthorized"}), 401
+    from ops.hosted_ai import complete
+
+    body = request.get_json(silent=True) or {}
+    if not isinstance(body, dict):
+        body = {}
+    page = body.get("page") if isinstance(body.get("page"), str) else "/overview"
+    question = body.get("question") if isinstance(body.get("question"), str) else None
+    symbol = body.get("symbol") if isinstance(body.get("symbol"), str) else None
+    interval = body.get("interval") if isinstance(body.get("interval"), str) else None
+    try:
+        result = complete(user_id, page, question=question, symbol=symbol, interval=interval)
+    except Exception:
+        app.logger.exception("aureon-ai failed")
+        result = {
+            "ok": False,
+            "analysis": None,
+            "approved": False,
+            "order_opened": False,
+            "reason": "unavailable",
+            "message": "Aureon AI is temporarily unavailable.",
+            "operational": "BLOCKED",
+        }
+    result["approved"] = False
+    result["order_opened"] = False
+    result["customer_toggle"] = False
+    asked = isinstance(question, str) and bool(question.strip())
+    if asked:
+        result["ollama"] = _accept_local_model(result, question)
+        local = result.get("ollama") or {}
+        if local.get("inference") is True and result.get("analysis") and result.get("reason") == "provider_not_configured":
+            result["reason"] = None
+            result["note"] = "Local commentary from the installed model. Not a signal and not an order. The hosted provider was not called."
+    else:
+        from ops.ollama import health as ollama_health
+
+        model = ollama_health()
+        result["ollama"] = {
+            "available": model.get("available") is True,
+            "reason": model.get("reason"),
+            "model": model.get("model"),
+            "installed": list(model.get("installed") or []),
+            "reachable": model.get("reachable"),
+            "inference": False,
+            "customer_toggle": False,
+        }
+    from ops.bot_thread import append, history
+
+    if asked:
+        append(user_id, "customer", question)
+        if result.get("analysis"):
+            reply = result["analysis"]
+        elif result.get("stored_record"):
+            reply = "No model analysis was completed. Stored record: " + " ".join(str(item) for item in result["stored_record"])[:900]
+        else:
+            reply = result.get("message") or "Aureon AI is temporarily unavailable."
+        append(user_id, "aureon", reply)
+    result["thread"] = [
+        {key: value for key, value in row.items() if key != "account_id"}
+        for row in history(user_id, limit=20)
+    ]
+    import hashlib
+
+    from ops.activity import record_once
+
+    token = hashlib.sha256((question or page).encode()).hexdigest()[:12]
+    record_once(
+        "bot_request",
+        entity=f"bot:{user_id}:{page}:{token}",
+        component="aureon_bot",
+        account_id=user_id,
+        detail={"note": "Aureon Bot handled a request for this account. The reply is not a signal.", "page": page},
+    )
+    return jsonify(result)
+
+
+@app.get("/api/bot/thread")
+def bot_thread():
+    user_id, _user = _session_user()
+    if not user_id:
+        return jsonify({"error": "unauthorized", "message": "Your account does not have permission for this action."}), 401
+    from ops.bot_thread import history
+
+    return jsonify({
+        "messages": [{key: value for key, value in row.items() if key != "account_id"} for row in history(user_id)],
+        "broker": False,
+        "approved": False,
+    })
+
+
+@app.get("/accounts")
 @app.get("/overview")
 @app.get("/signals")
 @app.get("/trading")
@@ -2322,6 +2676,7 @@ def index():
         "/lab": "Trading Lab",
         "/orders": "Orders",
         "/history": "Trade History",
+        "/accounts": "Accounts",
     }.get(request.path, "Aureon")
     page = (
         DASHBOARD.replace("{{AUTHED}}", "1")
@@ -2383,6 +2738,7 @@ button:disabled{{opacity:.6}}
     <p>{alt}</p>
     <p><a href="/">Back to Aureon</a></p>
   </form>
+  <p class="muted">Aureon AI is on every signed-in page. This form does not call it, and it cannot be switched off.</p>
 </main>
 <script>
 const form = document.getElementById("form");
@@ -2469,7 +2825,7 @@ footer a{color:#99f6e4}
   <div>
     <p class="muted">Paper trading and research</p>
     <h1>See the market clearly. Research with discipline.</h1>
-    <p class="lede">One account for the live desk, free paper AutoPilot, the Academy and your Trading Lab. AutoPilot opens paper trades only after you turn it on. It is not a broker.</p>
+    <p class="lede">One account for the live desk, free paper AutoPilot, the Academy and your Trading Lab. AutoPilot opens paper trades only after you turn it on. It is not a broker. Aureon AI explains this account's stored records after you sign in. It is not a switch, and it does not place an order.</p>
     <div class="actions"><a class="btn" href="/register">Create your account</a><a class="btn ghost" href="/login">Sign in</a></div>
   </div>
   <aside class="preview" aria-label="Product preview">
@@ -2523,7 +2879,7 @@ header{display:flex;justify-content:space-between;align-items:flex-start;gap:12p
 .pills{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
 .pill{background:#10151c;border:1px solid var(--line);border-radius:999px;padding:6px 10px;color:var(--muted);font-size:.78rem}
 .markets,.courses{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin-bottom:12px}
-.card{background:linear-gradient(180deg,#161c26,#10151c);border:1px solid var(--line);border-radius:16px;padding:16px}
+.card{background:linear-gradient(180deg,#161c26,#10151c);border:1px solid var(--line);border-radius:16px;padding:16px;transition:padding .2s ease,border-color .2s ease}
 .course .bar{height:6px;background:#222a36;border-radius:99px;margin:10px 0}
 .course .bar span{display:block;height:100%;border-radius:99px;background:linear-gradient(90deg,#14b8a6,#3dd68c)}
 .price{font-size:1.7rem;font-weight:700;margin:6px 0}
@@ -2600,6 +2956,7 @@ aside.open{display:block}
 aside a{min-height:44px}
 .markets,.courses,.workspace,.empty-grid,.sections,.desk,.split,.kpis,.kpis.five{grid-template-columns:1fr}
 button,select{min-height:44px;max-width:100%}
+.pills a{min-height:44px;display:inline-flex;align-items:center}
 main{padding:12px 12px 32px;min-width:0}
 .pills{min-width:0}
 .pill{max-width:100%}
@@ -2613,6 +2970,32 @@ main{padding:12px 12px 32px;min-width:0}
 #view table td::before,table.matrix td::before{content:attr(data-label);display:block;color:var(--muted);font-size:.72rem;letter-spacing:.04em;text-transform:uppercase;margin-bottom:2px}
 }
 @media(max-width:430px){.price{font-size:1.35rem}.card{padding:14px}h1,h2{overflow-wrap:anywhere}}
+body[data-density="compact"] .card{padding:12px}
+body[data-density="comfortable"] .card{padding:20px}
+body[data-layout="guided"] #view .card:first-child{border-color:#2dd4bf}
+body[data-depth="concise"] .guide{display:none}
+body[data-theme="light"]{--bg:#f3f6fb;--panel:#ffffff;--line:#d5deea;--text:#121820;--muted:#3c4a5c;--teal:#0f766e;--ok:#047857;--bad:#be123c;--warn:#92400e}
+body[data-theme="light"] aside{background:#e7eef6}
+body[data-theme="light"] aside a{color:#1c2836}
+body[data-theme="light"] aside a.active{background:#d7f3ef;color:#0f1720}
+body[data-theme="light"] .card,body[data-theme="light"] .pill,body[data-theme="light"] #navsearch,body[data-theme="light"] #aipanel,body[data-theme="light"] #helppanel{background:#fff;color:#121820}
+@media (prefers-color-scheme: light){
+body[data-theme="system"]{--bg:#f3f6fb;--panel:#ffffff;--line:#d5deea;--text:#121820;--muted:#3c4a5c;--teal:#0f766e}
+body[data-theme="system"] aside{background:#e7eef6}
+body[data-theme="system"] aside a{color:#1c2836}
+body[data-theme="system"] .card,body[data-theme="system"] .pill,body[data-theme="system"] #navsearch,body[data-theme="system"] #aipanel,body[data-theme="system"] #helppanel{background:#fff;color:#121820}
+}
+body[data-contrast="high"] .card,body[data-contrast="high"] button,body[data-contrast="high"] a{border-width:2px}
+body[data-contrast="high"]{--muted:#f4f7fb}
+body[data-theme="light"][data-contrast="high"]{--text:#0a0e14;--muted:#1b2430;--bg:#fff}
+body[data-motion="reduced"] *{animation:none !important;transition:none !important}
+@media (prefers-reduced-motion: reduce){*{animation:none !important;transition:none !important}}
+button.pill{font:inherit;cursor:pointer;color:inherit}
+#nav-accounts[hidden]{display:none}
+#nav a.filtered-out{display:none}
+#navsearch{width:calc(100% - 20px);margin:8px 10px;box-sizing:border-box;background:#0e141c;color:#e8eef6;border:1px solid var(--line);border-radius:8px;padding:8px}
+#aipanel,#helppanel{position:fixed;right:12px;bottom:12px;z-index:50;width:min(420px,calc(100vw - 24px));max-height:70vh;overflow:auto;background:#121820;border:1px solid #2dd4bf;border-radius:14px;padding:14px}
+#aipanel textarea{width:100%;box-sizing:border-box;min-height:72px}
 </style>
 </head>
 <body data-path="{{PAGE_PATH}}">
@@ -2644,7 +3027,9 @@ main{padding:12px 12px 32px;min-width:0}
     <a href="/live" data-path="/live">Activity</a>
     <p class="navlabel">Account</p>
     <a href="/system" data-path="/system">System</a>
+    <a href="/accounts" data-path="/accounts" id="nav-accounts" hidden>Accounts</a>
     <a href="/settings" data-path="/settings">Settings</a>
+    <input id="navsearch" type="search" aria-label="Find a page" placeholder="Find a page">
   </aside>
   <main>
     <header>
@@ -2652,9 +3037,11 @@ main{padding:12px 12px 32px;min-width:0}
         <h1 id="title">{{PAGE_TITLE}}</h1>
         <div class="muted">Paper desk. A plan is not an order, and a paper result is not a broker fill.</div>
       </div>
-      <div class="pills"><span class="pill" id="whobadge">Account</span><span class="pill" id="autobadge">AutoPilot</span><span class="pill" id="feedbadge">Checking status</span><a href="/notifications" id="inboxlink">Inbox</a><button id="signout" type="button">Sign out</button></div>
+      <div class="pills"><button class="pill" id="whobadge" type="button">Account</button><span class="pill" id="zonelabel">Times</span><span class="pill" id="autobadge">AutoPilot</span><span class="pill" id="feedbadge">Checking status</span><button id="aiopen" type="button">Aureon AI</button><button id="helpopen" type="button">Help</button><a href="/notifications" id="inboxlink">Inbox</a><a href="/settings" id="settingslink">Settings</a><button id="signout" type="button">Sign out</button></div>
     </header>
     <section id="view"><article class="card"><p role="status">Loading this page. Prices are not invented while this loads.</p></article></section>
+    <section id="aipanel" hidden><h2>Aureon AI</h2><p id="aistatus" class="muted"></p><label>Question about this page<textarea id="aiquestion"></textarea></label><p><button id="aiask" type="button">Ask about this page</button> <button id="aiclose" type="button">Close</button></p><div id="aianswer"></div></section>
+    <section id="helppanel" hidden><h2>Help</h2><p id="helptext"></p><button id="helpclose" type="button">Close</button></section>
   </main>
 </div>
 <script>
@@ -2666,9 +3053,173 @@ document.getElementById("signout").onclick = async () => {
   await fetch("/api/logout", {method:"POST", credentials:"same-origin"});
   location.href = "/";
 };
+const navSearch = document.getElementById("navsearch");
+navSearch.oninput = () => {
+  const query = navSearch.value.trim().toLowerCase();
+  let shown = 0;
+  document.querySelectorAll("#nav a").forEach(link => {
+    const match = !query || link.textContent.toLowerCase().includes(query);
+    link.classList.toggle("filtered-out", !match);
+    if (match && !link.hidden) shown += 1;
+  });
+  let empty = document.getElementById("navempty");
+  if (!empty) {
+    empty = document.createElement("p");
+    empty.id = "navempty";
+    empty.className = "muted";
+    navSearch.insertAdjacentElement("afterend", empty);
+  }
+  empty.hidden = shown !== 0;
+  empty.textContent = shown ? "" : "No page matches that search.";
+};
+const helpText = {
+  "/overview": "Overview shows this account's paper capital, persona, and whether a verified market reading exists. It does not invent a price.",
+  "/trading": "The terminal records a paper estimate only after you confirm it. Empty fields are not copied from a feed.",
+  "/scanner": "The scanner shows coverage for markets this account may see. A missing reading stays missing.",
+  "/signals": "Live Signals withholds a reading when this account has no display grant. That is not a zero-setup scan.",
+  "/strategies": "Strategies are research records. Selecting one does not approve it and does not place an order.",
+  "/research": "Research explains stored tests. It does not rescore a dataset or invent a win rate.",
+  "/plan": "My Plan saves this account's checklist. A target does not force a signal.",
+  "/portfolio": "Portfolio lists this account's open paper positions. It is not a broker book.",
+  "/orders": "Orders lists this account's open paper orders only.",
+  "/history": "Trade History lists closed paper results for this account. An empty book stays empty.",
+  "/risk": "Risk shows the persona caps that the paper desk already enforces.",
+  "/notifications": "Inbox is this account's notices. A notice is not an order.",
+  "/live": "Live Activities lists events that were recorded. It does not invent a scan.",
+  "/settings": "Settings save persona, capital, markets, and display preferences on this account only. Aureon AI has no off switch.",
+  "/system": "System status is operational health. It is not a market price. Local AI status is separate from the customer desk.",
+  "/learn": "Academy progress is stored on this account. It is not a skill score.",
+  "/lab": "Trading Lab stores what you say about your experience. It does not change permission.",
+  "/onboarding": "Onboarding chooses a persona and a currency. It does not grant a market feed.",
+  "/accounts": "Accounts is the operator directory. A customer sees the restriction, not another person's password.",
+  "/activity": "The journal is this account's paper history. It is not a broker fill."
+};
+document.getElementById("helpopen").onclick = () => {
+  const panel = document.getElementById("helppanel");
+  document.getElementById("helptext").textContent = helpText[path] || "This page uses the same account. Aureon AI explains stored records for this page and cannot place an order.";
+  panel.hidden = false;
+};
+document.getElementById("helpclose").onclick = () => { document.getElementById("helppanel").hidden = true; };
+document.getElementById("aiopen").onclick = async () => {
+  const panel = document.getElementById("aipanel");
+  panel.hidden = false;
+  const health = await fetch("/api/aureon-ai", {method:"POST", credentials:"same-origin", headers:{"Content-Type":"application/json"}, body: JSON.stringify({page: path})});
+  const body = health.ok ? await health.json() : {operational:"BLOCKED", note:"Aureon AI could not be reached."};
+  const local = body.ollama || {};
+  const localText = local.available === true
+    ? ("Local model " + (local.model || "configured") + " is reachable. An answer is produced only when you ask. It is not a signal.")
+    : (local.reason === "offline"
+      ? "The local model is offline. No analysis was invented."
+      : "The local model is not configured. No analysis was invented.");
+  document.getElementById("aistatus").textContent = localText;
+};
+document.getElementById("aiclose").onclick = () => { document.getElementById("aipanel").hidden = true; };
+document.getElementById("whobadge").onclick = () => { location.href = "/settings"; };
+document.addEventListener("keydown", (event) => {
+  if (event.key !== "Escape") return;
+  document.getElementById("aipanel").hidden = true;
+  document.getElementById("helppanel").hidden = true;
+  nav.classList.remove("open");
+  menu.setAttribute("aria-expanded", "false");
+});
+let deskZone = "Africa/Lagos";
+let deskProfile = null;
+function escapeHtml(value){
+  const amp = String.fromCharCode(38);
+  return String(value ?? "")
+    .split(amp).join(amp + "amp;")
+    .split("<").join(amp + "lt;")
+    .split(">").join(amp + "gt;")
+    .split('"').join(amp + "quot;")
+    .split("'").join(amp + "#39;");
+}
+function applyExperience(profile){
+  if (!profile) return;
+  deskProfile = profile;
+  const look = profile.presentation || {};
+  deskZone = look.timezone || "Africa/Lagos";
+  document.body.dataset.density = look.density || "comfortable";
+  document.body.dataset.layout = look.layout || "guided";
+  document.body.dataset.depth = look.depth || "guided";
+  document.body.dataset.theme = look.theme || "dark";
+  document.body.dataset.contrast = look.contrast || "standard";
+  document.body.dataset.motion = look.motion || "full";
+  const zone = document.getElementById("zonelabel");
+  if (zone) zone.textContent = "Times use " + deskZone;
+  const who = document.getElementById("whobadge");
+  if (who) who.textContent = (profile.name || "Account") + " · " + (profile.security_role || "customer") + " · " + ((profile.persona || {}).name || "No persona");
+  const accounts = document.getElementById("nav-accounts");
+  if (accounts) accounts.hidden = profile.security_role !== "operator";
+  arrangeOverview();
+  paintExperienceStrip();
+}
+function arrangeOverview(){
+  const split = document.querySelector("#view .split");
+  const market = document.getElementById("ov-market");
+  const account = document.getElementById("ov-account");
+  if (!split || !market || !account) return;
+  if ((document.body.dataset.layout || "guided") === "guided") split.insertBefore(account, market);
+  else split.insertBefore(market, account);
+}
+function paintExperienceStrip(){
+  if (!deskProfile || typeof view === "undefined" || !view) return;
+  const overview = path === "/overview" || path === "/";
+  let strip = document.getElementById("experience-strip");
+  if (!overview) {
+    if (strip) strip.remove();
+    return;
+  }
+  if (!strip) {
+    strip = document.createElement("article");
+    strip.id = "experience-strip";
+    strip.className = "card";
+    view.prepend(strip);
+  }
+  const look = deskProfile.presentation || {};
+  const ai = deskProfile.ai || {};
+  const pending = (deskProfile.onboarding_pending || []).join(", ") || "none";
+  strip.innerHTML = `<h2>This account</h2><p>${escapeHtml(deskProfile.name || "Account")} · ${escapeHtml(deskProfile.security_role || "customer")} · ${escapeHtml((deskProfile.persona || {}).name || "No persona")} · ${escapeHtml(look.layout || "guided")} layout</p><p class="guide">Times use ${escapeHtml(look.timezone || deskZone)}. Learning ${escapeHtml(deskProfile.learning_level || "not_stated")}. Onboarding still needed: ${escapeHtml(pending)}. Density ${escapeHtml(look.density || "comfortable")}. Theme ${escapeHtml(look.theme || "dark")}.</p><p>Aureon AI ${escapeHtml(ai.operational || "unknown")}. ${escapeHtml(ai.note || "")}</p><p><button type="button" id="strip-ai">Explain this page</button></p>`;
+  const opener = document.getElementById("strip-ai");
+  if (opener) opener.onclick = () => document.getElementById("aiopen").click();
+  arrangeOverview();
+}
+document.getElementById("aiask").onclick = async () => {
+  const answer = document.getElementById("aianswer");
+  answer.textContent = "Asking Aureon AI. A stored record is not an analysis.";
+  try {
+    const response = await fetch("/api/aureon-ai", {method:"POST", credentials:"same-origin", headers:{"Content-Type":"application/json"}, body: JSON.stringify({page: path, question: document.getElementById("aiquestion").value})});
+    const body = await response.json();
+    if (body.analysis) answer.textContent = body.analysis + " This is commentary, not a signal and not an order.";
+    else {
+      const local = body.ollama || {};
+      const localText = local.available === true
+        ? ("Local model " + (local.reason || "did not accept a reply") + ". No analysis was invented.")
+        : (local.reason === "offline"
+          ? "The local model is offline. No analysis was invented."
+          : "The local model is not configured. No analysis was invented.");
+      const stored = body.stored_record && body.stored_record.length ? " Stored record: " + body.stored_record.join(" ") : "";
+      answer.textContent = localText + stored;
+    }
+  } catch (err) {
+    answer.textContent = "Aureon AI could not be reached. No analysis was invented. The desk is still available.";
+  }
+};
+function paintInbox(count){
+  const link = document.getElementById("inboxlink");
+  if (!link) return;
+  const unread = Number(count) || 0;
+  link.textContent = unread > 0 ? "Inbox (" + unread + ")" : "Inbox";
+  link.setAttribute("aria-label", unread > 0 ? unread + " unread notices" : "Inbox");
+}
+fetch("/api/experience", {credentials:"same-origin"}).then(r => r.ok ? r.json() : null).then(profile => {
+  applyExperience(profile);
+}).catch(()=>{});
+fetch("/api/notifications", {credentials:"same-origin"}).then(r => r.ok ? r.json() : null).then(body => {
+  if (body) paintInbox(body.unread);
+}).catch(()=>{});
 const path = location.pathname === "/" ? "/overview" : location.pathname;
 document.querySelectorAll("aside a").forEach(a => { if (a.dataset.path === path) a.classList.add("active"); });
-const titles = {"/":"Overview","/signals":"Live Signals","/trading":"Trading Terminal","/strategies":"Strategies","/portfolio":"Portfolio","/risk":"Risk Management","/activity":"Orders & Trade History","/orders":"Orders","/history":"Trade History","/live":"Live Activities","/system":"System Status","/settings":"Account & Settings","/research":"Backtesting & Research","/onboarding":"Account setup","/scanner":"Live Scanner","/learn":"Academy","/indicators":"Academy","/plan":"My Trading Plan","/notifications":"Inbox","/lab":"Trading Lab"};
+const titles = {"/":"Overview","/signals":"Live Signals","/trading":"Trading Terminal","/strategies":"Strategies","/portfolio":"Portfolio","/risk":"Risk Management","/activity":"Orders & Trade History","/orders":"Orders","/history":"Trade History","/live":"Live Activities","/system":"System Status","/settings":"Account & Settings","/research":"Backtesting & Research","/onboarding":"Account setup","/scanner":"Live Scanner","/learn":"Academy","/indicators":"Academy","/plan":"My Trading Plan","/notifications":"Inbox","/lab":"Trading Lab","/accounts":"Accounts"};
 document.getElementById("title").textContent = titles[path] || "Aureon";
 document.title = (titles[path] || "Aureon") + " · Aureon Trading Lab";
 fetch("/api/autopilot", {credentials:"same-origin"}).then(r => r.ok ? r.json() : null).then(bot => {
@@ -2678,7 +3229,7 @@ fetch("/api/autopilot", {credentials:"same-origin"}).then(r => r.ok ? r.json() :
 }).catch(()=>{});
 fetch("/api/me", {credentials:"same-origin"}).then(r => r.ok ? r.json() : null).then(me => {
   const badge = document.getElementById("whobadge");
-  if (badge && me && me.profile) badge.textContent = (me.name || "Account") + " · " + (me.profile.signal_style_name || "No persona");
+  if (badge && me && !deskProfile) badge.textContent = (me.name || "Account") + " · customer · " + ((me.profile && me.profile.signal_style_name) || "No persona");
 }).catch(()=>{});
 fetch("/health").then(r => r.ok ? r.json() : null).then(health => {
   const badge = document.getElementById("feedbadge");
@@ -2691,6 +3242,13 @@ fetch("/health").then(r => r.ok ? r.json() : null).then(health => {
   if (badge) badge.textContent = "Health not confirmed";
 });
 const view = document.getElementById("view");
+let stripLock = false;
+const viewObserver = new MutationObserver(() => {
+  if (stripLock || !deskProfile) return;
+  stripLock = true;
+  try { paintExperienceStrip(); } finally { stripLock = false; }
+});
+viewObserver.observe(view, {childList: true});
 function plainReason(text){
   return String(text || "")
     .replaceAll("sample_is_5m", "the gold feed is five-minute samples, so this shorter candle is not available")
@@ -2754,7 +3312,7 @@ function priceText(symbol, value){
   return n.toLocaleString(undefined, {minimumFractionDigits: digits, maximumFractionDigits: digits});
 }
 function askCard(){
-  return `<article class="card" id="ask-aureon"><h2>Ask Aureon</h2><p class="muted">Local AI status is separate from market freshness. Answers use stored records. The model cannot approve a strategy or open an order. AI analysis is not a deterministic signal.</p><label>Question <input id="ask-q" maxlength="280" placeholder="Ask about a stored record"></label><div class="fieldrow"><button type="button" data-ask="ask">Ask Aureon AI</button><button type="button" data-ask="explain_signal">Explain this signal</button><button type="button" data-ask="compare">Compare setups</button><button type="button" data-ask="market_watch">Analyse conditions</button><button type="button" data-ask="why_quiet">Explain a missing signal</button><button type="button" data-ask="why_no_setup">Why no setup qualifies</button><button type="button" data-ask="explain_invalidated">Explain invalidation</button><button type="button" data-ask="portfolio">Review paper portfolio</button><button type="button" data-ask="risk">Review risk</button><button type="button" data-ask="journal">Review journal</button><button type="button" data-ask="research">Explain research</button><button type="button" data-ask="academy">Academy lesson</button></div><div id="ask-out" class="muted">Choose a question. An offline model still returns the stored record.</div></article>`;
+  return `<article class="card" id="ask-aureon"><h2>Aureon AI</h2><p class="muted">Aureon AI is part of this desk. It is not a switch. A hosted model that is not connected does not invent an analysis. AI analysis is not a deterministic signal. Commentary cannot approve a strategy or open an order.</p><label>Question <input id="ask-q" maxlength="280" placeholder="Ask about this account's stored record"></label><div class="fieldrow"><button type="button" data-ask="explain_signal">Ask Aureon AI</button></div><div id="ask-out" class="muted">Ask about the stored record for this page.</div></article>`;
 }
 function bindAsk(){
   document.querySelectorAll("[data-ask]").forEach(button => {
@@ -2766,19 +3324,21 @@ function bindAsk(){
       button.disabled = true;
       if (out) out.textContent = "Reading stored records.";
       try {
-        const response = await fetch("/api/ai/ask", {method:"POST", credentials:"same-origin", headers:{"Content-Type":"application/json"}, body: JSON.stringify({task: button.dataset.ask, question: question ? question.value : ""})});
+        const response = await fetch("/api/aureon-ai", {method:"POST", credentials:"same-origin", headers:{"Content-Type":"application/json"}, body: JSON.stringify({page: path, question: question ? question.value : ""})});
         const body = await response.json().catch(() => ({}));
         if (out) {
           out.replaceChildren();
           const label = document.createElement("p");
-          label.textContent = body.analysis_label || "AI analysis. Not a deterministic signal.";
+          label.textContent = body.analysis ? "AI commentary. Not a signal and not an order." : "Stored record. Not an analysis.";
           const state = document.createElement("p");
-          state.textContent = "Model " + (body.model_status || body.reason || "unknown") + (body.reason ? " · " + body.reason : "");
+          const local = body.ollama || {};
+          let stateText = "Aureon AI " + (body.operational || "unknown") + (body.reason ? " · " + body.reason : "");
+          if (body.analysis && local.inference === true) stateText = "Local commentary from the installed model. The hosted provider was not called.";
+          else if (!body.analysis) stateText = "No commentary was produced. No price was invented.";
+          state.textContent = stateText;
           const text = document.createElement("p");
-          text.textContent = (body.explanation && body.explanation.summary) || body.fallback || body.reason || "No stored explanation.";
-          const refs = document.createElement("p");
-          refs.textContent = "Evidence " + ((body.evidence_refs || []).join(", ") || "stored record");
-          out.append(label, state, text, refs);
+          text.textContent = body.analysis || (body.stored_record || []).join(" ") || body.note || body.reason || "No analysis was produced.";
+          out.append(label, state, text);
         }
       } catch (err) {
         if (out) out.textContent = "The explanation request failed. Market data was not changed.";
@@ -2801,7 +3361,9 @@ function bindManualPlan(){
     const sent = await fetch("/api/desk/plan", {method:"POST", credentials:"same-origin", headers:{"Content-Type":"application/json"}, body: JSON.stringify({symbol: data.get("symbol"), interval: data.get("interval"), authored: true, decision: data.get("decision"), entry: data.get("entry"), stop: data.get("stop"), target: data.get("target")})});
     const mine = await sent.json().catch(() => ({}));
     if (!sent.ok || !mine.opportunity_id || mine.levels_persisted !== true) {
-      if (slot) slot.innerHTML = `<p>Your levels were not saved. ${plainReason(mine.reason || "not available")}. No order was opened.</p>`;
+      const fields = mine.fields || {};
+      const lines = Object.keys(fields).map(name => name + ": " + fields[name]).join(" ");
+      if (slot) slot.innerHTML = `<p>Your levels were not saved. ${escapeHtml(lines || plainReason(mine.reason || "not available"))}. No order was opened. This is not a broker order.</p>`;
       return;
     }
     const allow = mine.paper && mine.paper.allowed;
@@ -2820,8 +3382,9 @@ function when(ms){
   if (!ms) return "time not available";
   const d = new Date(ms);
   if (Number.isNaN(d.getTime())) return "time not available";
+  const zone = deskZone || "Africa/Lagos";
   try {
-    return d.toLocaleString(undefined, {timeZone:"UTC", year:"numeric", month:"short", day:"2-digit", hour:"2-digit", minute:"2-digit"}) + " UTC";
+    return d.toLocaleString(undefined, {timeZone: zone, year:"numeric", month:"short", day:"2-digit", hour:"2-digit", minute:"2-digit"}) + " · " + zone;
   } catch (e) {
     return d.toISOString().slice(0, 16).replace("T", " ") + " UTC";
   }
@@ -2916,8 +3479,8 @@ async function overview(){
     if (!profile.currency) steps.push(`<li><a href="/settings">Set a base currency.</a> Amounts are not converted.</li>`);
     const lessons = lab && lab.completed_lessons ? lab.completed_lessons.length : 0;
     const lessonTotal = lab && lab.lessons ? lab.lessons.length : 0;
-    const openRows = book && book.open && book.open.length ? book.open.map(row => `<div class="row"><span>${row.symbol} ${row.direction}</span><span>Open paper</span></div>`).join("") : `<div class="row"><span>Open paper positions</span><span>None</span></div>`;
-    account.innerHTML = `<h2>${who}</h2>${openRows}<div class="row"><span>Persona</span><span>${styleName}</span></div><div class="row"><span>Paper capital</span><span>${balance}</span></div><div class="row"><span>Recorded paper result</span><span>${figures.trades ? realised : "—"}</span></div><div class="row"><span>Daily loss cap</span><span>${profile.max_daily_loss_percent == null ? "Not set" : profile.max_daily_loss_percent + "%"}</span></div><div class="row"><span>Weekly loss limit</span><span>${plan ? weekLimit : "Not loaded"}</span></div><div class="row"><span>Risk per trade</span><span>${profile.max_risk_pct == null ? "Not set" : profile.max_risk_pct + "%"}</span></div><div class="row"><span>Academy</span><span>${lessonTotal ? lessons + " of " + lessonTotal + " lessons" : (lab ? "Available" : "Not loaded")}</span></div><p class="muted">${autoSentence(bot)} Broker execution is disabled. No strategy is promoted. ${profile.currency ? "Amounts use " + profile.currency + "." : "Choose a base currency before treating the balance as money."} ${figures.trades ? "" : "No closed paper trade. No win rate."}</p>${steps.length ? `<h3>Next step</h3><ul>${steps.join("")}</ul>` : `<p><a href="/learn">Continue in the Academy</a> · <a href="/lab">Trading Lab</a> · <a href="/settings">Settings</a></p>`}`;
+    const openRows = book && book.open && book.open.length ? book.open.map(row => `<div class="row"><span>${row.symbol} ${row.direction}</span><span>Open paper</span></div>`).join("") : "";
+    account.innerHTML = `<h2>${who}</h2>${openRows}<div class="row"><span>Persona</span><span>${styleName}</span></div><div class="row"><span>Daily loss cap</span><span>${profile.max_daily_loss_percent == null ? "Not set" : profile.max_daily_loss_percent + "%"}</span></div><div class="row"><span>Weekly loss limit</span><span>${plan ? weekLimit : "Not loaded"}</span></div><div class="row"><span>Risk per trade</span><span>${profile.max_risk_pct == null ? "Not set" : profile.max_risk_pct + "%"}</span></div><div class="row"><span>Academy</span><span>${lessonTotal ? lessons + " of " + lessonTotal + " lessons" : (lab ? "Available" : "Not loaded")}</span></div><p class="muted guide">Broker execution is disabled. No strategy is promoted. ${profile.currency ? "Amounts use " + profile.currency + "." : "Choose a base currency before treating the balance as money."} Capital, open positions, closed trades and AutoPilot are shown once in the tiles above.</p>${steps.length ? `<h3>Next step</h3><ul>${steps.join("")}</ul>` : `<p><a href="/learn">Continue in the Academy</a> · <a href="/lab">Trading Lab</a> · <a href="/settings">Settings</a></p>`}`;
   }
   if (kpis) kpis.innerHTML = `<article class="card"><p class="muted">Paper capital</p><p class="price">${balance}</p></article><article class="card"><p class="muted">Open paper positions</p><p class="price num">${openCount}</p></article><article class="card"><p class="muted">Closed paper trades</p><p class="price num">${closedCount}</p><p class="muted">${figures.trades ? "Recorded result " + realised + ". Not a win rate." : "No closed paper trade. No win rate."}</p></article><article class="card"><p class="muted">AutoPilot</p><p class="price quiet">${bot ? (bot.facing || "Disabled") : "Not loaded"}</p></article>`;
   const market = document.getElementById("ov-market");
@@ -2933,8 +3496,8 @@ async function overview(){
       const shown = priceText(row.symbol, value);
       const sampled = data.candle_semantics === "spot_sample_not_bid_ask";
       const frame = sampled ? ((data.timeframe || "Gold") + " sampled reference close") : ((data.timeframe ? data.timeframe + " " : "") + "completed close");
-      const when = data.close_time_ms ? new Date(data.close_time_ms).toISOString().slice(0, 16).replace("T", " ") + " UTC" : "";
-      const note = frame + (when ? " · " + when : "") + " · " + (data.quality || "unknown");
+      const whenLabel = data.close_time_ms ? when(data.close_time_ms) : "";
+      const note = frame + (whenLabel ? " · " + whenLabel : "") + " · " + (data.quality || "unknown");
       const quote = data.quote && data.quote.price != null
         ? `<p class="muted">Separate quote ${priceText(row.symbol, data.quote.price)}. Not the completed close.</p>`
         : (data.quote && data.quote.status === "reference_quote_unavailable" ? `<p class="muted">Reference quote unavailable. Not the completed close.</p>` : "");
@@ -2948,7 +3511,7 @@ async function overview(){
   }
   const activity = document.getElementById("ov-activity");
   if (activity) {
-    const events = ((notes && notes.items) || []).slice(0, 4).map(item => `<div class="row"><span>${item.decision || item.state || "Notice"} · ${item.symbol || "Account"}</span><span>${item.created_ms ? new Date(item.created_ms).toISOString().slice(0, 16).replace("T", " ") : "—"}</span></div>`).join("");
+    const events = ((notes && notes.items) || []).slice(0, 4).map(item => `<div class="row"><span>${item.decision || item.state || "Notice"} · ${item.symbol || "Account"}</span><span>${item.created_ms ? when(item.created_ms) : "—"}</span></div>`).join("");
     activity.innerHTML = `<h2>Recent activity</h2>${notes ? (events || "<p>No account event is recorded. An empty inbox is not a failed service.</p>") : "<p>Activity could not be loaded in time.</p>"}<p class="muted">These lines are account notices, not orders and not live prices.</p><p><a href="/notifications">Inbox</a> · <a href="/activity">Journal</a> · <a href="/portfolio">Portfolio</a></p>${notes ? "" : `<p><button type="button" id="ov-retry3">Retry activity</button></p>`}`;
     const again = document.getElementById("ov-retry3");
     if (again) again.onclick = () => overview();
@@ -2959,8 +3522,7 @@ async function loadDesk(){
   if (!host) return;
   const body = await fetch("/api/signals/lifecycle", {credentials:"same-origin"}).then(r => r.ok ? r.json() : null).catch(() => null);
   if (!body) { host.innerHTML = "<h2>Live desk</h2><p>The signal history could not be read. No reading was invented.</p>"; return; }
-  const ai = await fetch("/api/ai").then(r => r.ok ? r.json() : null).catch(() => null);
-  const aiLine = !ai ? "Local AI status could not be read." : (ai.available === true ? "Local AI online. It cannot approve or trade." : "Local AI offline. The signal engine does not wait on it.");
+  const aiLine = "Aureon AI is standard on this desk. The hosted model is not a customer switch. If it is not connected, no analysis is shown. The signal engine does not wait on it.";
   const cards = (body.markets || []).map(row => {
     const unavailable = row.observation === "data_unavailable";
     const stale = row.freshness === "stale";
@@ -3071,6 +3633,14 @@ async function signals(){
   const discovery = (research && research.discovery) || {};
   const markets = (discovery.markets || []).map(market => `<div class="row"><span>${market.symbol}</span><span>${(market.validation && market.validation.judgment) || market.holdout || "recorded"}</span></div>`).join("");
   hist.innerHTML = `<h2>Historical research record</h2><p class="muted">These are saved study outcomes, not live leaders and not an approved signal. Holdout opened for: ${(discovery.holdout_opened_for || []).join(", ") || "nobody"}.</p>${markets || "<p>No scored market is listed on this card.</p>"}<p><a href="/research">Read the full research record</a></p>`;
+  const lifecycle = await fetch("/api/signals/lifecycle", {credentials:"same-origin"}).then(r => r.ok ? r.json() : null).catch(() => null);
+  const pipeline = (lifecycle && lifecycle.pipeline) || [];
+  const pipeCards = pipeline.map(row => {
+    const token = String(row.opportunity_id || "").replace(/[^a-zA-Z0-9_-]/g, "");
+    const levels = row.entry == null ? "No level was stored." : `Entry ${row.entry}. Stop ${row.stop}. Target ${row.target}.`;
+    return `<article class="card" id="signal-${token}"><div class="row"><span>${escapeHtml(row.symbol || "")} ${escapeHtml(row.interval || "")}</span><span>${escapeHtml(row.lifecycle || "UNAVAILABLE")}</span></div><p>Signal ${row.signal === true ? "yes" : "no"}. ${escapeHtml(row.decision || "WAIT")}. ${levels}</p><p class="muted">${escapeHtml(row.opportunity_id || "no id")}. ${escapeHtml(row.strategy_id || "")} ${escapeHtml(row.strategy_version || "")}. Live ${row.live === true ? "yes" : "no"}. Not an order and not an approval.</p></article>`;
+  }).join("");
+  hist.insertAdjacentHTML("afterend", `<article class="card"><h2>Persisted signal lifecycle</h2><p class="muted">${pipeline.length ? "These rows were stored by the deterministic pipeline. Refreshing does not create another row." : "No persisted pipeline row is stored. An empty list is not a signal."}</p></article>${pipeCards}`);
 }
 async function terminal(){
   view.innerHTML = `<div class="desk"><article class="card" id="watch"><h2>Market watch</h2><p class="muted">Loading availability. An unavailable market is not shown as a live price.</p></article><article class="card"><h2>Completed candles</h2><div class="fieldrow"><label>Market <select id="term-symbol"><option>BTCUSDT</option><option>ETHUSDT</option><option>XAUUSD</option></select></label><label>Timeframe <select id="term-interval"><option value="1m">1m</option><option value="3m">3m</option><option value="15m" selected>15m</option><option value="1h">1h</option></select></label><label>Reading <select id="term-strategy"><option value="auto">Auto</option><option value="compress-break-4h-20261028">BTC compression breakout</option><option value="sweep-reclaim-4h-20261028">ETH failed-breakdown</option><option value="london-reclaim-1h-20261028">Gold London reclaim</option><option value="dip-in-trend-1d-20261028">Daily dip in trend</option><option value="quiet-week-reversal-1d-20261028">Quiet week reversal</option></select></label></div><canvas id="chart" class="is-empty"></canvas><p class="empty-chart" id="chartempty">Loading closed candles.</p><p id="chartnote" class="muted"></p><p id="crosshair" class="muted"></p><button id="generate" type="button">Evaluate market</button><p id="termstatus" role="status"></p><p class="muted">This requests an analysis. It is not an approved signal and it does not place an order. The chart does not invent ticks.</p></article><article class="card" id="intel"><h2>Market intelligence</h2><div id="termout"><p>No evaluation yet. An empty panel is not a signal.</p></div></article></div><article class="card" id="termbook"><h2>Paper record</h2><p class="muted">Loading this account's paper book.</p></article>${manualPlanCard()}<article class="card"><h2>Saved evaluations</h2><p class="muted">Older requests on this account. They are not live prices, and a past wait is not the current market.</p><div id="termhist"><p>No requested evaluation yet.</p></div></article>`;
@@ -3181,11 +3751,14 @@ async function terminal(){
   async function history(){
     const response = await fetch("/api/terminal/history", {credentials:"same-origin"});
     const body = response.ok ? await response.json() : {items:[]};
-    const rows = (body.items||[]).map(item => {
-      const historical = item.interval === "4h" || item.interval === "1d" ? "Historical research record. Not a current desk timeframe. " : "";
-      return `<div class="row" data-symbol="${item.symbol||""}"><span>${item.decision_label || item.decision}</span><span>${item.symbol} ${item.interval}</span></div><div class="muted">${historical}Request ${item.request_id||item.id||"saved"}. Strategy ${item.requested_strategy||item.strategy||""}. Validation ${item.validation_status||"unknown"}. Not delivered. Not filled. ${plainReason(item.reason||"")}</div>`;
-    }).join("");
-    document.getElementById("termhist").innerHTML = rows || "<p>No requested evaluation yet.</p>";
+    const rows = (body.items||[]).filter(item => (item.symbol||"") === symbolEl.value && (item.interval||"") === intervalEl.value);
+    const older = (body.items||[]).filter(item => item.interval === "4h" || item.interval === "1d");
+    const current = rows[0];
+    const statusLine = current
+      ? `<p>Current ${escapeHtml(current.symbol||"")} ${escapeHtml(current.interval||"")}: ${escapeHtml(current.decision_label || current.decision || "unavailable")}. ${escapeHtml(plainReason(current.reason||""))} Not a broker fill.</p>`
+      : `<p>No evaluation is stored for this selection. A missing reading is not a setup.</p>`;
+    const collapsed = older.length ? `<p class="muted">${older.length} older research rows (4h or 1d) are not listed as the current desk. They are not repeated here.</p>` : "";
+    document.getElementById("termhist").innerHTML = statusLine + collapsed;
   }
   document.getElementById("generate").onclick = async () => {
     const status = document.getElementById("termstatus");
@@ -3339,12 +3912,22 @@ async function researchLab(){
 }
 async function scannerPage(){
   let lastBody = null;
-  view.innerHTML = `<article class="card"><h2>Live Scanner</h2><p id="scanstatus" role="status">Checking which prices can be shown.</p><p class="muted" id="scanwhen">A reading uses the latest completed candle. It is not a tick feed and not an order.</p><p id="scanstale" class="stale-note" hidden></p><div id="scancards"><p class="muted">Loading coverage. No price is invented while this loads.</p></div></article><article class="card" id="scanboard"><h2>Market coverage</h2><div class="skeleton lg"></div></article>`;
+  view.innerHTML = `<article class="card"><h2>Live Scanner</h2><p id="scanstatus" role="status">Checking which prices can be shown.</p><div class="fieldrow"><label>Instrument <select id="scan-symbol"><option value="">All instruments</option><option>BTCUSDT</option><option>ETHUSDT</option><option>XAUUSD</option></select></label><label>Timeframe <select id="scan-interval"><option value="">All timeframes</option><option value="1m">1m</option><option value="3m">3m</option><option value="15m">15m</option><option value="1h">1h</option></select></label></div><p class="muted" id="scanwhen">A reading uses the latest completed candle. It is not a tick feed and not an order. A missing feed is not a zero-setup scan.</p><p id="scanstale" class="stale-note" hidden></p><div id="scancards"><p class="muted">Loading coverage. No price is invented while this loads.</p></div></article><article class="card" id="scan-import"><h2>Your historical candles</h2><p class="muted">CSV columns: instrument, interval, open_time_ms, open, high, low, close. This is user-provided history, not a live exchange feed. Gold 1-minute and 3-minute are still refused.</p><textarea id="csvbox" rows="4" aria-label="Historical candle CSV"></textarea><p><button type="button" id="csvimport">Import CSV</button> <button type="button" id="csveval">Evaluate imported history</button></p><p id="csvnote" class="muted"></p></article><article class="card" id="scanboard"><h2>Market coverage</h2><div class="skeleton lg"></div></article>`;
   const draw = (body, staleNote) => {
-    const cards = (body.markets||[]).map(m => {
+    const symbolFilter = (document.getElementById("scan-symbol") || {}).value || "";
+    const frameFilter = (document.getElementById("scan-interval") || {}).value || "";
+    const markets = (body.markets || []).filter(row => (!symbolFilter || row.symbol === symbolFilter) && (!frameFilter || row.interval === frameFilter));
+    if (!markets.length) {
+      const box = document.getElementById("scancards");
+      if (box) box.innerHTML = `<article class="card"><h2>No matching card</h2><p>That instrument and timeframe are not in this scan. No price was invented.</p></article>`;
+      const status = document.getElementById("scanstatus");
+      if (status) status.textContent = "No scanner card matches that filter.";
+      return;
+    }
+    const cards = markets.map(m => {
       if (m.customer_status === "reading_unavailable") {
         const minute = m.blocked === "xau_minute_unlicensed";
-        return `<article class="card" data-symbol="${m.symbol}"><h2>${m.symbol} · ${m.interval||""}</h2><div class="row"><span>${minute ? "Unavailable" : "WAIT"}</span><span class="num">—</span></div><p class="muted">${minute ? "This timeframe is not available." : "A verified live reading is not available."}</p></article>`;
+        return `<article class="card" data-symbol="${m.symbol}"><h2>${m.symbol} · ${m.interval||""}</h2><div class="row"><span>Unavailable</span><span class="num">—</span></div><p class="muted">${minute ? "This timeframe is not available." : "A verified live reading is not available. This is not a zero-setup scan."}</p></article>`;
       }
       const headline = m.decision_label || m.scanner_state || m.state || "WAIT";
       if (isRightsHold(headline, m.scanner_state, m.status)) {
@@ -3370,9 +3953,9 @@ async function scannerPage(){
         : "No evidence grade is shown as a probability.";
       return `<article class="card ${klass}" data-symbol="${m.symbol}"><p class="badge ${klass==="blocked"?"block":"research"}">${kind}</p><h2>${m.symbol} · ${m.interval||""}</h2><div class="row"><span>${headline}</span><span class="num">${m.price==null?"—":priceText(m.symbol, m.price)}</span></div><p class="muted">${source}. ${m.evaluated===false?"This market did not complete a valid reading.":"Reading complete."}${lineage}${scope}</p><p>${plainReason(m.message||"No qualifying setup yet.")}${gap}${times}</p>${levels}<p class="muted">${grade} Updated ${m.updated_at||"unknown"}. ${m.snapshot_id || ""}</p><details><summary>Technical evidence</summary><p class="muted">${plainReason(m.diagnostic||"")} State ${m.scanner_state||m.state||"unknown"}. Source code ${m.quote||"unnamed"}.</p></details></article>`;
     }).join("");
-    const qualifying = (body.markets||[]).some(m => m.approved || m.scanner_state === "APPROVED_SIGNAL");
-    const heldOnly = (body.markets||[]).length > 0 && (body.markets||[]).every(m => isRightsHold(m.decision_label, m.scanner_state, m.status));
-    const readingOff = (body.markets||[]).length > 0 && (body.markets||[]).every(m => m.customer_status === "reading_unavailable");
+    const qualifying = markets.some(m => m.approved || m.scanner_state === "APPROVED_SIGNAL");
+    const heldOnly = markets.length > 0 && markets.every(m => isRightsHold(m.decision_label, m.scanner_state, m.status));
+    const readingOff = markets.length > 0 && markets.every(m => m.customer_status === "reading_unavailable");
     const box = document.getElementById("scancards");
     if (readingOff) {
       if (box) box.innerHTML = cards;
@@ -3439,6 +4022,27 @@ async function scannerPage(){
     } catch (err) {
       fail("The request failed.");
     }
+  };
+  document.getElementById("scan-symbol").onchange = () => { if (lastBody) draw(lastBody, null); };
+  document.getElementById("scan-interval").onchange = () => { if (lastBody) draw(lastBody, null); };
+  const csvNote = document.getElementById("csvnote");
+  const csvButton = document.getElementById("csvimport");
+  if (csvButton) csvButton.onclick = async () => {
+    csvNote.textContent = "Importing. This does not contact an exchange.";
+    const response = await fetch("/api/candles/import", {method:"POST", credentials:"same-origin", headers:{"Content-Type":"application/json"}, body: JSON.stringify({csv: document.getElementById("csvbox").value})});
+    const payload = await response.json().catch(() => ({}));
+    const fields = payload.fields || {};
+    const detail = Object.keys(fields).map(name => fields[name]).join(" ");
+    csvNote.textContent = response.ok ? ("Stored " + (payload.stored || 0) + " user-provided candles. Duplicates " + (payload.duplicates || 0) + ". Not a live feed.") : ("Not imported. " + (detail || payload.reason || "The CSV was rejected.") + " No live price was created.");
+  };
+  const evalButton = document.getElementById("csveval");
+  if (evalButton) evalButton.onclick = async () => {
+    const symbol = document.getElementById("scan-symbol").value || "BTCUSDT";
+    const interval = document.getElementById("scan-interval").value || "15m";
+    const response = await fetch("/api/candles/evaluate", {method:"POST", credentials:"same-origin", headers:{"Content-Type":"application/json"}, body: JSON.stringify({symbol, interval})});
+    const payload = await response.json().catch(() => ({}));
+    const row = payload.row || {};
+    csvNote.textContent = payload.ok ? ("Historical evaluation " + (row.lifecycle || "unavailable") + " for " + symbol + " " + interval + ". Signal " + (row.signal === true ? "yes" : "no") + ". Live no. Not an approval and not an order.") : ("Evaluation was not run. " + (payload.reason || "unavailable") + ".");
   };
   await loadScan();
   if (window.__scanTimer) clearInterval(window.__scanTimer);
@@ -3548,16 +4152,32 @@ async function inboxPage(){
   if (response.status === 401) { view.innerHTML = `<article class="card"><h2>Sign in required</h2><p><a href="/login">Sign in</a> to see your inbox.</p></article>`; return; }
   const body = await response.json();
   const rows = body.items || [];
-  const list = rows.map(item => {
+  const groups = [];
+  const index = {};
+  rows.forEach(item => {
+    const repetitive = item.kind === "status" || item.decision === "WAIT" || item.state === "WAIT" || item.state === "BLOCKED" || item.state === "UNAVAILABLE";
+    const key = repetitive ? [item.symbol || "", item.interval || "", item.decision || item.state || "", item.message || ""].join("|") : ("one:" + (item.id || groups.length));
+    if (repetitive && Object.prototype.hasOwnProperty.call(index, key)) groups[index[key]].items.push(item);
+    else { index[key] = groups.length; groups.push({key, items: [item]}); }
+  });
+  const list = groups.map(group => {
+    const item = group.items[0];
+    const extra = group.items.length > 1 ? `<p class="muted">${group.items.length} similar notices are grouped. Stored records were not deleted. Unread in this group: ${group.items.filter(row => !row.read).length}.</p>` : "";
     const freshness = item.freshness || (item.created_ms ? ((Date.now() - item.created_ms) > 3*86400000 ? "historical" : (Date.now() - item.created_ms) > 86400000 ? "stale" : "current") : "unknown");
-    const ageLabel = item.age_label || (item.created_ms ? new Date(item.created_ms).toISOString() : "time unknown");
+    const ageLabel = item.age_label || (item.created_ms ? when(item.created_ms) : "time not available");
     const noticeClass = item.notice_class || (item.decision === "WAIT" ? "WAIT notification" : "inbox notice");
-    const when = item.created_ms ? new Date(item.created_ms).toISOString() : "";
+    const shownTime = item.created_ms ? when(item.created_ms) : "time not available";
     const researchLevels = `<p class="muted">Research levels, not a paper order. Entry ${item.entry==null?"—":priceText(item.symbol, item.entry)}. Stop ${item.stop==null?"—":priceText(item.symbol, item.stop)}. Target ${item.target==null?"—":priceText(item.symbol, item.target)}.</p>`;
-    return `<article class="card ${noticeClass.includes("WAIT") || noticeClass.includes("blocked") ? "blocked" : "research"}" data-kind="${item.kind||""}" data-symbol="${item.symbol||""}"><p class="badge ${item.read ? "" : "block"}">${item.read_state || (item.read ? "read" : "unread")}</p><p class="badge">${freshness}</p><p class="badge research">${noticeClass}</p><h2>${item.lifecycle==="superseded"||item.lifecycle==="expired" ? item.lifecycle.toUpperCase()+" · " : ""}${item.decision || item.state || "Notice"} · ${item.symbol || "Desk"} ${item.interval || ""}</h2><p>${item.lifecycle_note || item.label || ""}</p><p>${plainReason(item.message || "")}</p>${researchLevels}<p class="muted">${ageLabel}. ${when}. ${item.strategy || "no strategy"}. Validation ${item.validation_status || "n/a"}. ${item.approved?"Approved.":"Not approved."} This inbox notice is not a paper order.</p>${item.decision==="BUY"||item.decision==="SELL"?`<button type="button" data-paper="${item.opportunity_id||""}">Open paper trade</button><p class="muted">Opening a paper trade is a separate action. The notice itself does not create one.</p>`:""}${item.actionable ? "" : "<p>Not an approved trade.</p>"}<button type="button" data-id="${item.id}">Mark read</button></article>`;
+    return `<article class="card ${noticeClass.includes("WAIT") || noticeClass.includes("blocked") ? "blocked" : "research"}" data-kind="${item.kind||""}" data-symbol="${item.symbol||""}"><p class="badge ${item.read ? "" : "block"}">${item.read_state || (item.read ? "read" : "unread")}</p><p class="badge">${freshness}</p><p class="badge research">${noticeClass}</p><h2>${item.lifecycle==="superseded"||item.lifecycle==="expired" ? item.lifecycle.toUpperCase()+" · " : ""}${item.decision || item.state || "Notice"} · ${item.symbol || "Desk"} ${item.interval || ""}</h2>${extra}<p>${item.lifecycle_note || item.label || ""}</p><p>${plainReason(item.message || "")}</p>${researchLevels}<p class="muted">${ageLabel}. ${shownTime}. ${item.strategy || "no strategy"}. Validation ${item.validation_status || "n/a"}. ${item.approved?"Approved.":"Not approved."} This inbox notice is not a paper order.</p>${item.decision==="BUY"||item.decision==="SELL"?`<button type="button" data-paper="${item.opportunity_id||""}">Open paper trade</button><p class="muted">Opening a paper trade is a separate action. The notice itself does not create one.</p>`:""}${item.actionable ? "" : "<p>Not an approved trade.</p>"}<button type="button" data-id="${item.id}">Mark read</button></article>`;
   }).join("");
   view.innerHTML = `<p role="status">${body.unread || 0} unread.</p>${list || "<article class='card'><h2>No notifications</h2><p>A quiet scan is recorded once a day. A research note appears only if you opted in. Nothing here is a trade alert unless a strategy has been approved. None has.</p></article>"}<button id="readall" type="button">Mark all read</button>`;
-  const refresh = async (id) => { await fetch("/api/notifications/read", {method:"POST", credentials:"same-origin", headers:{"Content-Type":"application/json"}, body: JSON.stringify(id ? {id} : {})}); inboxPage(); };
+  paintInbox(body.unread);
+  const refresh = async (id) => {
+    const marked = await fetch("/api/notifications/read", {method:"POST", credentials:"same-origin", headers:{"Content-Type":"application/json"}, body: JSON.stringify(id ? {id} : {})});
+    const payload = await marked.json().catch(() => ({}));
+    if (payload && payload.unread != null) paintInbox(payload.unread);
+    inboxPage();
+  };
   document.getElementById("readall").onclick = () => refresh(null);
   document.querySelectorAll("[data-id]").forEach(button => { button.onclick = () => refresh(button.dataset.id); });
   document.querySelectorAll("[data-paper]").forEach(button => { button.onclick = async () => {
@@ -3604,7 +4224,18 @@ async function load(){
   }
   if (path === "/risk") return riskPage();
   if (path === "/system") return systemPage();
+  if (path === "/accounts") return accountsPage();
   view.innerHTML = `<article class="card"><h2>${titles[path]||"Aureon"}</h2><p>This page has no separate data source yet.</p></article>`;
+}
+async function accountsPage(){
+  const directory = await fetch("/api/accounts", {credentials:"same-origin"}).then(r => r.ok ? r.json() : null).catch(() => null);
+  if (!directory) { view.innerHTML = `<article class="card"><h2>Accounts</h2><p>The directory could not be loaded. No other account was shown.</p></article>`; return; }
+  if (!directory.allowed) {
+    view.innerHTML = `<article class="card"><h2>Accounts</h2><p>${escapeHtml(directory.reason || "Not permitted.")}</p><p class="muted">Your role is ${escapeHtml(directory.security_role || "customer")}. A display preference cannot grant this page.</p></article>`;
+    return;
+  }
+  const lines = (directory.accounts || []).map(row => `<div class="row"><span>${escapeHtml(row.name || "Account")}</span><span>${escapeHtml(row.security_role || "customer")}</span></div>`).join("");
+  view.innerHTML = `<article class="card"><h2>Accounts</h2><p class="muted">Names and roles only. Password hashes are not shown. This page does not change another account.</p>${lines || "<p>No accounts.</p>"}</article>`;
 }
 async function liveActivities(){
   const bot = await fetch("/api/autopilot", {credentials:"same-origin"}).then(r => r.ok ? r.json() : null).catch(()=>null);
@@ -3613,11 +4244,20 @@ async function liveActivities(){
   const book = await fetch("/api/paper/book", {credentials:"same-origin"}).then(r => r.ok ? r.json() : {open:[], orders:[]}).catch(()=>({open:[], orders:[]}));
   const positions = (book.open||[]).concat(book.ambiguous||[]).map(row => `<article class="card"><h2>${row.opened_by === "autopilot" ? "AutoPilot paper" : "Account paper"} · ${row.exit_kind||row.status} · ${row.symbol} ${row.direction}</h2><p>Entry ${priceText(row.symbol, row.entry)}. Stop ${priceText(row.symbol, row.stop)}. Target ${priceText(row.symbol, row.target)}. ${row.exit_price==null?"No paper exit.":"Paper exit "+priceText(row.symbol, row.exit_price)+"."}</p><p class="muted">${(row.events&&row.events.length)?row.events[row.events.length-1].note:row.note||""} This is not a broker fill.</p></article>`).join("");
   const events = (activity.events || []).slice().reverse().map(item => {
-    const when = item.created_ms ? new Date(item.created_ms).toISOString() : "time unknown";
+    const shownTime = item.created_ms ? when(item.created_ms) : "time not available";
     const note = (item.detail && item.detail.note) || "";
-    return `<article class="card"><div class="row"><span>${item.event_type}</span><span class="muted">${when}</span></div><p>${item.component || "desk"}${item.entity ? " · " + item.entity : ""}</p><p class="muted">${note} A heartbeat is not a market reading. A blocked notification does not delete this event.</p></article>`;
+    const state = item.read === true ? "Read" : "Unread";
+    const signal = item.detail && item.detail.opportunity_id ? `<p><a href="/signals#signal-${escapeHtml(String(item.detail.opportunity_id).replace(/[^a-zA-Z0-9_-]/g, ""))}">Open this signal</a></p>` : "";
+    return `<article class="card" data-event="${escapeHtml(item.event_id || "")}"><div class="row"><span>${escapeHtml(item.event_type || "event")}</span><span class="muted">${escapeHtml(state)} · ${shownTime}</span></div><p>${escapeHtml(item.component || "desk")}${item.entity ? " · " + escapeHtml(item.entity) : ""}</p><p class="muted">${escapeHtml(note)} A heartbeat is not a market reading. A blocked notification does not delete this event.</p>${signal}</article>`;
   }).join("");
-  view.innerHTML = `<article class="card"><h2>Live Activities</h2><p>AutoPilot ${autoLine}</p><p class="muted">Permission, an approved strategy, and execution eligibility are three different facts. This page lists events that actually happened. It does not invent scans or fills.</p></article>${positions}${events || "<article class='card'><p>No system event is stored yet. An empty list is not a fictional scan.</p></article>"}`;
+  view.innerHTML = `<article class="card"><h2>Live Activities</h2><p>AutoPilot ${autoLine}</p><p>${activity.unread || 0} unread for this account.</p><p class="muted">Permission, an approved strategy, and execution eligibility are three different facts. This page lists events that actually happened. It does not invent scans or fills.</p><p><button id="activity-read" type="button">Mark shown events read</button></p></article>${positions}${events || "<article class='card'><p>No system event is stored yet. An empty list is not a fictional scan.</p></article>"}`;
+  const readButton = document.getElementById("activity-read");
+  if (readButton) readButton.onclick = async () => {
+    const ids = (activity.events || []).map(item => item.event_id).filter(Boolean);
+    const marked = await fetch("/api/activity/read", {method:"POST", credentials:"same-origin", headers:{"Content-Type":"application/json"}, body: JSON.stringify({event_ids: ids})});
+    if (marked.ok) liveActivities();
+    else readButton.textContent = "Could not update read state. The events were not deleted.";
+  };
 }
 async function paperPages(){
   const response = await fetch("/api/paper/book", {credentials:"same-origin"});
@@ -3682,15 +4322,19 @@ async function systemPage(){
   const rightsLine = h.status === "rights_withheld"
     ? `<p>${RIGHTS_MESSAGE}</p><p class="muted">The process is up. Market data is withheld because commercial use is not approved. That is not a provider outage and not a stale feed.</p>`
     : (h.status === "reading_unavailable" ? `<p>A verified live reading is not available. This is not a fresh market and not a provider outage.</p>` : "");
-  view.innerHTML = `<article class="card"><h2>System</h2>${rightsLine}${stateRows}${row("Process", h.process||"unknown")}${row("Overall", h.status||"unknown")}${row("BTC / ETH", market)}${row("Gold", gold||"not scanned")}${row("Notifications", note)}${row("Approved strategies", qual)}${row("Ledger", h.ledger||"unknown")}${row("Strategy", h.strategy_status||"unknown")}${row("Broker", String(h.broker))}${row("Build", h.build_commit||"unknown")}${row("Worker status", workerStatus + " · " + workerHealthy)}${row("This account AutoPilot", autoLine)}${row("Worker heartbeat", h.worker && h.worker.last_beat_ms ? new Date(h.worker.last_beat_ms).toISOString() : "unknown")}${row("Background scan", h.worker && h.worker.last_monitor_ms ? new Date(h.worker.last_monitor_ms).toISOString() : "not run yet")}${row("Last scan", watched)}</article><article class="card" id="ai-status"><h2>Local AI</h2><p>Checking whether a local model is configured.</p></article><article class="card" id="data-coverage"><h2>Research data coverage</h2><p>Reading data rights.</p></article><p class="muted">A missing, stale or failed heartbeat is not a healthy worker. A rights withhold is not an outage. AutoPilot is not confirmed while the worker is unhealthy. The background scan uses the same decision as the terminal. It does not send Telegram. Gold 1m and 3m are unavailable without a licensed minute feed. AutoPilot permission is not the same as an approved strategy or an eligible entry. Local AI cannot approve a strategy or place an order.</p>`;
-  fetch("/api/ai").then(r => r.ok ? r.json() : null).then(ai => {
+  view.innerHTML = `<article class="card"><h2>System</h2>${rightsLine}${stateRows}${row("Process", h.process||"unknown")}${row("Overall", h.status||"unknown")}${row("BTC / ETH", market)}${row("Gold", gold||"not scanned")}${row("Notifications", note)}${row("Approved strategies", qual)}${row("Ledger", h.ledger||"unknown")}${row("Strategy", h.strategy_status||"unknown")}${row("Broker", String(h.broker))}${row("Build", h.build_commit||"unknown")}${row("Worker status", workerStatus + " · " + workerHealthy)}${row("This account AutoPilot", autoLine)}${row("Worker heartbeat", h.worker && h.worker.last_beat_ms ? when(h.worker.last_beat_ms) : "unknown")}${row("Background scan", h.worker && h.worker.last_monitor_ms ? when(h.worker.last_monitor_ms) : "not run yet")}${row("Last scan", watched)}</article><article class="card" id="ai-status"><h2>Aureon AI</h2><p>Checking the hosted service. Local AI status is separate from the customer desk. The hosted model is not a customer switch.</p></article><article class="card" id="data-coverage"><h2>Research data coverage</h2><p>Reading data rights.</p></article><p class="muted">A missing, stale or failed heartbeat is not a healthy worker. A rights withhold is not an outage. AutoPilot is not confirmed while the worker is unhealthy. The background scan uses the same decision as the terminal. It does not send Telegram. Gold 1m and 3m are unavailable without a licensed minute feed. AutoPilot permission is not the same as an approved strategy or an eligible entry. Local AI cannot approve a strategy or place an order.</p>`;
+  fetch("/api/aureon-ai", {method:"POST", credentials:"same-origin", headers:{"Content-Type":"application/json"}, body: JSON.stringify({page: "/system"})}).then(r => r.ok ? r.json() : null).then(ai => {
     const box = document.getElementById("ai-status");
     if (!box) return;
-    const ready = ai && ai.available === true;
-    box.innerHTML = `<h2>Local AI</h2><p>${ready ? "Available" : "Offline"} · ${ai && ai.model ? ai.model : "no model configured"}</p><p class="muted">${ready ? "Explanations use evidence the desk supplies." : "The desk keeps running. No reading is invented while the model is offline."} Reason: ${(ai && ai.reason) || "none"}.</p>`;
+    const operational = ai && ai.operational ? ai.operational : "BLOCKED";
+    const local = (ai && ai.ollama) || {};
+    const localLine = local.inference === true
+      ? "Inference succeeded for this request."
+      : ("Inference has not succeeded. " + (local.reason || "model_not_configured") + ". Reachable: " + String(local.reachable) + ". Installed: " + ((local.installed || []).join(", ") || "none") + ".");
+    box.innerHTML = `<h2>Aureon AI</h2><p>Hosted service ${escapeHtml(operational)}. Ollama model installed: ${local.available === true ? "yes" : "no"}.</p><p class="muted">${escapeHtml(localLine)} ${escapeHtml((ai && (ai.note || ai.reason)) || "No analysis was produced.")} A stored record is not an analysis. The model is not a signal.</p>`;
   }).catch(() => {
     const box = document.getElementById("ai-status");
-    if (box) box.innerHTML = `<h2>Local AI</h2><p>Offline</p><p class="muted">The status check failed. Trading did not stop.</p>`;
+    if (box) box.innerHTML = `<h2>Aureon AI</h2><p>BLOCKED</p><p class="muted">The status check failed. Trading did not stop. No analysis was invented. Local AI status is separate from the customer desk.</p>`;
   });
   fetch("/api/data-coverage", {credentials:"same-origin"}).then(r => r.json()).then(payload => {
     const box = document.getElementById("data-coverage");
@@ -3707,8 +4351,9 @@ async function systemPage(){
   }).catch(() => {});
 }
 async function settings(){
-  const me = await fetch("/api/me").then(r => r.ok ? r.json() : null);
-  const catalog = await fetch("/api/profiles").then(r=>r.json());
+  try {
+  const me = await fetch("/api/me", {credentials:"same-origin"}).then(r => r.ok ? r.json() : null).catch(() => null);
+  const catalog = await fetch("/api/profiles", {credentials:"same-origin"}).then(r => r.ok ? r.json() : {}).catch(() => ({}));
   if (!me) {
     view.innerHTML = `<article class="card"><h2>Sign in required</h2><p><a href="/login">Sign in</a> or <a href="/register">create an account</a>.</p></article>`;
     return;
@@ -3718,7 +4363,7 @@ async function settings(){
   const profile = me.profile || {};
   const styles = (catalog.profiles||[]).map(p => `<label><input type="radio" name="style" value="${p.key}" ${profile.signal_style===p.key?"checked":""}> ${p.name} — ${p.risk_mode}. ${p.confirmation}</label>`).join("");
   const currencies = (catalog.currencies||[]).map(c => `<option value="${c}" ${profile.currency===c?"selected":""}>${c}</option>`).join("");
-  view.innerHTML = `<article class="card"><h2>${path==="/onboarding"?"Choose a signal style":"Signal style"}</h2><p class="muted">${catalog.note||""}</p><div class="styles">${styles}</div></article><article class="card"><h2>Base currency and capital</h2><div class="field"><span>Currency</span><select id="currency"><option value="">Not set</option>${currencies}</select></div><div class="field"><span>Paper capital</span><input id="capital" type="number" min="0" step="any" value="${profile.capital??""}"></div><p class="muted">Saving a currency does not convert the stored amount. Market quotes stay in USDT or USD/oz.</p></article><article class="card"><h2>Markets</h2><div class="checks"><label><input type="checkbox" id="btc" ${has("BTCUSDT")}> BTCUSDT</label><label><input type="checkbox" id="eth" ${has("ETHUSDT")}> ETHUSDT</label><label><input type="checkbox" id="gold" ${has("XAUUSD")}> XAUUSD</label></div><p class="muted">BTC, ETH, and gold stay on the desk. A verified live reading is not available until that source is approved. Gold 1-minute and 3-minute stay unavailable.</p></article><article class="card"><h2>Experience</h2><label>How you describe your experience <select id="labexp"><option value="">Not stated</option><option value="new">New</option><option value="developing">Developing</option><option value="independent">Independent</option></select></label><p class="muted">This is what you say about yourself. It is stored on this account and is not a skill score.</p></article><article class="card" id="autopilot-card"><h2>AutoPilot</h2><p>Loading paper automation.</p></article><article class="card"><h2>Notifications and risk</h2><div class="checks"><label><input type="checkbox" id="exp" ${profile.experimental_alerts?"checked":""}> Experimental alerts</label><label><input type="checkbox" id="digest" ${profile.daily_report!==false?"checked":""}> Daily digest</label></div><div class="field"><span>Max risk per trade %</span><input id="risk" type="number" step="0.1" min="0" value="${profile.max_risk_pct??""}"></div><p class="muted">Risk cannot be set above the active style cap. These caps do not guarantee protection from losses. Production is WAIT_DEFAULT, so no trade alert is sent until a strategy is promoted. Turning experimental alerts on does not bypass that. In-app experimental matches stay labelled unapproved and never become an approved alert. Telegram is ${me.telegram_verified?"verified":"not verified"}.</p><button id="tglink" type="button">Create a one-time Telegram link</button><p id="tglinkout" class="muted"></p></article><article class="card" id="inbox-settings"><h2>In-app inbox</h2><p class="muted" id="inboxnote">Loading delivery settings.</p></article><p><button id="saveall" type="button">Save</button> <button id="skip" type="button">Continue without optional alerts</button> <button id="out" type="button">Sign out</button></p><p id="savedp" class="muted"></p>`;
+  view.innerHTML = `<article class="card"><h2>${path==="/onboarding"?"Choose a signal style":"Signal style"}</h2><p class="muted">${catalog.note||""}</p><div class="styles">${styles}</div></article><article class="card"><h2>Base currency and capital</h2><div class="field"><span>Currency</span><select id="currency"><option value="">Not set</option>${currencies}</select></div><div class="field"><span>Paper capital</span><input id="capital" type="number" min="0" step="any" value="${profile.capital??""}"></div><p class="muted">Saving a currency does not convert the stored amount. Market quotes stay in USDT or USD/oz.</p></article><article class="card"><h2>Markets</h2><div class="checks"><label><input type="checkbox" id="btc" ${has("BTCUSDT")}> BTCUSDT</label><label><input type="checkbox" id="eth" ${has("ETHUSDT")}> ETHUSDT</label><label><input type="checkbox" id="gold" ${has("XAUUSD")}> XAUUSD</label></div><p class="muted">BTC, ETH, and gold stay on the desk. A verified live reading is not available until that source is approved. Gold 1-minute and 3-minute stay unavailable.</p></article><article class="card" id="display-card"><h2>Display</h2><p class="muted">These change how this account is shown. They do not change permission, persona risk, or market rights. Aureon AI stays on.</p><div class="field"><span>Time zone</span><input id="timezone" value="Africa/Lagos"></div><div class="field"><span>Density</span><select id="density"><option value="comfortable">Comfortable</option><option value="compact">Compact</option></select></div><div class="field"><span>Explanation</span><select id="depth"><option value="guided">Guided</option><option value="concise">Concise</option></select></div><div class="field"><span>Layout</span><select id="layout"><option value="guided">Guided</option><option value="market">Market</option></select></div><div class="field"><span>Theme</span><select id="theme"><option value="dark">Dark</option><option value="light">Light</option><option value="system">System</option></select></div><div class="field"><span>Contrast</span><select id="contrast"><option value="standard">Standard</option><option value="high">High</option></select></div><div class="field"><span>Motion</span><select id="motion"><option value="full">Full</option><option value="reduced">Reduced</option></select></div><button id="savedisplay" type="button">Save display</button><p id="displaysaved" class="muted"></p></article><article class="card"><h2>Experience</h2><label>How you describe your experience <select id="labexp"><option value="">Not stated</option><option value="new">New</option><option value="developing">Developing</option><option value="independent">Independent</option></select></label><p class="muted">This is what you say about yourself. It is stored on this account and is not a skill score.</p></article><article class="card" id="autopilot-card"><h2>AutoPilot</h2><p>Loading paper automation.</p></article><article class="card"><h2>Notifications and risk</h2><div class="checks"><label><input type="checkbox" id="exp" ${profile.experimental_alerts?"checked":""}> Experimental alerts</label><label><input type="checkbox" id="digest" ${profile.daily_report!==false?"checked":""}> Daily digest</label></div><div class="field"><span>Max risk per trade %</span><input id="risk" type="number" step="0.1" min="0" value="${profile.max_risk_pct??""}"></div><p class="muted">Risk cannot be set above the active style cap. These caps do not guarantee protection from losses. Production is WAIT_DEFAULT, so no trade alert is sent until a strategy is promoted. Turning experimental alerts on does not bypass that. In-app experimental matches stay labelled unapproved and never become an approved alert. Telegram is ${me.telegram_verified?"verified":"not verified"}.</p><button id="tglink" type="button">Create a one-time Telegram link</button><p id="tglinkout" class="muted"></p></article><article class="card" id="inbox-settings"><h2>In-app inbox</h2><p class="muted" id="inboxnote">Loading delivery settings.</p></article><p><button id="saveall" type="button">Save</button> <button id="skip" type="button">Continue without optional alerts</button> <button id="out" type="button">Sign out</button></p><p id="savedp" class="muted"></p>`;
   const inbox = await fetch("/api/inbox/settings", {credentials:"same-origin"}).then(r => r.ok ? r.json() : null);
   const box = (inbox && inbox.settings) || {};
   const on = (name) => box[name] ? "checked" : "";
@@ -3741,10 +4386,31 @@ async function settings(){
     const saved = await fetch("/api/inbox/settings", {method:"POST", credentials:"same-origin", headers:{"Content-Type":"application/json"}, body: JSON.stringify(payload)});
     document.getElementById("inboxsaved").textContent = saved.ok ? (payload.experimental ? "Inbox delivery saved. Experimental matches are enabled and will be labelled unapproved." : "Inbox delivery saved. Experimental matches stay off.") : "Inbox settings could not be saved.";
   };
+  const experience = await fetch("/api/experience", {credentials:"same-origin"}).then(r => r.ok ? r.json() : null);
+  const look = (experience && experience.presentation) || {};
+  if (document.getElementById("timezone")) document.getElementById("timezone").value = look.timezone || "Africa/Lagos";
+  if (document.getElementById("density")) document.getElementById("density").value = look.density || "comfortable";
+  if (document.getElementById("depth")) document.getElementById("depth").value = look.depth || "guided";
+  if (experience && experience.security_role === "operator") {
+    const layout = document.getElementById("layout");
+    if (layout && !layout.querySelector("[value=operator]")) layout.insertAdjacentHTML("beforeend", "<option value='operator'>Operator</option>");
+  }
+  if (document.getElementById("layout")) document.getElementById("layout").value = look.layout || "guided";
+  if (document.getElementById("theme")) document.getElementById("theme").value = look.theme || "dark";
+  if (document.getElementById("contrast")) document.getElementById("contrast").value = look.contrast || "standard";
+  if (document.getElementById("motion")) document.getElementById("motion").value = look.motion || "full";
+  document.getElementById("savedisplay").onclick = async () => {
+    const response = await fetch("/api/experience", {method:"POST", credentials:"same-origin", headers:{"Content-Type":"application/json"}, body: JSON.stringify({timezone: document.getElementById("timezone").value, density: document.getElementById("density").value, depth: document.getElementById("depth").value, layout: document.getElementById("layout").value, theme: document.getElementById("theme").value, contrast: document.getElementById("contrast").value, motion: document.getElementById("motion").value, language: "en"})});
+    const body = await response.json().catch(() => ({}));
+    const note = document.getElementById("displaysaved");
+    if (!response.ok || !body.presentation) { note.textContent = "Display settings were not saved."; return; }
+    applyExperience(body);
+    note.textContent = "Saved. This account now uses " + body.presentation.timezone + ", " + body.presentation.density + " density, " + body.presentation.layout + " layout, " + body.presentation.theme + " theme.";
+  };
   const bot = await fetch("/api/autopilot", {credentials:"same-origin"}).then(r => r.ok ? r.json() : {status:"off", facing:"Disabled", entries_available:false, accepts_new_entries:false, automated_orders:0, rejections:[], note:"", facing_note:"Permission is not active. New automated entries are blocked."});
   function paintAutopilot(current){
     const lastEval = current.last_evaluation_ms ? new Date(current.last_evaluation_ms).toISOString() : "no scan yet";
-    const rejected = (current.rejections || []).slice(-3).map(row => `${row.reason}`).join(", ") || "none";
+    const rejected = [...new Set((current.rejections || []).slice(-3).map(row => `${row.reason}`))].join(", ") || "none";
     const entries = current.entries_available === true ? "eligible only when a plan qualifies" : "not eligible";
     const kind = current.state_kind || "disabled";
     const blockers = (current.blockers || []).length ? ` Blockers: ${current.blockers.join(", ")}.` : "";
@@ -3813,8 +4479,17 @@ async function settings(){
     if (r.ok && d.token) document.getElementById("tglinkout").textContent = "Open: https://t.me/AureonLabBot?start=" + d.token;
   };
   document.getElementById("out").onclick = async () => { await fetch("/api/logout", {method:"POST", credentials:"same-origin"}); location.href = "/"; };
+  } catch (err) {
+    view.innerHTML = `<article class="card"><h2>Settings could not be loaded</h2><p>The settings page did not finish. No preference was changed. You can retry.</p><p><button type="button" id="settings-retry">Retry</button></p></article>`;
+    const again = document.getElementById("settings-retry");
+    if (again) again.onclick = () => settings();
+  }
 }
-load();
+load().catch(() => {
+  view.innerHTML = `<article class="card"><h2>This page could not be loaded</h2><p>Loading stopped. No order was opened and no price was invented.</p><p><button type="button" id="page-retry">Retry</button></p></article>`;
+  const again = document.getElementById("page-retry");
+  if (again) again.onclick = () => load().catch(() => {});
+});
 </script>
 </body>
 </html>

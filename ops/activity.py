@@ -32,9 +32,15 @@ TYPES = frozenset({
     "risk_rejected",
     "ollama_status",
     "ai_inference",
+    "hosted_ai_request",
+    "experience_saved",
+    "privilege_refused",
     "worker_stopped",
     "worker_restarted",
     "work_interrupted",
+    "bot_request",
+    "signal_forming",
+    "signal_confirmed",
 })
 
 THROTTLED = {
@@ -108,6 +114,75 @@ def record(event_type, *, entity=None, component=None, account_id=None, detail=N
     finally:
         fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
         lock.close()
+
+
+def record_once(event_type, *, entity=None, component=None, account_id=None, detail=None, now_ms=None):
+    """Append only when this account has not already stored the same entity."""
+    if entity:
+        for row in reversed(_rows()):
+            if row.get("event_type") == event_type and row.get("entity") == entity and row.get("account_id") == account_id:
+                return {"stored": False, "reason": "already_recorded", "event": row}
+    return record(event_type, entity=entity, component=component, account_id=account_id, detail=detail, now_ms=now_ms)
+
+
+def event_id(row):
+    import hashlib
+
+    raw = "|".join(str(row.get(key) or "") for key in ("event_type", "entity", "account_id", "created_ms"))
+    return hashlib.sha256(raw.encode()).hexdigest()[:16]
+
+
+def _read_marks(account_id):
+    path = _path().parent / "read.json"
+    if not path.is_file():
+        return set()
+    try:
+        body = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return set()
+    marks = body.get(str(account_id)) if isinstance(body, dict) else None
+    return set(marks) if isinstance(marks, list) else set()
+
+
+def mark_read(account_id, event_ids):
+    """Remember which events this account has opened. The event log is not rewritten."""
+    if not account_id:
+        return {"ok": False, "reason": "unauthorized"}
+    ids = [str(item) for item in (event_ids or []) if isinstance(item, str) and item][:200]
+    path = _path().parent / "read.json"
+    lock = _exclusive(path)
+    try:
+        try:
+            body = json.loads(path.read_text(encoding="utf-8")) if path.is_file() else {}
+        except (OSError, json.JSONDecodeError):
+            body = {}
+        if not isinstance(body, dict):
+            body = {}
+        current = body.get(str(account_id))
+        marks = set(current) if isinstance(current, list) else set()
+        marks.update(ids)
+        body[str(account_id)] = sorted(marks)
+        path.write_text(json.dumps(body, separators=(",", ":")), encoding="utf-8")
+        return {"ok": True, "read": len(ids)}
+    finally:
+        fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
+        lock.close()
+
+
+def present(account_id, *, limit=None, before=None):
+    marks = _read_marks(account_id)
+    rows = []
+    for row in read(account_id=account_id):
+        item = dict(row)
+        item["event_id"] = event_id(row)
+        item["read"] = item["event_id"] in marks
+        item.pop("password", None)
+        rows.append(item)
+    if before is not None:
+        rows = [row for row in rows if int(row.get("created_ms") or 0) < int(before)]
+    if limit is not None:
+        rows = rows[-int(limit):]
+    return rows
 
 
 def read(*, account_id=None):

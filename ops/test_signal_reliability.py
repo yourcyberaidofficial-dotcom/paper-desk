@@ -159,5 +159,6 @@ def test_a_gated_pair_is_not_described_as_a_live_signal(tmp_path, monkeypatch):
     assert btc["permission"] == "not_granted" and btc["price"] is None
     assert "Forming setup — not confirmed" in DASHBOARD
     assert "Data unavailable — not a zero-setup scan" in DASHBOARD
-    assert "Local AI offline" in DASHBOARD
+    assert "The hosted model is not a customer switch" in DASHBOARD
+    assert "The signal engine does not wait on it" in DASHBOARD
 

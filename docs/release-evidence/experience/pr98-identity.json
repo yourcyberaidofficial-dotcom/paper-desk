@@ -1,0 +1,31 @@
+{
+  "pr": 98,
+  "branch": "product/experience-transformation",
+  "base": "eaf78b1bc246d2c47dd3cff72b576cfb71721aea",
+  "previous_tip": "034c529162fc716b1443046866b99dca11a3879b",
+  "finding": "An account named Is made ordinary uses of is invalid_output. Registration still accepted B and Is.",
+  "policy": "display_name_token refuses a normalized name of one character or a _GLUE word. Al, Jo, and Ann remain tokens. Matching is whole-token only.",
+  "registration": "POST /api/register and users.register use accept_display_name. A refusal returns invalid or duplicate and writes no file.",
+  "updates": "POST /api/profile renames only through update_display_name after the same check. A refusal does not write. POST /api/experience refuses the unsafe name and does not save preferences. Roles and entitlements are unchanged.",
+  "legacy": {
+    "worktree_ambiguous_name_count": 0,
+    "ids_recorded": false,
+    "automatic_rename": false,
+    "owner_process": "Edit the stored name to a value accept_display_name accepts. Keep the account id, password hash, and role. Until then the matcher ignores the ambiguous name."
+  },
+  "identity_commit": "e5dbed061f38fe27cc0f857c8fb64434573acb73",
+  "tests": {
+    "experience": "12 passed",
+    "full": "314 passed in 82.51s",
+    "live_model": false
+  },
+  "browser": "not rerun. No customer-visible control was added.",
+  "data_baseline_restored": {
+    "activity/events.jsonl": "d83dcfb4165cd5581743e8e4ba98dfacaa798ce16bed56176940d3cf75ae8ab9",
+    "paper/ledger.jsonl": "3dbf5c334058bfd3941ab2a6893810c1c97d19ac8931ebddbb7032be3f6db939",
+    "signals/history.jsonl": "2a6d8404a2740a554c2decb79cad8042d44f4e1d5224e140e7319a60f190b4ea",
+    "paper/prefs.json": "a22cf93d608b8608bf7d79b1125fabe77ab8e0626f22dce47606c338d5a3ef1f",
+    "note": "The suite appended to the worktree copies. Those files were copied back to the pre-suite bytes. The evaluation writer was not started."
+  },
+  "human_signoff": "outstanding"
+}

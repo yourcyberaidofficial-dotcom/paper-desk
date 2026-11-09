@@ -38,16 +38,33 @@ def _profile(user_id):
     user = get(user_id) or {}
     profile = user.get("profile") if isinstance(user.get("profile"), dict) else {}
     lab = user.get("lab") if isinstance(user.get("lab"), dict) else {}
+    prefs = user.get("prefs") if isinstance(user.get("prefs"), dict) else {}
     notes = []
     for row in lab.get("journal_notes") or []:
         if isinstance(row, dict) and row.get("text"):
             notes.append(scrub_untrusted(row.get("text")))
+    level = lab.get("experience") or "not_stated"
+    if level == "independent":
+        detail = "technical"
+    elif level in {"beginner", "guided", "new", "developing"}:
+        detail = "beginner"
+    else:
+        detail = "neutral"
     return {
         "persona": profile.get("signal_style_name") or "not set",
+        "persona_key": profile.get("signal_style") or "",
+        "explanation_detail": detail,
+        "experience": level,
+        "markets": [item for item in (prefs.get("markets") or []) if isinstance(item, str)],
         "risk_per_trade": profile.get("max_risk_pct"),
         "daily_loss": profile.get("max_daily_loss_percent"),
         "journal_notes": len([item for item in notes if item]),
         "lessons_completed": len(lab.get("completed_lessons") or []),
+        "missing": [name for name, missing in (
+            ("persona", not profile.get("signal_style")),
+            ("experience", level == "not_stated"),
+            ("markets", not prefs.get("markets")),
+        ) if missing],
     }
 
 
@@ -79,9 +96,40 @@ def build(user_id, task, symbol=None, interval=None, signal_id=None, lesson_id=N
         f"closed paper trades {paper['closed']}",
         f"journal notes {profile.get('journal_notes') or 0}",
         f"persona {profile.get('persona') or 'not set'}",
+        f"explanation detail {profile.get('explanation_detail') or 'neutral'}",
         "broker false",
         "approved false",
     ]
+    if profile.get("markets"):
+        facts.append("saved markets " + str(len(profile["markets"])))
+    else:
+        facts.append("markets not set")
+    if symbol:
+        facts.append("focus symbol " + str(symbol))
+    try:
+        from ops.activity import read as read_activity
+
+        facts.append("activity history present" if read_activity(account_id=user_id) else "activity history empty")
+    except Exception:
+        facts.append("activity history empty")
+    if symbol:
+        try:
+            from ops.signal_pipeline import read_pipeline
+
+            own = [row for row in read_pipeline(user_id) if row.get("symbol") == symbol]
+            if own:
+                facts.append("stored lifecycle " + str(own[-1].get("lifecycle") or "none"))
+        except Exception:
+            pass
+    if profile.get("missing"):
+        facts.append("missing context " + " ".join(profile["missing"]))
+    persona_key = profile.get("persona_key") or ""
+    if persona_key == "apex_momentum":
+        facts.append("persona context momentum. Faster paper timeframes stay inside the saved risk cap.")
+    elif persona_key == "orion_precision":
+        facts.append("persona context precision. The higher reward floor is a preference, not an approval.")
+    elif persona_key == "aegis_shield":
+        facts.append("persona context protection. Incomplete evidence is not a reason to invent a signal.")
     if task in {"why_quiet", "why_no_setup", "explain_missing"}:
         facts.append("No new confirmed signal is claimed when the stored observation is data_unavailable or research_failed.")
     if task == "explain_invalidated":
