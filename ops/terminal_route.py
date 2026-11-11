@@ -54,15 +54,31 @@ def load_crypto_bars(symbol, interval, now_ms):
 def load_gold_ohlc(interval, now_ms):
     from ops.data_rights import network_block
 
-    if interval == "3m":
-        return (None, "xau_minute_unlicensed")
-    if interval == "1m":
+    if interval in {"1m", "3m"}:
         from ops.twelve_data import authorized_bars
 
         authorised = authorized_bars("XAUUSD", interval, now_ms)
-        if authorised is None:
-            return (None, "xau_minute_unlicensed")
-        bars = authorised[0]
+        if authorised is not None and authorised[0]:
+            return authorised[0]
+        blocked = network_block("xaus_public_chart", "display")
+        if blocked:
+            return None, "commercial_use_unverified"
+        from ops.feeds import aggregate_ohlc, xaus_chart
+
+        if interval == "1m":
+            try:
+                loaded = xaus_chart("1m", now_ms=now_ms, timeout=8, attempts=1)
+            except Exception as exc:
+                return None, type(exc).__name__
+            bars = loaded.get("bars") or [] if isinstance(loaded, dict) else []
+            return bars if bars else (None, loaded.get("reason") if isinstance(loaded, dict) else "missing_bars")
+        try:
+            base = xaus_chart("1m", now_ms=now_ms, timeout=8, attempts=1)
+        except Exception as exc:
+            return None, type(exc).__name__
+        if not isinstance(base, dict) or not base.get("ok"):
+            return None, (base.get("reason") if isinstance(base, dict) else None) or "missing_bars"
+        bars = aggregate_ohlc(base.get("bars") or [], "3m", now_ms)
         return bars if bars else (None, "missing_bars")
     blocked = network_block("xaus_public_chart", "display")
     if blocked:

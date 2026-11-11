@@ -62,7 +62,7 @@ def test_a_grant_cannot_verify_binance_or_invent_a_native_3m(tmp_path, monkeypat
     assert decide_use("kraken_public_ohlc", "candle_display", symbol="BTCUSDT", interval="15m")["verified"] is True
     assert decide_use("kraken_public_ohlc", "candle_display", symbol="ETHUSDT", interval="15m")["verified"] is False
     assert decide_use("kraken_public_ohlc", "candle_display", symbol="BTCUSDT", interval="3m")["reason"] == "native_3m_not_supplied"
-    assert decide_use("binance_spot_rest_klines", "candle_display", symbol="BTCUSDT", interval="15m")["verified"] is False
+    assert decide_use("binance_spot_rest_klines", "candle_display", symbol="BTCUSDT", interval="15m")["reason"] == "public_completed_candle"
     assert decide_use("kraken_public_ohlc", "quote_display", symbol="BTCUSDT", interval="15m")["verified"] is False
 
 

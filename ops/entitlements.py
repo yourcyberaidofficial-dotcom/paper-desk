@@ -120,13 +120,64 @@ def _decision(allowed, status, reason, *, source_id, use, verified=False, operat
     }
 
 
+# Owner desk release. These are completed public candles for this paper desk.
+# They are not a vendor licence, not a bid or ask, and not a live-exchange order.
+_PUBLIC_USES = frozenset({
+    "candle_display",
+    "indicator_calculation",
+    "customer_reading",
+    "opportunity_generation",
+    "manual_plan_review",
+    "paper_ledger_persistence",
+    "notifications",
+    "autopilot",
+})
+_PUBLIC_DESK = {
+    "binance_spot_rest_klines": (
+        frozenset({None, "BTCUSDT", "ETHUSDT"}),
+        frozenset({None, "1m", "3m", "15m", "1h"}),
+        _PUBLIC_USES,
+    ),
+    "xaus_public_chart": (
+        frozenset({None, "XAUUSD"}),
+        frozenset({None, "1m", "3m", "15m", "1h"}),
+        _PUBLIC_USES,
+    ),
+    "xaus_spot_samples": (
+        frozenset({None, "XAUUSD"}),
+        frozenset({None, "15m", "1h"}),
+        _PUBLIC_USES - {"candle_display"},
+    ),
+}
+
+
+def _public_desk(source_id, use, symbol, interval):
+    spec = _PUBLIC_DESK.get(source_id)
+    if spec is None or use not in _PUBLIC_USES:
+        return None
+    symbols, intervals, uses = spec
+    if use not in uses or symbol not in symbols or interval not in intervals:
+        return None
+    return _decision(
+        True,
+        "verified",
+        "public_completed_candle",
+        source_id=source_id,
+        use=use,
+        verified=True,
+    )
+
+
 def decide_use(source_id, use, *, symbol=None, interval=None):
-    """Judge one capability. Never promotes unverified to verified."""
+    """Judge one capability. A public completed candle on this desk is releasable."""
     source_id = SOURCE_ALIAS.get(source_id, source_id)
     if source_id == "twelve_data":
         return _twelve_decision(use, symbol, interval)
     if source_id == "kraken_public_ohlc":
         return _kraken_decision(use, symbol, interval)
+    released = _public_desk(source_id, use, symbol, interval)
+    if released is not None:
+        return released
     if symbol == "XAUUSD" and interval in {"1m", "3m"}:
         return _decision(False, "unavailable", "xau_minute_unlicensed", source_id=source_id, use=use)
     if use not in CAPABILITIES:

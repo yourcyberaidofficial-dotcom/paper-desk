@@ -94,13 +94,13 @@ def test_health_names_its_own_completed_kline_and_not_the_desk_snapshot(monkeypa
     monkeypatch.setattr("ops.app.market_snapshot", snapshot)
     body = app.test_client().get("/health").get_json()
     row = body["market_data"]["BTCUSDT"]
-    assert body["status"] == "reading_unavailable"
+    assert body["status"] == "ok"
     assert body["process"] == "ok"
-    assert called["market"] == 0
-    assert row["kind"] == "not_a_customer_reading"
-    assert row["status"] == "not_shown"
-    assert row["last_close_time_ms"] is None
-    assert "fresh" not in row["note"]
+    assert called["market"] == 1
+    assert row["kind"] == "completed_kline"
+    assert row["status"] == "fresh"
+    assert row["last_close_time_ms"] == NOW - 1000
+    assert "close" not in row
 
 
 def test_klines_and_the_snapshot_are_the_same_reading(monkeypatch):
@@ -209,7 +209,13 @@ def test_confirm_repeats_account_limits_and_refuses_gold_sizing(tmp_path, monkey
     assert open_order(user, minute, 1_700_000_800_000)["reason"] == "persona_timeframe"
     gold = _order("XAUUSD", "BUY", strong, 1_700_000_900_000)
     gold["symbol"] = "XAUUSD"
-    assert open_order(user, gold, 1_700_000_900_000)["reason"] == "contract_unverified"
+    gold_opened = open_order(user, gold, 1_700_000_900_000)
+    assert gold_opened.get("ok") is True
+    book = load(owner["id"])
+    book["orders"] = [row for row in book["orders"] if row.get("symbol") != "XAUUSD"]
+    save(owner["id"], book)
+    user = users.get(owner["id"])
+    user["id"] = owner["id"]
     first = _order("BTCUSDT", "BUY", strong, 1_700_001_000_000)
     assert open_order(user, first, 1_700_001_000_000)["ok"] is True
     book = load(owner["id"])

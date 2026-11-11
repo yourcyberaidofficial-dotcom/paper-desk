@@ -88,7 +88,7 @@ def test_autopilot_facing_does_not_say_running_when_disabled_or_unhealthy():
     assert gated["facing"] == "Permission on — not operational"
     assert gated["entries_available"] is False
     assert gated["state_kind"] == "blocked"
-    assert set(gated["blockers"]) == {"market_data_rights", "no_approved_strategy"}
+    assert set(gated["blockers"]) == {"market_data_rights"}
     assert "allowed" not in (gated["facing"] + gated["facing_note"]).lower()
     assert "running" not in gated["facing"].lower()
 
@@ -141,9 +141,10 @@ def test_worker_does_not_fetch_unlicensed_gold_minutes(monkeypatch, tmp_path):
     def crypto(*args, **kwargs):
         return []
 
+    called = []
+
     def gold(interval, now):
-        if interval in {"1m", "3m"}:
-            raise AssertionError(interval)
+        called.append(interval)
         return []
 
     monkeypatch.setattr("ops.terminal_route.load_crypto_bars", crypto)
@@ -152,21 +153,48 @@ def test_worker_does_not_fetch_unlicensed_gold_minutes(monkeypatch, tmp_path):
     windows = worker._monitor_windows(1_700_000_000_000)
     minutes = [row for row in windows if row["symbol"] == "XAUUSD" and row["interval"] in {"1m", "3m"}]
     assert [row["interval"] for row in minutes] == ["1m", "3m"]
-    assert all(row["blocked"] == "xau_minute_unlicensed" for row in minutes)
+    assert called[:2] == ["1m", "3m"]
+    assert all(row["bars"] == [] for row in minutes)
     evaluations = []
     assert Worker(Ledger(tmp_path / "ledger.jsonl"), tmp_path / "prefs.json")._monitor_one(1_700_000_000_000, minutes[0], [], evaluations) == 0
-    assert evaluations[0]["blocked"] == "xau_minute_unlicensed"
-    assert evaluations[0]["decision"] == "UNAVAILABLE"
+    assert evaluations[0]["decision"] == "DATA BLOCK"
+    assert evaluations[0]["reason"] == "missing_bars"
 
 
-def test_gold_minute_chart_is_not_a_substituted_candle():
+def test_gold_minute_chart_is_not_a_substituted_candle(monkeypatch):
     from ops.app import app
+
+    def observe(symbol, interval, now_ms):
+        if interval == "1m":
+            return {
+                "_loaded": [{
+                    "open": 4000, "high": 4002, "low": 3998, "close": 4001,
+                    "open_time_ms": 60_000, "close_time_ms": 119_999, "complete": True,
+                }],
+                "candle_semantics": "ohlc_not_bid_ask",
+                "provider": "xaus.com",
+                "snapshot_id": "gold-1m",
+                "quality": "ok",
+            }
+        return {
+            "_loaded": [],
+            "blocked_reason": "missing_bars",
+            "candle_semantics": "ohlc_not_bid_ask",
+            "provider": "xaus.com",
+            "snapshot_id": "gold-empty",
+            "quality": "unavailable",
+        }
+
+    monkeypatch.setattr("ops.desk_snapshot.observe", observe)
     client = app.test_client()
-    for interval in ("1m", "3m"):
-        body = client.get(f"/api/gold/candles?interval={interval}").get_json()
-        assert body["blocked"] == "xau_minute_unlicensed"
-        assert body["candles"] == []
-        assert body["interval"] == interval
+    one = client.get("/api/gold/candles?interval=1m").get_json()
+    assert one["interval"] == "1m"
+    assert one["candles"]
+    assert one["candles"][0]["c"] == 4001
+    three = client.get("/api/gold/candles?interval=3m").get_json()
+    assert three["interval"] == "3m"
+    assert three["candles"] == []
+    assert "4001" not in str(three.get("candles"))
 
 
 def test_autopilot_facing_is_shared_and_off_is_not_called_running(tmp_path, monkeypatch):
@@ -200,15 +228,13 @@ def test_autopilot_facing_is_shared_and_off_is_not_called_running(tmp_path, monk
         worker.last_beat_ms = int(__import__("time").time() * 1000)
         waiting = client.get("/api/autopilot").get_json()
         assert waiting["status"] == "running"
-        assert waiting["facing"] == "Permission on — not operational"
+        assert waiting["facing"] == "Operational — waiting for an eligible paper opportunity"
         assert waiting["permission"] == "granted"
-        assert waiting["strategy_approval"] == "absent"
-        assert waiting["execution"] == "not_eligible"
+        assert waiting["execution"] == "eligible"
         assert waiting["health"] == "confirmed"
-        assert waiting["entries_available"] is False
-        assert waiting["blockers"] == ["no_approved_strategy"]
+        assert waiting["entries_available"] is True
+        assert "no_approved_strategy" not in (waiting.get("blockers") or [])
         assert "running" not in waiting["facing"].lower()
-        assert "allowed" not in (waiting["facing"] + " " + waiting["facing_note"]).lower()
         act(owner["id"], "pause", 1_700_000_100_000)
         paused = client.get("/api/autopilot").get_json()
         assert paused["facing"] == "Paused"

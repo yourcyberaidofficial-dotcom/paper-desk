@@ -104,13 +104,14 @@ def present_window(window, now_ms):
         )
         return base
     if symbol == "XAUUSD" and interval in {"1m", "3m"}:
+        public = (last or {}).get("provider") == "xaus.com" and last.get("complete") and last.get("fresh")
         native = interval == "1m" and ((last or {}).get("provider") == "twelve-data" or window.get("provider") == "twelve-data")
-        released = False
+        released = public
         if native:
             from ops.entitlements import decide_use
 
             decision = decide_use("twelve_data", "candle_display", symbol="XAUUSD", interval="1m")
-            released = decision.get("verified") is True and decision.get("allowed") is True
+            released = released or (decision.get("verified") is True and decision.get("allowed") is True)
         if not released:
             base.update(
                 status="unavailable",

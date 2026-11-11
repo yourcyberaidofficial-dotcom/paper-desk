@@ -94,22 +94,46 @@ def status():
 
     spec = requirements()
     ready = configured()
+    local = {"available": False, "reason": "model_not_configured", "model": None, "reachable": None}
+    try:
+        from ops.ollama import health
+
+        probed = health()
+        if isinstance(probed, dict):
+            local = probed
+    except Exception:
+        local = {"available": False, "reason": "offline", "model": None, "reachable": False}
+    local_ready = local.get("available") is True
+    if ready:
+        operational = "READY"
+        reason = None
+        note = "The hosted provider is configured. A reply is still not a signal and not an order."
+    elif local_ready:
+        operational = "READY"
+        reason = None
+        note = f"Local model {local.get('model')} is reachable. An answer is produced only when you ask. It is not a signal and not an order."
+    else:
+        operational = "BLOCKED"
+        reason = "provider_not_configured"
+        note = "Aureon AI is part of the desk. The hosted model is not configured and the local model is not reachable, so this is not an analysis."
     return {
         "compulsory": True,
         "customer_toggle": False,
-        "operational": "READY" if ready else "BLOCKED",
-        "reason": None if ready else "provider_not_configured",
-        "provider": "openai-compatible" if ready else None,
-        "primary_model": spec["primary_model"],
+        "operational": operational,
+        "reason": reason,
+        "provider": "openai-compatible" if ready else ("local" if local_ready else None),
+        "primary_model": spec["primary_model"] or (local.get("model") if local_ready else None),
         "fallback_model": spec["fallback_model"],
-        "missing": list(spec["missing"]),
+        "missing": [] if ready or local_ready else list(spec["missing"]),
         "live_model": "NOT TESTED",
-        "local_model": False,
-        "note": (
-            "Aureon AI is part of the desk. The hosted model is not configured, so this is not an analysis."
-            if not ready else
-            "The hosted provider is configured. A reply is still not a signal and not an order."
-        ),
+        "local_model": local_ready,
+        "local": {
+            "available": local_ready,
+            "model": local.get("model"),
+            "reason": local.get("reason"),
+            "reachable": local.get("reachable"),
+        },
+        "note": note,
     }
 
 

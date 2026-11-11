@@ -259,7 +259,7 @@ def test_every_live_path_fails_closed_before_the_network(monkeypatch, tmp_path):
     _BAR_CACHE.pop(("XAUUSD", "1h"), None)
     gold_hour = load_gold_ohlc("1h", NOW)
     assert gold_hour[0] is None and gold_hour[1] == "AssertionError"
-    assert load_gold_ohlc("1m", NOW)[1] == "xau_minute_unlicensed"
+    assert load_gold_ohlc("1m", NOW)[1] == "AssertionError"
     assert screen_bars("binance_spot_rest_klines", [{"close": 1}]) == [{"close": 1}]
     assert screen_bars("binance_vision_klines", [{"close": 1}]) == []
     assert screen_bars("deterministic_fixture", [{"close": 1}], "research") == []

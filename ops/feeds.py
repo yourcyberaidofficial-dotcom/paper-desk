@@ -145,7 +145,7 @@ def binance_bars(symbol, interval, start_ms, end_ms, now_ms=None, timeout=20, at
 
 
 def _chart_range(interval):
-    return {"15m": ("1mo", "15m"), "1h": ("1y", "1h"), "1d": ("5y", "1d")}.get(interval)
+    return {"1m": ("1d", "1m"), "15m": ("1mo", "15m"), "1h": ("1y", "1h"), "1d": ("5y", "1d")}.get(interval)
 
 
 def xaus_chart(interval, now_ms=None, timeout=30, attempts=3):
@@ -212,6 +212,54 @@ def xaus_chart(interval, now_ms=None, timeout=30, attempts=3):
         "quote_semantics": "ohlc_not_bid_ask",
         "range": spec[0],
     }
+
+
+def aggregate_ohlc(bars, interval, now_ms):
+    """Build one coarser candle from complete native 1-minute bars. A missing minute drops the bucket."""
+    step = interval_ms(interval)
+    fine = interval_ms("1m")
+    if interval == "1m" or step < fine or step % fine != 0:
+        return []
+    need = step // fine
+    groups = {}
+    for bar in bars or []:
+        if bar.get("interval") != "1m" or not bar.get("complete"):
+            continue
+        open_ms = int(bar["open_time_ms"])
+        bucket = open_ms - (open_ms % step)
+        groups.setdefault(bucket, []).append(bar)
+    built = []
+    now_ms = int(now_ms)
+    for bucket in sorted(groups):
+        rows = sorted(groups[bucket], key=lambda item: item["open_time_ms"])
+        expected = [bucket + index * fine for index in range(need)]
+        if [row["open_time_ms"] for row in rows] != expected:
+            continue
+        close_ms = bucket + step - 1
+        if close_ms > now_ms:
+            continue
+        volume = None
+        if all(isinstance(row.get("volume"), (int, float)) for row in rows):
+            volume = sum(row["volume"] for row in rows)
+        built.append(make_bar(
+            symbol=rows[0].get("symbol") or "XAUUSD",
+            instrument=rows[0].get("instrument") or "XAUUSD_SPOT",
+            interval=interval,
+            open_time_ms=bucket,
+            close_time_ms=close_ms,
+            open=rows[0]["open"],
+            high=max(row["high"] for row in rows),
+            low=min(row["low"] for row in rows),
+            close=rows[-1]["close"],
+            volume=volume,
+            provider=rows[0].get("provider") or "xaus.com",
+            source_type="chart_ohlc",
+            quote_semantics=rows[0].get("quote_semantics") or "ohlc_not_bid_ask",
+            retrieved_at_ms=now_ms,
+            complete=True,
+            fresh=bool(rows[-1].get("fresh")) and now_ms - close_ms <= 2 * step,
+        ))
+    return built
 
 
 def aggregate_spot_samples(points, interval, now_ms):

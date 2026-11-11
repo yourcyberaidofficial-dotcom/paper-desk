@@ -101,16 +101,23 @@ def find(strategy_id):
 
 
 def autopilot_may_open(result):
-    """True only when this exact version is approved for paper. A forged approved flag is not enough."""
+    """A promoted research version may open. So may a completed experimental paper plan on a released public candle."""
     result = result or {}
-    if result.get("approved") is not True:
+    if result.get("approved") is True:
+        version = result.get("version")
+        identity = result.get("strategy_id") or result.get("strategy")
+        row = find(identity) or find(version)
+        if row and row["approved_for_paper"] and (row["version"] == version or row["id"] == identity):
+            return True
+    if result.get("runtime_status") != "experimental":
         return False
-    version = result.get("version")
-    identity = result.get("strategy_id") or result.get("strategy")
-    row = find(identity) or find(version)
-    if not row or not row["approved_for_paper"]:
+    if result.get("blocked") or result.get("decision") not in {"BUY", "SELL"}:
         return False
-    return row["version"] == version or row["id"] == identity
+    if result.get("entry") is None or result.get("stop") is None or result.get("target") is None:
+        return False
+    from ops.customer_release import opportunity_released
+
+    return opportunity_released(result.get("symbol"), result.get("interval"))
 
 
 def evidence_chain(reading):
