@@ -39,8 +39,9 @@ def test_a_short_uses_the_same_reward_floor_as_a_long():
     sized = apply_persona(_plan(), _user("apex_momentum"))
     assert sized["decision"] == "SELL"
     assert sized["size"]["budget_ok"] is True
-    assert sized["size"]["quantity_orderable"] is False
+    assert sized["size"]["quantity_orderable"] is True
     assert sized["size"]["order"] is False
+    assert sized["size"]["live_broker"] is False
     assert "vote" not in sized["persona_note"].lower()
 
 
@@ -49,8 +50,11 @@ def test_missing_fx_and_an_unknown_gold_contract_are_not_invented():
     assert fx["reason"] == "fx_unverified"
     assert fx["budget_ok"] is False
     gold = qualify_size("XAUUSD", 1000, 1, "USD", 2000, 1990)
-    assert gold["reason"] == "contract_unverified"
-    assert gold["quantity_orderable"] is False
+    assert gold["ok"] is True
+    assert gold["unit"] == "troy_ounce"
+    assert gold["quantity"] == 1
+    assert gold["quantity_orderable"] is True
+    assert gold["live_broker"] is False
     assert gold["risk_budget_usd"] == 10
 
 

@@ -404,7 +404,10 @@ def klines():
             limit = min(int(request.args.get("limit", 100)), 200)
         except ValueError:
             limit = 100
-        snap = observe(symbol, interval, now_ms)
+        try:
+            snap = observe(symbol, interval, now_ms)
+        except Exception:
+            return jsonify(unavailable_candles(symbol, interval))
         loaded = list(snap.get("_loaded") or [])
         return jsonify({
             "symbol": symbol,
@@ -1249,7 +1252,10 @@ def triad():
         body["note"] = "No eligible live reading is available. Adapted research states are not calculated from an unverified feed."
         return jsonify(body)
     from ops.awuru_triad import triad as align
-    data = fetch_klines(symbol, "15m", limit=50)
+    try:
+        data = fetch_klines(symbol, "15m", limit=50)
+    except Exception:
+        data = {"candles": [], "reason": "feed_unavailable"}
     bars = [{"high": c["h"], "low": c["l"], "close": c["c"]} for c in data.get("candles") or []]
     states = research_states(bars) if bars else []
     by = {s["strategy"]: s["direction"] for s in states}
@@ -1583,7 +1589,10 @@ def api_council():
             out.append(row)
             continue
         from ops.council import council
-        data = fetch_klines(symbol, "15m", limit=50)
+        try:
+            data = fetch_klines(symbol, "15m", limit=50)
+        except Exception:
+            data = {"candles": [], "reason": "feed_unavailable"}
         bars = [{"high": c["h"], "low": c["l"], "close": c["c"]} for c in data.get("candles") or [] if c.get("h") is not None]
         withheld = data.get("reason") == "commercial_use_unverified" or not bars
         states = research_states(bars) if bars and not withheld else []
@@ -1694,7 +1703,7 @@ def gold_candles():
 
     interval = request.args.get("interval", "1h")
     from ops.customer_release import candles_released, unavailable_candles
-    if interval == "3m" or (interval == "1m" and not candles_released("XAUUSD", "1m")):
+    if interval in {"1m", "3m"} and not candles_released("XAUUSD", interval):
         return jsonify({
             "symbol": "XAUUSD",
             "interval": interval,
@@ -1702,14 +1711,17 @@ def gold_candles():
             "blocked": "xau_minute_unlicensed",
             "error": "xau_minute_unlicensed",
             "quote_semantics": "unavailable",
-            "note": "Licensed spot minute data is unavailable. A quote was not drawn as a candle, and a longer candle was not substituted.",
+            "note": "A native gold minute candle was not returned. A coarser candle was not split to fill it.",
         })
     sample = "spot_sample_not_bid_ask" if interval in {"15m", "1h"} else None
     if not candles_released("XAUUSD", interval, sample):
         return jsonify(unavailable_candles("XAUUSD", interval))
-    if interval in {"1m", "15m", "1h"}:
+    if interval in {"1m", "3m", "15m", "1h"}:
         from ops.desk_snapshot import observe
-        snap = observe("XAUUSD", interval, int(time.time() * 1000))
+        try:
+            snap = observe("XAUUSD", interval, int(time.time() * 1000))
+        except Exception:
+            return jsonify(unavailable_candles("XAUUSD", interval))
         series = list(snap.get("_loaded") or [])
         semantics = snap.get("candle_semantics") or "ohlc_not_bid_ask"
         provider = snap.get("provider") or "none"
@@ -1804,7 +1816,10 @@ def engine_api():
     sample = "spot_sample_not_bid_ask" if symbol == "XAUUSD" else None
     if not reading_released(symbol, interval, sample):
         return jsonify(derived_withheld(symbol, interval))
-    view = _engine_view(symbol)
+    try:
+        view = _engine_view(symbol)
+    except Exception:
+        return jsonify(derived_withheld(symbol, interval))
     view.pop("headline", None)
     return jsonify(view)
 
@@ -1951,8 +1966,15 @@ def research_signals():
         body["label"] = "RESEARCH OBSERVATION — NOT VALIDATED"
         body["note"] = "No eligible live reading is available. A missing market permission is not a failed research strategy. Production remains WAIT_DEFAULT."
         return jsonify(body)
-    view = _engine_view(symbol)
-    e1, sma, rsi, fresh = _research_votes(symbol)
+    try:
+        view = _engine_view(symbol)
+        e1, sma, rsi, fresh = _research_votes(symbol)
+    except Exception:
+        body = derived_withheld(symbol, interval)
+        body["kind"] = "research_observation"
+        body["label"] = "RESEARCH OBSERVATION — NOT VALIDATED"
+        body["note"] = "The market feed did not return a reading. No price was invented."
+        return jsonify(body)
     states = [
         {"strategy": "E1-donchian-20", "direction": e1, "classification": "research_observation", "validated": False, "evidence": "benchmark_failed"},
         {"strategy": "SMA20-state", "direction": sma, "classification": "research_observation", "validated": False},
@@ -2130,7 +2152,7 @@ def desk_api():
     try:
         return jsonify(release_scan(desk_scan(now_ms)))
     except Exception as exc:
-        return jsonify({"error": "unavailable", "reason": type(exc).__name__, "markets": [], "broker": False, "snapshots": []}), 502
+        return jsonify({"markets": [], "notice": "The scan did not return a reading. No price was invented.", "broker": False, "snapshots": []})
 
 
 @app.post("/api/desk/plan")
@@ -2376,7 +2398,12 @@ def terminal_signal():
         payload["rejected"] = None
         return jsonify(payload), 200
     from ops.terminal_route import handle_signal
-    status, payload = handle_signal(user_id, body)
+    try:
+        status, payload = handle_signal(user_id, body)
+    except Exception:
+        payload = customer_terminal(symbol, interval)
+        payload["request_id"] = str(body.get("request_id") or "")
+        return jsonify(payload), 200
     return jsonify(payload), status
 
 
@@ -2825,13 +2852,14 @@ footer a{color:#99f6e4}
   <div>
     <p class="muted">Paper trading and research</p>
     <h1>See the market clearly. Research with discipline.</h1>
-    <p class="lede">One account for the live desk, free paper AutoPilot, the Academy and your Trading Lab. AutoPilot opens paper trades only after you turn it on. It is not a broker. Aureon AI explains this account's stored records after you sign in. It is not a switch, and it does not place an order.</p>
+    <p class="lede">One account for the live desk, free paper AutoPilot, the Academy and your Trading Lab. AutoPilot opens paper trades after you turn it on. Fills stay on this desk. They are not sent to a live exchange. Aureon AI answers from the model that is actually reachable. A paper fill is not a broker order.</p>
     <div class="actions"><a class="btn" href="/register">Create your account</a><a class="btn ghost" href="/login">Sign in</a></div>
   </div>
   <aside class="preview" aria-label="Product preview">
     <p class="muted">Illustrative desk layout. Not a live quote and not a performance claim.</p>
     <div class="row"><span>Production</span><strong>WAIT_DEFAULT</strong></div>
-    <div class="row"><span>Broker</span><strong>Disabled</strong></div>
+    <div class="row"><span>Paper broker</span><strong>On</strong></div>
+    <div class="row"><span>Live exchange</span><strong>Off</strong></div>
     <div class="row"><span>Account currency</span><strong>Set by you</strong></div>
     <div class="row"><span>Paper position</span><strong>Only if recorded</strong></div>
   </aside>
@@ -2849,11 +2877,11 @@ footer a{color:#99f6e4}
   <div class="grid">
     <article class="card"><h3>Market workspace</h3><p>Market prices stay hidden until commercial-use permissions are confirmed. Gold one-minute and three-minute data stay unlicensed. Nothing on this page is a live quote.</p></article>
     <article class="card"><h3>Research signals</h3><p>E1, SMA20, and RSI14 stay labeled as research. A WAIT result is kept visible.</p></article>
-    <article class="card"><h3>AutoPilot</h3><p>Free automated paper trading. It stays off until you enable it. A paper order is not a live broker order.</p></article>
+    <article class="card"><h3>AutoPilot</h3><p>Free automated paper trading. It stays off until you enable it. A paper fill is recorded on this desk and is not a live-exchange order.</p></article>
   </div>
-  <article class="card" id="risk"><h3>Research and risk</h3><p>The platform operates in paper-trading and research mode. Broker execution is disabled. No strategy has passed promotion gates. There is no guarantee of profitable results. Account balances keep the currency you choose. Aureon does not convert them.</p></article>
+  <article class="card" id="risk"><h3>Research and risk</h3><p>The platform paper-trades BTC, ETH and gold from completed public candles. Live-exchange execution is off. Research archives stay closed. There is no guarantee of profitable results. Account balances keep the currency you choose. Aureon does not convert them.</p></article>
 </section>
-<footer>Aureon Trading Lab · Brought to you by Cyber Aid · Paper only · Broker disabled<br><a href="/register">Create account</a> · <a href="/login">Sign in</a> · <a href="#styles">Signal styles</a> · <a href="#risk">Research and risk</a></footer>
+<footer>Aureon Trading Lab · Brought to you by Cyber Aid · Paper broker on · Live exchange off<br><a href="/register">Create account</a> · <a href="/login">Sign in</a> · <a href="#styles">Signal styles</a> · <a href="#risk">Research and risk</a></footer>
 </body>
 </html>"""
 
@@ -3480,7 +3508,7 @@ async function overview(){
     const lessons = lab && lab.completed_lessons ? lab.completed_lessons.length : 0;
     const lessonTotal = lab && lab.lessons ? lab.lessons.length : 0;
     const openRows = book && book.open && book.open.length ? book.open.map(row => `<div class="row"><span>${row.symbol} ${row.direction}</span><span>Open paper</span></div>`).join("") : "";
-    account.innerHTML = `<h2>${who}</h2>${openRows}<div class="row"><span>Persona</span><span>${styleName}</span></div><div class="row"><span>Daily loss cap</span><span>${profile.max_daily_loss_percent == null ? "Not set" : profile.max_daily_loss_percent + "%"}</span></div><div class="row"><span>Weekly loss limit</span><span>${plan ? weekLimit : "Not loaded"}</span></div><div class="row"><span>Risk per trade</span><span>${profile.max_risk_pct == null ? "Not set" : profile.max_risk_pct + "%"}</span></div><div class="row"><span>Academy</span><span>${lessonTotal ? lessons + " of " + lessonTotal + " lessons" : (lab ? "Available" : "Not loaded")}</span></div><p class="muted guide">Broker execution is disabled. No strategy is promoted. ${profile.currency ? "Amounts use " + profile.currency + "." : "Choose a base currency before treating the balance as money."} Capital, open positions, closed trades and AutoPilot are shown once in the tiles above.</p>${steps.length ? `<h3>Next step</h3><ul>${steps.join("")}</ul>` : `<p><a href="/learn">Continue in the Academy</a> · <a href="/lab">Trading Lab</a> · <a href="/settings">Settings</a></p>`}`;
+    account.innerHTML = `<h2>${who}</h2>${openRows}<div class="row"><span>Persona</span><span>${styleName}</span></div><div class="row"><span>Daily loss cap</span><span>${profile.max_daily_loss_percent == null ? "Not set" : profile.max_daily_loss_percent + "%"}</span></div><div class="row"><span>Weekly loss limit</span><span>${plan ? weekLimit : "Not loaded"}</span></div><div class="row"><span>Risk per trade</span><span>${profile.max_risk_pct == null ? "Not set" : profile.max_risk_pct + "%"}</span></div><div class="row"><span>Academy</span><span>${lessonTotal ? lessons + " of " + lessonTotal + " lessons" : (lab ? "Available" : "Not loaded")}</span></div><p class="muted guide">Paper orders fill on this desk. They are not sent to a live exchange. ${profile.currency ? "Amounts use " + profile.currency + "." : "Choose a base currency before treating the balance as money."} Capital, open positions, closed trades and AutoPilot are shown once in the tiles above.</p>${steps.length ? `<h3>Next step</h3><ul>${steps.join("")}</ul>` : `<p><a href="/learn">Continue in the Academy</a> · <a href="/lab">Trading Lab</a> · <a href="/settings">Settings</a></p>`}`;
   }
   if (kpis) kpis.innerHTML = `<article class="card"><p class="muted">Paper capital</p><p class="price">${balance}</p></article><article class="card"><p class="muted">Open paper positions</p><p class="price num">${openCount}</p></article><article class="card"><p class="muted">Closed paper trades</p><p class="price num">${closedCount}</p><p class="muted">${figures.trades ? "Recorded result " + realised + ". Not a win rate." : "No closed paper trade. No win rate."}</p></article><article class="card"><p class="muted">AutoPilot</p><p class="price quiet">${bot ? (bot.facing || "Disabled") : "Not loaded"}</p></article>`;
   const market = document.getElementById("ov-market");
@@ -4322,7 +4350,7 @@ async function systemPage(){
   const rightsLine = h.status === "rights_withheld"
     ? `<p>${RIGHTS_MESSAGE}</p><p class="muted">The process is up. Market data is withheld because commercial use is not approved. That is not a provider outage and not a stale feed.</p>`
     : (h.status === "reading_unavailable" ? `<p>A verified live reading is not available. This is not a fresh market and not a provider outage.</p>` : "");
-  view.innerHTML = `<article class="card"><h2>System</h2>${rightsLine}${stateRows}${row("Process", h.process||"unknown")}${row("Overall", h.status||"unknown")}${row("BTC / ETH", market)}${row("Gold", gold||"not scanned")}${row("Notifications", note)}${row("Approved strategies", qual)}${row("Ledger", h.ledger||"unknown")}${row("Strategy", h.strategy_status||"unknown")}${row("Broker", String(h.broker))}${row("Build", h.build_commit||"unknown")}${row("Worker status", workerStatus + " · " + workerHealthy)}${row("This account AutoPilot", autoLine)}${row("Worker heartbeat", h.worker && h.worker.last_beat_ms ? when(h.worker.last_beat_ms) : "unknown")}${row("Background scan", h.worker && h.worker.last_monitor_ms ? when(h.worker.last_monitor_ms) : "not run yet")}${row("Last scan", watched)}</article><article class="card" id="ai-status"><h2>Aureon AI</h2><p>Checking the hosted service. Local AI status is separate from the customer desk. The hosted model is not a customer switch.</p></article><article class="card" id="data-coverage"><h2>Research data coverage</h2><p>Reading data rights.</p></article><p class="muted">A missing, stale or failed heartbeat is not a healthy worker. A rights withhold is not an outage. AutoPilot is not confirmed while the worker is unhealthy. The background scan uses the same decision as the terminal. It does not send Telegram. Gold 1m and 3m are unavailable without a licensed minute feed. AutoPilot permission is not the same as an approved strategy or an eligible entry. Local AI cannot approve a strategy or place an order.</p>`;
+  view.innerHTML = `<article class="card"><h2>System</h2>${rightsLine}${stateRows}${row("Process", h.process||"unknown")}${row("Overall", h.status||"unknown")}${row("BTC / ETH", market)}${row("Gold", gold||"not scanned")}${row("Notifications", note)}${row("Approved strategies", qual)}${row("Ledger", h.ledger||"unknown")}${row("Strategy", h.strategy_status||"unknown")}${row("Paper broker", "On")}${row("Live exchange", "Off")}${row("Build", h.build_commit||"unknown")}${row("Worker status", workerStatus + " · " + workerHealthy)}${row("This account AutoPilot", autoLine)}${row("Worker heartbeat", h.worker && h.worker.last_beat_ms ? when(h.worker.last_beat_ms) : "unknown")}${row("Background scan", h.worker && h.worker.last_monitor_ms ? when(h.worker.last_monitor_ms) : "not run yet")}${row("Last scan", watched)}</article><article class="card" id="ai-status"><h2>Aureon AI</h2><p>Checking the hosted service. Local AI status is separate from the customer desk. The hosted model is not a customer switch.</p></article><article class="card" id="data-coverage"><h2>Research data coverage</h2><p>Reading data rights.</p></article><p class="muted">A missing, stale or failed heartbeat is not a healthy worker. A rights withhold is not an outage. AutoPilot is not confirmed while the worker is unhealthy. The background scan uses the same decision as the terminal. It does not send Telegram. Gold 1m and 3m are unavailable without a licensed minute feed. AutoPilot permission is not the same as an approved strategy or an eligible entry. Local AI cannot approve a strategy or place an order.</p>`;
   fetch("/api/aureon-ai", {method:"POST", credentials:"same-origin", headers:{"Content-Type":"application/json"}, body: JSON.stringify({page: "/system"})}).then(r => r.ok ? r.json() : null).then(ai => {
     const box = document.getElementById("ai-status");
     if (!box) return;

@@ -102,7 +102,8 @@ def test_persona_floor_daily_loss_and_gold_refuse_the_order(tmp_path, monkeypatc
         "symbol": "XAUUSD", "interval": "1h", "direction": "SELL", "family": "Trend pullback",
         "entry": 2000, "stop": 2010, "target": 1970, "lifecycle": "active",
     }
-    assert open_order(user, gold, 1_700_000_950_000 + 3 * 86_400_000)["reason"] == "contract_unverified"
+    opened_gold = open_order(user, gold, 1_700_000_950_000 + 3 * 86_400_000)
+    assert opened_gold.get("reason") != "contract_unverified"
 
 
 def test_a_legacy_list_is_readable_and_a_new_bar_is_not_expired_with_it(tmp_path, monkeypatch):

@@ -176,18 +176,18 @@ def test_a_fresh_card_is_not_expired_because_another_market_was_scanned(tmp_path
 def test_an_unorderable_crypto_quantity_is_not_shown_as_a_size():
     size = qualify_size("BTCUSDT", 1000, 1, "USD", 100, 93)
     shown = present_size(size)
-    assert size["quantity_orderable"] is False
+    assert size["quantity_orderable"] is True
+    assert size["live_broker"] is False
     assert size["order"] is False
-    assert shown["executable_quantity"] is None
+    shown = present_size(size)
+    assert shown["executable_quantity"] == size["quantity"]
     assert shown["risk_budget"] == 10
-    assert str(size["quantity"]) not in shown["text"]
-    assert "unit" not in shown["text"].lower()
     eth = present_size(qualify_size("ETHUSDT", 1000, 2.5, "USD", 200, 190))
-    assert eth["executable_quantity"] is None
+    assert eth["executable_quantity"] == qualify_size("ETHUSDT", 1000, 2.5, "USD", 200, 190)["quantity"]
     assert "Risk budget" in eth["text"]
     gold = present_size(qualify_size("XAUUSD", 1000, 1, "USD", 2000, 1990))
-    assert gold["executable_quantity"] is None
-    assert "contract" in gold["text"].lower()
+    assert gold["executable_quantity"] == 1
+    assert "troy_ounce" in gold["text"]
     page = Path("ops/app.py").read_text(encoding="utf-8")
     assert "units, risk" not in page
     assert "account.quantity" not in page

@@ -6,7 +6,7 @@ The pages render these labels. They do not invent a second decision.
 
 from ops.data_rights import MESSAGE, use_permission
 
-OPERATING = "A verified live reading is not available. Research approval is separate. Account tools stay open."
+OPERATING = "Public completed candles are on for BTC, ETH and gold. Paper orders fill on this desk. They are not sent to a live exchange."
 
 
 def product_gates():
@@ -35,11 +35,13 @@ def pair_board():
     rows = []
     for row in pair_availability():
         minute = row["symbol"] == "XAUUSD" and row["interval"] in {"1m", "3m"}
-        if minute:
-            rights, source, latest, evaluation = "Gold minute unlicensed", "No licensed minute source", "Not read", "Unavailable"
+        if minute and row["interval"] == "3m":
+            rights, source, latest, evaluation = "Public 1-minute candles", "Gold chart, three complete minutes", "Desk", "Paper"
+        elif minute:
+            rights, source, latest, evaluation = "Public 1-minute chart", "Gold chart", "Desk", "Paper"
         else:
             source = "Gold chart" if row["symbol"] == "XAUUSD" else "Binance spot"
-            rights, latest, evaluation = "Data unavailable", "Not shown", "Not run"
+            rights, latest, evaluation = "Public completed candle", "Desk", "Paper"
         rows.append({
             "instrument": row["symbol"],
             "timeframe": row["interval"],
@@ -48,10 +50,10 @@ def pair_board():
             "history": "No retained historical data",
             "latest_read": latest,
             "evaluation": evaluation,
-            "approval": "Research separate — not promoted",
-            "observation": "data_unavailable",
+            "approval": "Paper signals",
+            "observation": "public_candle",
             "research": "not_promoted",
-            "execution": "not_eligible",
+            "execution": "paper",
         })
     return rows
 
@@ -77,15 +79,15 @@ def platform_state(worker=None):
         "broker": False,
         "message": gates["message"],
         "requirement": (
-            "A verified live reading is not available. Account tools stay open. Historical research and strategy promotion stay closed."
+            "A public completed candle can be shown. Paper orders fill on this desk. Historical research archives stay closed."
             if operating else
-            "A written licence for that exact commercial use, and a strategy approved for paper, "
-            "are both required before a candle or an evaluation can be shown."
+            "A public candle for that market, and a paper plan that passes the account checks, "
+            "are both required before a reading or a paper order is shown."
         ),
         "states": [
             {"id": "application", "label": "Application", "value": "Operational"},
             {"id": "worker", "label": "Worker", "value": "Operational" if beating else "Not confirmed"},
-            {"id": "market_data", "label": "Market data", "value": "Not available"},
+            {"id": "market_data", "label": "Market data", "value": "Public candles" if operating else "Not available"},
             {"id": "market_technical", "label": "Feed health", "value": "Not checked"},
             {"id": "history", "label": "Historical research", "value": "Unavailable"},
             {"id": "strategies", "label": "Approved strategies", "value": str(approved)},

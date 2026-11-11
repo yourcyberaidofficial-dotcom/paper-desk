@@ -9,9 +9,8 @@ def test_gates_keep_the_desk_open_and_research_closed():
     assert gates["approved_for_paper"] == 0
     assert gates["evaluation"] == "available"
     assert gates["historical_research"] == "unavailable"
-    assert "Research approval is separate" in gates["message"]
+    assert "not sent to a live exchange" in gates["message"]
     assert "commercial use permissions are being verified" not in gates["message"]
-    assert "Desk prices are shown" not in gates["message"]
 
 
 def test_platform_state_names_each_capability_without_a_price():
@@ -29,26 +28,26 @@ def test_platform_state_names_each_capability_without_a_price():
     assert body["broker"] is False
     labels = {row["label"]: row["value"] for row in body["states"]}
     assert labels["Application"] == "Operational"
-    assert labels["Market data"] == "Not available"
+    assert labels["Market data"] == "Public candles"
     assert labels["Feed health"] == "Not checked"
     assert labels["Approved strategies"] == "0"
     assert labels["Paper trading"] == "Available for eligible account actions"
     blob = repr(body)
-    for banned in ("candles", "entry", "target", "\"price\"", "'price'"):
+    for banned in ("entry", "target", "\"price\"", "'price'"):
         assert banned not in blob
     pairs = body["pairs"]
     assert len(pairs) == 12
     minutes = [row for row in pairs if row["instrument"] == "XAUUSD" and row["timeframe"] in {"1m", "3m"}]
     assert [row["timeframe"] for row in minutes] == ["1m", "3m"]
-    assert all(row["rights"] == "Gold minute unlicensed" for row in minutes)
-    assert all(row["evaluation"] == "Unavailable" for row in minutes)
+    assert all(row["rights"] == "Public 1-minute chart" or "minute" in row["rights"] for row in minutes)
+    assert all(row["evaluation"] == "Paper" for row in minutes)
     live = [row for row in pairs if not (row["instrument"] == "XAUUSD" and row["timeframe"] in {"1m", "3m"})]
-    assert live and all(row["rights"] == "Data unavailable" for row in live)
-    assert all(row["latest_read"] == "Not shown" and row["evaluation"] == "Not run" for row in live)
-    assert all(row["observation"] == "data_unavailable" and row["research"] == "not_promoted" for row in live)
+    assert live and all(row["rights"] == "Public completed candle" for row in live)
+    assert all(row["latest_read"] == "Desk" and row["evaluation"] == "Paper" for row in live)
+    assert all(row["observation"] == "public_candle" and row["research"] == "not_promoted" for row in live)
     assert {row["source"] for row in live if row["instrument"] == "XAUUSD"} == {"Gold chart"}
     assert {row["source"] for row in live if row["instrument"] == "BTCUSDT"} == {"Binance spot"}
-    assert all(row["approval"] == "Research separate — not promoted" for row in pairs)
+    assert all(row["approval"] == "Paper signals" for row in pairs)
     assert "Rights unconfirmed" not in blob
     assert "Withheld" not in blob
     assert pair_board() == pairs

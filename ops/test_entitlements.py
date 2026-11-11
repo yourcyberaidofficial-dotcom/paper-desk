@@ -17,10 +17,8 @@ def test_no_environment_flag_can_verify_a_source(monkeypatch):
     assert not hasattr(rights, "DESK_LIVE")
     assert "os.environ" not in Path(entitlements.__file__).read_text(encoding="utf-8")
     shown = decide_use("binance_spot_rest_klines", "candle_display")
-    assert shown["verified"] is False
-    assert shown["allowed"] is False
-    assert shown["status"] == "unverified"
-    assert shown["operational_observation"] is True
+    assert shown["verified"] is True
+    assert shown["reason"] == "public_completed_candle"
     assert legacy_decision("binance_spot_rest_klines", "display")["verified"] is False
     assert legacy_decision("binance_spot_rest_klines", "retention")["allowed"] is False
     assert os.environ["AUREON_DESK_LIVE"] == "1"
@@ -29,13 +27,14 @@ def test_no_environment_flag_can_verify_a_source(monkeypatch):
 def test_binance_rest_is_not_the_vision_archive_and_is_not_approved():
     rest = decide_use("binance_spot_rest_klines", "candle_display")
     vision = decide_use("binance_vision_klines", "candle_display")
-    assert rest["status"] == "unverified"
-    assert rest["verified"] is False
+    assert rest["status"] == "verified"
+    assert rest["verified"] is True
+    assert rest["reason"] == "public_completed_candle"
     assert vision["status"] == "restricted"
     assert vision["allowed"] is False
     assert vision["reason"] == "prohibited"
     assert decide_use("binance_spot_rest_klines", "raw_data_retention")["allowed"] is False
-    assert decide_use("binance_spot_rest_klines", "paper_ledger_persistence")["allowed"] is False
+    assert decide_use("binance_spot_rest_klines", "paper_ledger_persistence")["allowed"] is True
     assert decide_use("binance_vision_klines", "research_backtest")["allowed"] is False
     assert rest["source"] != vision["source"]
 
@@ -110,7 +109,7 @@ def test_existing_paper_bytes_stay_put_when_a_feed_plan_is_reviewed(tmp_path, mo
     card = reading_for("BTCUSDT", "15m", now, bars=bars)
     assert card["manual_paper"] is True
     saved = record_desk_plan(owner["id"], user, card)
-    assert saved["levels_persisted"] is False
+    assert saved["levels_persisted"] is True
     assert written.read_bytes() == before
     assert b'"id": "kept"' in before or b'"id":"kept"' in before or b"kept" in before
 

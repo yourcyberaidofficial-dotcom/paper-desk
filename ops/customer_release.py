@@ -202,6 +202,12 @@ def redact_feed_view(row):
     row = dict(row or {})
     if not is_feed_derived(row):
         return row
+    symbol = row.get("symbol")
+    interval = row.get("interval")
+    semantics = row.get("candle_semantics") or row.get("quote")
+    sample = "spot_sample_not_bid_ask" if semantics == "spot_sample_not_bid_ask" else None
+    if reading_released(symbol, interval, sample) or candles_released(symbol, interval, sample):
+        return row
     for key in PRICE_KEYS:
         if key in row:
             row[key] = None
@@ -234,9 +240,7 @@ def present_card(card):
     interval = str(card.get("interval") or "")
     semantics = card.get("candle_semantics") or card.get("quote")
     sampled = semantics == "spot_sample_not_bid_ask"
-    if symbol == "XAUUSD" and interval == "3m":
-        return unavailable_card(symbol, interval)
-    if symbol == "XAUUSD" and interval == "1m" and not candles_released(symbol, interval):
+    if symbol == "XAUUSD" and interval in {"1m", "3m"} and not candles_released(symbol, interval):
         return unavailable_card(symbol, interval)
     sample = "spot_sample_not_bid_ask" if sampled else None
     price_ok = candles_released(symbol, interval, sample)

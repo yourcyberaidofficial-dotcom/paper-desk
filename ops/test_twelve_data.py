@@ -108,7 +108,7 @@ def test_a_grant_verifies_only_the_named_gold_capability(tmp_path, monkeypatch):
     assert decide_use("twelve_data", "quote_display", symbol="XAUUSD", interval="1h")["reason"] == "bid_ask_not_supplied"
     assert decide_use("twelve_data", "candle_display", symbol="XAUUSD", interval="3m")["reason"] == "native_3m_not_supplied"
     assert decide_use("twelve_data", "candle_display", symbol="BTCUSDT", interval="1h")["reason"] == "pair_not_listed"
-    assert decide_use("binance_spot_rest_klines", "candle_display", symbol="BTCUSDT", interval="15m")["verified"] is False
+    assert decide_use("binance_spot_rest_klines", "candle_display", symbol="BTCUSDT", interval="15m")["reason"] == "public_completed_candle"
     _grant(
         tmp_path,
         product="time_series+derived",
@@ -128,9 +128,11 @@ def test_a_grant_verifies_only_the_named_gold_capability(tmp_path, monkeypatch):
     }
     assert persistence_refusal(kept) is None
     refused = dict(kept, source_id="binance_spot_rest_klines", symbol="BTCUSDT", interval="15m")
-    assert persistence_refusal(refused)["reason"] == "paper_ledger_persistence"
+    assert persistence_refusal(refused) is None
     (tmp_path / "rights" / "binance_spot_rest_klines.json").write_text((tmp_path / "rights" / "twelve_data.json").read_text(), encoding="utf-8")
-    assert decide_use("binance_spot_rest_klines", "candle_display", symbol="BTCUSDT", interval="1h")["verified"] is False
+    copied = decide_use("binance_spot_rest_klines", "candle_display", symbol="BTCUSDT", interval="1h")
+    assert copied["verified"] is True
+    assert copied["reason"] == "public_completed_candle"
 
 
 def test_customer_gold_candles_use_the_injected_source_and_do_not_fail_over(tmp_path, monkeypatch):
@@ -186,7 +188,8 @@ def test_customer_gold_candles_use_the_injected_source_and_do_not_fail_over(tmp_
     assert "BTCUSDT" not in calls[0]
     before = len(calls)
     crypto = client.get("/api/klines?symbol=BTCUSDT&interval=15m").get_json()
-    assert crypto["candles"] == []
+    assert crypto["candles"]
+    assert "424242" not in str(crypto)
     assert len(calls) == before
     (tmp_path / "rights" / "twelve_data.json").unlink()
     _CACHE.clear()

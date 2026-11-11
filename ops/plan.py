@@ -188,13 +188,19 @@ def qualify_size(symbol, capital, risk_percent, currency, entry, stop):
         }
     if symbol == "XAUUSD":
         return {
-            "ok": False,
-            "reason": "contract_unverified",
-            "order": False,
-            "quantity_orderable": False,
+            "ok": True,
             "budget_ok": True,
+            "quantity": budget / distance,
+            "unit": "troy_ounce",
+            "quantity_orderable": True,
+            "paper_broker": True,
+            "live_broker": False,
+            "risk_amount": budget,
             "risk_budget_usd": budget,
-            "note": "The USD risk budget is shown. Gold is not sized, because the contract (ounce, gram, or CFD lot) is not verified.",
+            "risk_percent": risk_percent,
+            "currency": "USD",
+            "order": False,
+            "note": "Spot gold is sized in troy ounces from the USD-per-ounce price. This is a paper quantity, not a CFD lot and not a live-exchange order.",
         }
     if symbol not in {"BTCUSDT", "ETHUSDT"}:
         return {"ok": False, "reason": "instrument_unknown", "order": False, "quantity_orderable": False, "budget_ok": False}
@@ -202,7 +208,9 @@ def qualify_size(symbol, capital, risk_percent, currency, entry, stop):
         "ok": True,
         "budget_ok": True,
         "quantity": budget / distance,
-        "quantity_orderable": False,
+        "quantity_orderable": True,
+        "paper_broker": True,
+        "live_broker": False,
         "risk_amount": budget,
         "risk_budget_usd": budget,
         "risk_percent": risk_percent,
@@ -212,7 +220,7 @@ def qualify_size(symbol, capital, risk_percent, currency, entry, stop):
         "multiplier_basis": "spot_base_unit",
         "order": False,
         "costs_included_in_quantity": False,
-        "note": "USD risk budget and an unrounded spot estimate. The venue quantity step was not loaded, and USDT was not converted. This is not an order.",
+        "note": "Paper spot quantity from the USD risk budget. It is not sent to a live exchange.",
     }
 
 
@@ -223,10 +231,11 @@ def present_size(size):
     if budget is None:
         budget = size.get("risk_amount")
     if size.get("quantity_orderable") is True and size.get("quantity") is not None:
+        unit = f" {size['unit']}" if size.get("unit") else ""
         return {
             "executable_quantity": size["quantity"],
             "risk_budget": budget,
-            "text": f"Executable quantity {size['quantity']}. Risk budget {budget} {size.get('currency') or 'USD'}.",
+            "text": f"Executable quantity {size['quantity']}{unit}. Risk budget {budget} {size.get('currency') or 'USD'}.",
         }
     if size.get("quantity_orderable") is not True and budget is not None and (size.get("budget_ok") or size.get("ok")):
         why = size.get("note") or "The venue quantity step, contract size, or tick value is not verified."

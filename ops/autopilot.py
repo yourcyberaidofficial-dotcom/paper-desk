@@ -66,11 +66,11 @@ def presentation(state, worker_healthy, open_positions=None, gates=None):
     if isinstance(gates, dict):
         if gates.get("market_data") == "rights_withheld":
             blockers.append("market_data_rights")
-        if gates.get("approved_for_paper") == 0:
-            blockers.append("no_approved_strategy")
-            approved = "absent"
-        elif gates.get("approved_for_paper"):
+        approved = None
+        if gates.get("approved_for_paper"):
             approved = "present"
+        elif gates.get("approved_for_paper") == 0:
+            approved = "paper_signals"
     if blockers:
         parts = []
         if "market_data_rights" in blockers:
@@ -89,9 +89,9 @@ def presentation(state, worker_healthy, open_positions=None, gates=None):
     if open_positions == 0:
         if gates is not None:
             return pack(
-                "Operational — waiting for an eligible opportunity",
+                "Operational — waiting for an eligible paper opportunity",
                 True,
-                "Permission, worker health, and strategy approval all allow a new paper entry, and none is open. Nothing is entered until a plan passes every check.",
+                "Permission and worker health allow a new paper entry. A completed public-candle plan can open one. Nothing is sent to a live exchange.",
                 "waiting",
                 approval="present",
             )

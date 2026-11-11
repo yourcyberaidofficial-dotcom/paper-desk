@@ -41,8 +41,10 @@ def quote_alignment(close, mid):
 
 
 def _minute_closed(symbol, interval, source_id=None):
-    """Gold minutes stay closed unless a recorded grant names native XAU/USD 1m. 3m is never native."""
+    """Gold minutes stay closed unless the bar is a native public chart or a granted Twelve Data 1m candle."""
     if symbol != "XAUUSD" or interval not in {"1m", "3m"}:
+        return False
+    if source_id == "xaus_public_chart":
         return False
     if interval != "1m" or source_id != "twelve_data":
         return True
@@ -290,8 +292,6 @@ def _load_bars(symbol, interval, now_ms):
         authorised = authorized_bars(symbol, interval, now_ms)
         if authorised is not None:
             return authorised
-        if interval in {"1m", "3m"}:
-            return [], "none", "none", "unavailable", None
         from ops.terminal_route import load_gold_ohlc
         loaded = load_gold_ohlc(interval, now_ms)
         from ops.provider_adapter import independent_reference_quote
@@ -322,7 +322,8 @@ def observe(symbol, interval, now_ms, bars=None, quote=None, provider=None, sour
     try:
         loaded, feed, source_name, feed_semantics, live_quote = _load_bars(symbol, interval, now_ms)
     except Exception as exc:
-        loaded, feed, source_name, feed_semantics, live_quote = [], "none", "none", "unavailable", {"ok": False, "reason": type(exc).__name__}
+        source_name = "xaus_public_chart" if symbol == "XAUUSD" else "binance_spot_rest_klines"
+        loaded, feed, feed_semantics, live_quote = [], "none", "unavailable", {"ok": False, "reason": type(exc).__name__}
         snap = assemble(symbol, interval, now_ms, bars=[], quote=live_quote, provider=feed, source_id=source_name, semantics=feed_semantics)
         snap["blocked_reason"] = type(exc).__name__
         snap["quality"] = "unavailable"
