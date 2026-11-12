@@ -564,6 +564,51 @@ def _scan_unavailable(row):
     return state in {"BLOCKED", "UNAVAILABLE", "DATA_UNAVAILABLE"} or row.get("reading_class") == "unavailable" or row.get("evaluated") is False
 
 
+def primary_inbox(style=None):
+    """The account style's own delivery. Editing settings still overrides this."""
+    from ops.profiles import canonical_style, get_profile
+
+    spec = get_profile(canonical_style(style)) or {}
+    frames = [item for item in (spec.get("paper_timeframes") or ["15m", "1h"]) if item in {"1m", "3m", "15m", "1h", "4h", "1d"}]
+    return {
+        "enabled": True,
+        "markets": ["BTCUSDT", "ETHUSDT", "XAUUSD"],
+        "timeframes": frames or ["15m", "1h"],
+        "buy": True,
+        "sell": True,
+        "experimental": True,
+        "wait_notices": False,
+    }
+
+
+def custom_notice(user, result):
+    """One complete signal for this account. The engine essay is not the notice."""
+    result = result or {}
+    profile = (user or {}).get("profile") or {}
+    name = profile.get("signal_style_name") or "This account"
+    decision = result.get("decision") or "WAIT"
+    symbol = result.get("symbol") or "the market"
+    interval = result.get("interval") or "the requested candle"
+
+    def price(value):
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            return "not set"
+        return f"{float(value):.2f}"
+
+    lines = [
+        f"{decision} {symbol} {interval}.",
+        f"Entry {price(result.get('entry'))}. Stop {price(result.get('stop'))}. Target {price(result.get('target'))}.",
+    ]
+    account_target = result.get("account_target")
+    if isinstance(account_target, (int, float)) and not isinstance(account_target, bool):
+        lines.append(f"{name} would need the target near {float(account_target):.2f}. The market plan was not rewritten.")
+    elif result.get("persona_release") is False and result.get("persona_note"):
+        lines.append(str(result.get("persona_note")))
+    else:
+        lines.append(f"{name} received this reading. It is paper only and not an approved strategy.")
+    return " ".join(lines)
+
+
 def inbox_settings(user):
     """Missing keys stay at the default. Experimental alerts and WAIT notices start off."""
     saved = (user or {}).get("inbox_delivery") if isinstance((user or {}).get("inbox_delivery"), dict) else {}
@@ -683,7 +728,7 @@ def deliver_evaluation(user_id, user, result):
         "version": result.get("strategy"),
         "state": "APPROVED_SIGNAL" if kind == "official" else side,
         "decision": side,
-        "message": ELIGIBILITY_NOTE if feed else (payload.get("reason") or result.get("reason")),
+        "message": ELIGIBILITY_NOTE if feed else custom_notice(user, result),
         "entry": None if feed else payload.get("entry"),
         "stop": None if feed else payload.get("stop"),
         "target": None if feed else payload.get("target"),

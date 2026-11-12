@@ -2376,9 +2376,11 @@ def inbox_settings_get():
     user_id = session.get("user_id")
     if not user_id or not _user_ok():
         return jsonify({"error": "unauthorized"}), 401
-    from ops.inbox import inbox_settings
+    from ops.inbox import inbox_settings, primary_inbox
     from ops.users import get
-    return jsonify({"settings": inbox_settings(get(user_id) or {})})
+    account = get(user_id) or {}
+    style = ((account.get("profile") or {}).get("signal_style"))
+    return jsonify({"settings": inbox_settings(account), "primary": primary_inbox(style)})
 
 
 @app.post("/api/inbox/settings")
@@ -4201,20 +4203,22 @@ async function inboxPage(){
   const groups = [];
   const index = {};
   rows.forEach(item => {
-    const repetitive = item.kind === "status" || item.decision === "WAIT" || item.state === "WAIT" || item.state === "BLOCKED" || item.state === "UNAVAILABLE";
-    const key = repetitive ? [item.symbol || "", item.interval || "", item.decision || item.state || "", item.message || ""].join("|") : ("one:" + (item.id || groups.length));
-    if (repetitive && Object.prototype.hasOwnProperty.call(index, key)) groups[index[key]].items.push(item);
+    const key = [item.symbol || "", item.interval || "", item.decision || item.state || ""].join("|");
+    if (Object.prototype.hasOwnProperty.call(index, key)) groups[index[key]].items.push(item);
     else { index[key] = groups.length; groups.push({key, items: [item]}); }
   });
   const list = groups.map(group => {
     const item = group.items[0];
-    const extra = group.items.length > 1 ? `<p class="muted">${group.items.length} similar notices are grouped. Stored records were not deleted. Unread in this group: ${group.items.filter(row => !row.read).length}.</p>` : "";
+    const extra = group.items.length > 1 ? `<p class="muted">${group.items.length - 1} earlier readings of this same market are folded here. Unread in this group: ${group.items.filter(row => !row.read).length}.</p>` : "";
     const freshness = item.freshness || (item.created_ms ? ((Date.now() - item.created_ms) > 3*86400000 ? "historical" : (Date.now() - item.created_ms) > 86400000 ? "stale" : "current") : "unknown");
     const ageLabel = item.age_label || (item.created_ms ? when(item.created_ms) : "time not available");
     const noticeClass = item.notice_class || (item.decision === "WAIT" ? "WAIT notification" : "inbox notice");
     const shownTime = item.created_ms ? when(item.created_ms) : "time not available";
-    const researchLevels = `<p class="muted">Research levels, not a paper order. Entry ${item.entry==null?"—":priceText(item.symbol, item.entry)}. Stop ${item.stop==null?"—":priceText(item.symbol, item.stop)}. Target ${item.target==null?"—":priceText(item.symbol, item.target)}.</p>`;
-    return `<article class="card ${noticeClass.includes("WAIT") || noticeClass.includes("blocked") ? "blocked" : "research"}" data-kind="${item.kind||""}" data-symbol="${item.symbol||""}"><p class="badge ${item.read ? "" : "block"}">${item.read_state || (item.read ? "read" : "unread")}</p><p class="badge">${freshness}</p><p class="badge research">${noticeClass}</p><h2>${item.lifecycle==="superseded"||item.lifecycle==="expired" ? item.lifecycle.toUpperCase()+" · " : ""}${item.decision || item.state || "Notice"} · ${item.symbol || "Desk"} ${item.interval || ""}</h2>${extra}<p>${item.lifecycle_note || item.label || ""}</p><p>${plainReason(item.message || "")}</p>${researchLevels}<p class="muted">${ageLabel}. ${shownTime}. ${item.strategy || "no strategy"}. Validation ${item.validation_status || "n/a"}. ${item.approved?"Approved.":"Not approved."} This inbox notice is not a paper order.</p>${item.decision==="BUY"||item.decision==="SELL"?`<button type="button" data-paper="${item.opportunity_id||""}">Open paper trade</button><p class="muted">Opening a paper trade is a separate action. The notice itself does not create one.</p>`:""}${item.actionable ? "" : "<p>Not an approved trade.</p>"}<button type="button" data-id="${item.id}">Mark read</button></article>`;
+    const level = (value) => value == null ? "—" : priceText(item.symbol, value);
+    const levels = item.entry == null && item.stop == null && item.target == null
+      ? `<p>${plainReason(item.message || "")}</p>`
+      : `<div class="row"><span>Entry</span><span class="num">${level(item.entry)}</span></div><div class="row"><span>Stop</span><span class="num">${level(item.stop)}</span></div><div class="row"><span>Target</span><span class="num">${level(item.target)}</span></div>`;
+    return `<article class="card ${noticeClass.includes("WAIT") || noticeClass.includes("blocked") ? "blocked" : "research"}" data-kind="${item.kind||""}" data-symbol="${item.symbol||""}"><p class="badge ${item.read ? "" : "block"}">${item.read_state || (item.read ? "read" : "unread")}</p><p class="badge">${freshness}</p><p class="badge research">${noticeClass}</p><h2>${item.lifecycle==="superseded"||item.lifecycle==="expired" ? item.lifecycle.toUpperCase()+" · " : ""}${item.decision || item.state || "Notice"} · ${item.symbol || "Desk"} ${item.interval || ""}</h2>${extra}${levels}<p class="muted">${ageLabel}. ${shownTime}. Paper only. Not a broker fill and not an approved strategy.</p>${item.decision==="BUY"||item.decision==="SELL"?`<button type="button" data-paper="${item.opportunity_id||""}">Open paper trade</button>`:""}<button type="button" data-id="${item.id}">Mark read</button></article>`;
   }).join("");
   view.innerHTML = `<p role="status">${body.unread || 0} unread.</p>${list || "<article class='card'><h2>No notifications</h2><p>A quiet scan is recorded once a day. A research note appears only if you opted in. Nothing here is a trade alert unless a strategy has been approved. None has.</p></article>"}<button id="readall" type="button">Mark all read</button>`;
   paintInbox(body.unread);
@@ -4415,22 +4419,36 @@ async function settings(){
   const on = (name) => box[name] ? "checked" : "";
   const tfOn = (tf) => (box.timeframes || ["15m","1h","4h","1d"]).includes(tf) ? "checked" : "";
   const mOn = (m) => (box.markets || ["BTCUSDT","ETHUSDT","XAUUSD"]).includes(m) ? "checked" : "";
-  document.getElementById("inbox-settings").innerHTML = `<h2>In-app inbox</h2><p class="muted">These settings control this account's inbox only. They do not approve a strategy, send Telegram, or place an order. Experimental matches stay labelled unapproved.</p><div class="checks"><label><input type="checkbox" id="in-enabled" ${on("enabled")}> Deliver in-app alerts</label><label><input type="checkbox" id="in-btc" ${mOn("BTCUSDT")}> BTCUSDT</label><label><input type="checkbox" id="in-eth" ${mOn("ETHUSDT")}> ETHUSDT</label><label><input type="checkbox" id="in-gold" ${mOn("XAUUSD")}> XAUUSD</label><label><input type="checkbox" id="in-1m" ${tfOn("1m")}> 1m</label><label><input type="checkbox" id="in-3m" ${tfOn("3m")}> 3m</label><label><input type="checkbox" id="in-15m" ${tfOn("15m")}> 15m</label><label><input type="checkbox" id="in-1h" ${tfOn("1h")}> 1h</label><label><input type="checkbox" id="in-4h" ${tfOn("4h")}> 4h</label><label><input type="checkbox" id="in-1d" ${tfOn("1d")}> 1d</label><label><input type="checkbox" id="in-buy" ${on("buy")}> BUY alerts</label><label><input type="checkbox" id="in-sell" ${on("sell")}> SELL alerts</label><label><input type="checkbox" id="in-exp" ${on("experimental")}> Experimental, unapproved matches</label><label><input type="checkbox" id="in-wait" ${on("wait_notices")}> WAIT notices</label></div><button id="saveinbox" type="button">Save inbox delivery</button><p id="inboxsaved" class="muted"></p>`;
-  document.getElementById("saveinbox").onclick = async () => {
+  document.getElementById("inbox-settings").innerHTML = `<h2>In-app inbox</h2><p class="muted">Primary is this signal style's own markets and timeframes. You can edit any box after that. A reset does not delete notices already stored.</p><div class="checks"><label><input type="checkbox" id="in-enabled" ${on("enabled")}> Deliver in-app alerts</label><label><input type="checkbox" id="in-btc" ${mOn("BTCUSDT")}> BTCUSDT</label><label><input type="checkbox" id="in-eth" ${mOn("ETHUSDT")}> ETHUSDT</label><label><input type="checkbox" id="in-gold" ${mOn("XAUUSD")}> XAUUSD</label><label><input type="checkbox" id="in-1m" ${tfOn("1m")}> 1m</label><label><input type="checkbox" id="in-3m" ${tfOn("3m")}> 3m</label><label><input type="checkbox" id="in-15m" ${tfOn("15m")}> 15m</label><label><input type="checkbox" id="in-1h" ${tfOn("1h")}> 1h</label><label><input type="checkbox" id="in-4h" ${tfOn("4h")}> 4h</label><label><input type="checkbox" id="in-1d" ${tfOn("1d")}> 1d</label><label><input type="checkbox" id="in-buy" ${on("buy")}> BUY alerts</label><label><input type="checkbox" id="in-sell" ${on("sell")}> SELL alerts</label><label><input type="checkbox" id="in-exp" ${on("experimental")}> Experimental, unapproved matches</label><label><input type="checkbox" id="in-wait" ${on("wait_notices")}> WAIT notices</label></div><button id="saveinbox" type="button">Save inbox delivery</button> <button id="resetinbox" type="button">Reset to primary</button><p id="inboxsaved" class="muted"></p>`;
+  const writeInbox = async (payload, note) => {
+    const saved = await fetch("/api/inbox/settings", {method:"POST", credentials:"same-origin", headers:{"Content-Type":"application/json"}, body: JSON.stringify(payload)});
+    document.getElementById("inboxsaved").textContent = saved.ok ? note : "Inbox settings could not be saved.";
+    return saved.ok;
+  };
+  const collectInbox = () => {
     const markets = [];
     if (document.getElementById("in-btc").checked) markets.push("BTCUSDT");
     if (document.getElementById("in-eth").checked) markets.push("ETHUSDT");
     if (document.getElementById("in-gold").checked) markets.push("XAUUSD");
     const timeframes = [];
-    if (document.getElementById("in-1m").checked) timeframes.push("1m");
-    if (document.getElementById("in-3m").checked) timeframes.push("3m");
-    if (document.getElementById("in-15m").checked) timeframes.push("15m");
-    if (document.getElementById("in-1h").checked) timeframes.push("1h");
-    if (document.getElementById("in-4h").checked) timeframes.push("4h");
-    if (document.getElementById("in-1d").checked) timeframes.push("1d");
-    const payload = {enabled: document.getElementById("in-enabled").checked, markets, timeframes, buy: document.getElementById("in-buy").checked, sell: document.getElementById("in-sell").checked, experimental: document.getElementById("in-exp").checked, wait_notices: document.getElementById("in-wait").checked};
-    const saved = await fetch("/api/inbox/settings", {method:"POST", credentials:"same-origin", headers:{"Content-Type":"application/json"}, body: JSON.stringify(payload)});
-    document.getElementById("inboxsaved").textContent = saved.ok ? (payload.experimental ? "Inbox delivery saved. Experimental matches are enabled and will be labelled unapproved." : "Inbox delivery saved. Experimental matches stay off.") : "Inbox settings could not be saved.";
+    ["1m","3m","15m","1h","4h","1d"].forEach(frame => { if (document.getElementById("in-" + frame).checked) timeframes.push(frame); });
+    return {enabled: document.getElementById("in-enabled").checked, markets, timeframes, buy: document.getElementById("in-buy").checked, sell: document.getElementById("in-sell").checked, experimental: document.getElementById("in-exp").checked, wait_notices: document.getElementById("in-wait").checked};
+  };
+  document.getElementById("saveinbox").onclick = async () => {
+    const payload = collectInbox();
+    writeInbox(payload, payload.experimental ? "Inbox delivery saved. Experimental matches stay labelled unapproved." : "Inbox delivery saved. Experimental matches stay off.");
+  };
+  document.getElementById("resetinbox").onclick = async () => {
+    const primary = (inbox && inbox.primary) || {enabled:true, markets:["BTCUSDT","ETHUSDT","XAUUSD"], timeframes:["15m","1h"], buy:true, sell:true, experimental:true, wait_notices:false};
+    const ok = await writeInbox(primary, "Primary delivery restored for this signal style. You can still edit the boxes.");
+    if (!ok) return;
+    document.getElementById("in-enabled").checked = true;
+    ["btc","eth","gold"].forEach(name => { document.getElementById("in-" + name).checked = true; });
+    ["1m","3m","15m","1h","4h","1d"].forEach(frame => { document.getElementById("in-" + frame).checked = (primary.timeframes || []).includes(frame); });
+    document.getElementById("in-buy").checked = true;
+    document.getElementById("in-sell").checked = true;
+    document.getElementById("in-exp").checked = true;
+    document.getElementById("in-wait").checked = false;
   };
   const experience = await fetch("/api/experience", {credentials:"same-origin"}).then(r => r.ok ? r.json() : null);
   const look = (experience && experience.presentation) || {};
