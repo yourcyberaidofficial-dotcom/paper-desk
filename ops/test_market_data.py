@@ -356,6 +356,39 @@ def test_rights_block_does_not_feed_decisions_or_the_scanner(monkeypatch):
     assert opened["ok"] is False and opened["reason"] == "commercial_use_unverified"
 
 
+def test_a_failed_pull_keeps_the_last_completed_candle(tmp_path, monkeypatch):
+    monkeypatch.setenv("AUREON_DATA", str(tmp_path))
+    from ops.market_cache import recall, remember
+    from ops.terminal_route import _BAR_CACHE, feed_state, load_crypto_bars
+    from ops.terminal_signal import explain_reading
+
+    bars = [{"close": 71000.5, "open_time_ms": NOW - 900_000, "close_time_ms": NOW - 1, "complete": True}]
+    assert remember("BTCUSDT", "15m", bars, NOW) is True
+    assert recall("BTCUSDT", "15m", NOW)[0]["close"] == 71000.5
+    assert recall("BTCUSDT", "15m", NOW + 4 * 60 * 60 * 1000) is None
+    _BAR_CACHE.pop(("BTCUSDT", "15m"), None)
+
+    def explode(*_args, **_kwargs):
+        raise AssertionError("network")
+
+    monkeypatch.setattr("ops.feeds.binance_bars", explode)
+    loaded = load_crypto_bars("BTCUSDT", "15m", NOW)
+    assert isinstance(loaded, list) and loaded[0]["close"] == 71000.5
+    assert feed_state("BTCUSDT", "15m") == "last_good"
+    text = explain_reading({
+        "decision": "SELL",
+        "symbol": "XAUUSD",
+        "interval": "1h",
+        "entry": 3900,
+        "stop": 3910,
+        "target": 3880,
+        "reward_risk": 2,
+        "feed_state": "last_good",
+        "persona_note": "Orion Precision does not size this SELL.",
+    })
+    assert "Entry 3900.00" in text and "last completed candle" in text and "not a bid" in text
+
+
 def test_empty_and_partial_restart(tmp_path):
     store = DatasetStore(tmp_path)
     empty = store.ingest([], dataset_id="fixture-btc-1m", rights_id="deterministic_fixture", purpose="fixture_test", provider="fixture", symbol="BTCUSDT", interval="1m", now_ms=NOW, source_format="fixture")

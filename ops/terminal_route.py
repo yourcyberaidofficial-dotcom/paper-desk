@@ -22,6 +22,31 @@ def gold_session(now_ms, fetch=None):
 
 
 _BAR_CACHE = {}
+_FEED_STATE = {}
+
+
+def feed_state(symbol, interval):
+    return _FEED_STATE.get((symbol, interval), "live")
+
+
+def _keep(symbol, interval, bars, now_ms):
+    from ops.market_cache import remember
+
+    _FEED_STATE[(symbol, interval)] = "live"
+    remember(symbol, interval, bars, now_ms)
+    _BAR_CACHE[(symbol, interval)] = (now_ms, bars)
+
+
+def _last_good(symbol, interval, now_ms, reason):
+    from ops.market_cache import recall
+
+    remembered = recall(symbol, interval, now_ms)
+    if remembered:
+        _FEED_STATE[(symbol, interval)] = "last_good"
+        _BAR_CACHE[(symbol, interval)] = (now_ms, remembered)
+        return remembered
+    _FEED_STATE[(symbol, interval)] = "down"
+    return None, reason
 
 
 def load_crypto_bars(symbol, interval, now_ms):
@@ -40,14 +65,16 @@ def load_crypto_bars(symbol, interval, now_ms):
             from ops.feeds import binance_bars
             count = 140 if interval == "1d" else 90
             start = now_ms - (count + 2) * interval_ms(interval)
-            loaded = binance_bars(symbol, interval, start, now_ms, now_ms, timeout=8, attempts=1)
+            loaded = binance_bars(symbol, interval, start, now_ms, now_ms, timeout=8, attempts=2)
             if not loaded.get("ok"):
-                return None, loaded.get("reason") or "The market feed did not respond."
+                return _last_good(symbol, interval, now_ms, loaded.get("reason") or "The market feed did not respond.")
             bars = loaded.get("bars") or []
-            _BAR_CACHE[key] = (now_ms, bars)
+            if not bars:
+                return _last_good(symbol, interval, now_ms, "missing_bars")
+            _keep(symbol, interval, bars, now_ms)
             return bars
-    except Exception:
-        return None, "The market feed could not be read."
+    except Exception as exc:
+        return _last_good(symbol, interval, now_ms, type(exc).__name__ if str(exc) else "The market feed could not be read.")
     return None, "This market is not supported."
 
 
@@ -66,20 +93,37 @@ def load_gold_ohlc(interval, now_ms):
         from ops.feeds import aggregate_ohlc, xaus_chart
 
         if interval == "1m":
+            cached = _BAR_CACHE.get(("XAUUSD", "1m"))
+            if cached and now_ms - cached[0] < 45_000 and cached[1]:
+                return cached[1]
             try:
-                loaded = xaus_chart("1m", now_ms=now_ms, timeout=8, attempts=1)
+                loaded = xaus_chart("1m", now_ms=now_ms, timeout=8, attempts=2)
             except Exception as exc:
-                return None, type(exc).__name__
+                return _last_good("XAUUSD", "1m", now_ms, type(exc).__name__)
             bars = loaded.get("bars") or [] if isinstance(loaded, dict) else []
-            return bars if bars else (None, loaded.get("reason") if isinstance(loaded, dict) else "missing_bars")
-        try:
-            base = xaus_chart("1m", now_ms=now_ms, timeout=8, attempts=1)
-        except Exception as exc:
-            return None, type(exc).__name__
-        if not isinstance(base, dict) or not base.get("ok"):
-            return None, (base.get("reason") if isinstance(base, dict) else None) or "missing_bars"
-        bars = aggregate_ohlc(base.get("bars") or [], "3m", now_ms)
-        return bars if bars else (None, "missing_bars")
+            if bars:
+                _keep("XAUUSD", "1m", bars, now_ms)
+                return bars
+            return _last_good("XAUUSD", "1m", now_ms, loaded.get("reason") if isinstance(loaded, dict) else "missing_bars")
+        cached = _BAR_CACHE.get(("XAUUSD", "1m"))
+        if not (cached and now_ms - cached[0] < 45_000 and cached[1]):
+            try:
+                base = xaus_chart("1m", now_ms=now_ms, timeout=8, attempts=2)
+            except Exception as exc:
+                base = {"ok": False, "reason": type(exc).__name__, "bars": []}
+            bars_1m = base.get("bars") or [] if isinstance(base, dict) else []
+            if bars_1m:
+                _keep("XAUUSD", "1m", bars_1m, now_ms)
+        source = _BAR_CACHE.get(("XAUUSD", "1m"))
+        minute_bars = source[1] if source and source[1] else []
+        if not minute_bars:
+            remembered = _last_good("XAUUSD", "1m", now_ms, "missing_bars")
+            minute_bars = remembered if isinstance(remembered, list) else []
+        bars = aggregate_ohlc(minute_bars, "3m", now_ms) if minute_bars else []
+        if bars:
+            _keep("XAUUSD", "3m", bars, now_ms)
+            return bars
+        return _last_good("XAUUSD", "3m", now_ms, "missing_bars")
     blocked = network_block("xaus_public_chart", "display")
     if blocked:
         return None, "commercial_use_unverified"
@@ -96,10 +140,12 @@ def load_gold_ohlc(interval, now_ms):
             sample_bars = sampled.get("bars") or [] if isinstance(sampled, dict) else []
             if len(sample_bars) > len(bars):
                 bars = sample_bars
-        _BAR_CACHE[key] = (now_ms, bars)
-        return bars if bars else (None, (loaded.get("reason") if isinstance(loaded, dict) else None) or "missing_bars")
+        if bars:
+            _keep("XAUUSD", interval, bars, now_ms)
+            return bars
+        return _last_good("XAUUSD", interval, now_ms, (loaded.get("reason") if isinstance(loaded, dict) else None) or "missing_bars")
     except Exception as exc:
-        return None, type(exc).__name__
+        return _last_good("XAUUSD", interval, now_ms, type(exc).__name__)
 
 
 def _publish(request_body, payload):

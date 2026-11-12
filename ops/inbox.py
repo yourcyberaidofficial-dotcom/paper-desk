@@ -583,30 +583,9 @@ def primary_inbox(style=None):
 
 def custom_notice(user, result):
     """One complete signal for this account. The engine essay is not the notice."""
-    result = result or {}
-    profile = (user or {}).get("profile") or {}
-    name = profile.get("signal_style_name") or "This account"
-    decision = result.get("decision") or "WAIT"
-    symbol = result.get("symbol") or "the market"
-    interval = result.get("interval") or "the requested candle"
+    from ops.terminal_signal import explain_reading
 
-    def price(value):
-        if isinstance(value, bool) or not isinstance(value, (int, float)):
-            return "not set"
-        return f"{float(value):.2f}"
-
-    lines = [
-        f"{decision} {symbol} {interval}.",
-        f"Entry {price(result.get('entry'))}. Stop {price(result.get('stop'))}. Target {price(result.get('target'))}.",
-    ]
-    account_target = result.get("account_target")
-    if isinstance(account_target, (int, float)) and not isinstance(account_target, bool):
-        lines.append(f"{name} would need the target near {float(account_target):.2f}. The market plan was not rewritten.")
-    elif result.get("persona_release") is False and result.get("persona_note"):
-        lines.append(str(result.get("persona_note")))
-    else:
-        lines.append(f"{name} received this reading. It is paper only and not an approved strategy.")
-    return " ".join(lines)
+    return explain_reading(result, user)
 
 
 def inbox_settings(user):
@@ -729,6 +708,7 @@ def deliver_evaluation(user_id, user, result):
         "state": "APPROVED_SIGNAL" if kind == "official" else side,
         "decision": side,
         "message": ELIGIBILITY_NOTE if feed else custom_notice(user, result),
+        "explanation": None if feed else custom_notice(user, result),
         "entry": None if feed else payload.get("entry"),
         "stop": None if feed else payload.get("stop"),
         "target": None if feed else payload.get("target"),

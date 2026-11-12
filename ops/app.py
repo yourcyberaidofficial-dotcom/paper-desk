@@ -3699,17 +3699,12 @@ async function terminal(){
   let ticket = 0;
   function requestedNow(){ return {symbol: symbolEl.value, interval: intervalEl.value, strategy: strategyEl.value}; }
   function markFrames(){
-    const gold = symbolEl.value === "XAUUSD";
-    [...intervalEl.options].forEach(opt => {
-      if (opt.value === "1m" || opt.value === "3m") opt.textContent = gold ? opt.value + " — unavailable" : opt.value;
-    });
+    [...intervalEl.options].forEach(opt => { opt.textContent = opt.value; });
   }
   markFrames();
-  function goldMinuteSelected(){ return symbolEl.value === "XAUUSD" && (intervalEl.value === "1m" || intervalEl.value === "3m"); }
   function syncEvaluate(){
     const button = document.getElementById("generate");
     if (!button) return;
-    if (goldMinuteSelected()) { button.disabled = true; button.textContent = "Unavailable"; return; }
     button.disabled = false;
     button.textContent = "Evaluate market";
   }
@@ -3738,12 +3733,6 @@ async function terminal(){
     const note = document.getElementById("chartnote");
     const hover = document.getElementById("crosshair");
     const requested = requestedNow();
-    if (requested.symbol === "XAUUSD" && (requested.interval === "1m" || requested.interval === "3m")) {
-      chartHold("Licensed spot minute data unavailable. No candle was drawn.");
-      if (note) note.innerHTML = `Gold ${requested.interval} is unlicensed. It is not built from a five-minute sample, and no evaluation is sent. <a href="/system">System status</a>`;
-      if (hover) hover.textContent = "";
-      return;
-    }
     const url = requested.symbol === "XAUUSD" ? `/api/gold/candles?interval=${requested.interval}` : `/api/klines?symbol=${requested.symbol}&interval=${requested.interval}`;
     const bars = await fetch(url).then(r => r.json()).catch(() => null);
     if (!bars || bars.blocked === "xau_minute_unlicensed" || bars.customer_status === "reading_unavailable" || !(bars.candles || []).length) {
@@ -4218,7 +4207,8 @@ async function inboxPage(){
     const levels = item.entry == null && item.stop == null && item.target == null
       ? `<p>${plainReason(item.message || "")}</p>`
       : `<div class="row"><span>Entry</span><span class="num">${level(item.entry)}</span></div><div class="row"><span>Stop</span><span class="num">${level(item.stop)}</span></div><div class="row"><span>Target</span><span class="num">${level(item.target)}</span></div>`;
-    return `<article class="card ${noticeClass.includes("WAIT") || noticeClass.includes("blocked") ? "blocked" : "research"}" data-kind="${item.kind||""}" data-symbol="${item.symbol||""}"><p class="badge ${item.read ? "" : "block"}">${item.read_state || (item.read ? "read" : "unread")}</p><p class="badge">${freshness}</p><p class="badge research">${noticeClass}</p><h2>${item.lifecycle==="superseded"||item.lifecycle==="expired" ? item.lifecycle.toUpperCase()+" · " : ""}${item.decision || item.state || "Notice"} · ${item.symbol || "Desk"} ${item.interval || ""}</h2>${extra}${levels}<p class="muted">${ageLabel}. ${shownTime}. Paper only. Not a broker fill and not an approved strategy.</p>${item.decision==="BUY"||item.decision==="SELL"?`<button type="button" data-paper="${item.opportunity_id||""}">Open paper trade</button>`:""}<button type="button" data-id="${item.id}">Mark read</button></article>`;
+    const why = item.explanation ? `<p>${plainReason(item.explanation)}</p>` : "";
+    return `<article class="card ${noticeClass.includes("WAIT") || noticeClass.includes("blocked") ? "blocked" : "research"}" data-kind="${item.kind||""}" data-symbol="${item.symbol||""}"><p class="badge ${item.read ? "" : "block"}">${item.read_state || (item.read ? "read" : "unread")}</p><p class="badge">${freshness}</p><p class="badge research">${noticeClass}</p><h2>${item.lifecycle==="superseded"||item.lifecycle==="expired" ? item.lifecycle.toUpperCase()+" · " : ""}${item.decision || item.state || "Notice"} · ${item.symbol || "Desk"} ${item.interval || ""}</h2>${extra}${levels}${why}<p class="muted">${ageLabel}. ${shownTime}. Paper only. Not a broker fill and not an approved strategy.</p>${item.decision==="BUY"||item.decision==="SELL"?`<button type="button" data-paper="${item.opportunity_id||""}">Open paper trade</button>`:""}${item.explanation?`<button type="button" data-explain="${item.id}">Ask Aureon AI</button><p class="muted" data-why="${item.id}"></p>`:""}<button type="button" data-id="${item.id}">Mark read</button></article>`;
   }).join("");
   view.innerHTML = `<p role="status">${body.unread || 0} unread.</p>${list || "<article class='card'><h2>No notifications</h2><p>A quiet scan is recorded once a day. A research note appears only if you opted in. Nothing here is a trade alert unless a strategy has been approved. None has.</p></article>"}<button id="readall" type="button">Mark all read</button>`;
   paintInbox(body.unread);
@@ -4230,6 +4220,16 @@ async function inboxPage(){
   };
   document.getElementById("readall").onclick = () => refresh(null);
   document.querySelectorAll("[data-id]").forEach(button => { button.onclick = () => refresh(button.dataset.id); });
+  document.querySelectorAll("[data-explain]").forEach(button => { button.onclick = async () => {
+    const out = document.querySelector('[data-why="' + button.dataset.explain + '"]');
+    const card = button.closest("article");
+    const stored = card ? (card.innerText || "").slice(0, 700) : "";
+    if (out) out.textContent = "Asking Aureon AI about this stored reading.";
+    const response = await fetch("/api/aureon-ai", {method:"POST", credentials:"same-origin", headers:{"Content-Type":"application/json"}, body: JSON.stringify({page: "/notifications", question: "Explain only this stored desk reading. Do not invent a price, a profit, or an approval. " + stored})});
+    const payload = await response.json().catch(() => ({}));
+    const text = payload.analysis || payload.note || payload.message;
+    if (out) out.textContent = text || "The model is not connected. The entry, stop and target on this card are the desk reading.";
+  }; });
   document.querySelectorAll("[data-paper]").forEach(button => { button.onclick = async () => {
     const opened = await fetch("/api/paper/orders", {method:"POST", credentials:"same-origin", headers:{"Content-Type":"application/json"}, body: JSON.stringify({opportunity_id: button.dataset.paper})});
     const payload = await opened.json().catch(()=>({}));
