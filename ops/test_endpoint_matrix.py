@@ -6,7 +6,7 @@ A category that cannot apply is recorded with a reason. It is not skipped silent
 import json
 
 PUBLIC_GET = {
-    "/api/ai", "/api/council", "/api/coverage", "/api/data-coverage", "/api/deep-board",
+    "/api/ai", "/api/broker", "/api/council", "/api/coverage", "/api/data-coverage", "/api/deep-board",
     "/api/engine", "/api/gold/candles", "/api/gold/signal", "/api/klines", "/api/leaderboard",
     "/api/market", "/api/markets", "/api/notify-history", "/api/paper-status", "/api/period",
     "/api/platform", "/api/profiles", "/api/replay", "/api/research-lab", "/api/research-signals",
