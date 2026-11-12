@@ -148,7 +148,7 @@ def present_window(window, now_ms):
                     elif quote == "spot_sample_not_bid_ask":
                         lead = "First-party spot samples, not the Yahoo chart. "
                     else:
-                        lead = "Yahoo chart proxy, not a bid/ask hour. "
+                        lead = "Public chart candles, not a bid/ask. "
                     shared["quote"] = quote
                     shared["message"] = lead + "The London rule was not calculated. " + (shared.get("message") or "")
                     base.update(shared)

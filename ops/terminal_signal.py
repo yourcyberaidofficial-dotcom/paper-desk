@@ -124,9 +124,9 @@ def _levels(setup, price):
 
 
 def _finish_gold(reading, base, live_quote, preface):
-    """0.08 percent stays the comparison limit for a future authorised quote.
+    """0.08 percent applies only when a real bid and ask are present.
 
-    A missing quote does not count as aligned, and it does not count as passed.
+    A missing quote is not treated as agreement, and it is not a reason to erase the candle plan.
     """
     note = preface
     quote_ok = bool(
@@ -156,12 +156,10 @@ def _finish_gold(reading, base, live_quote, preface):
     else:
         reading["quote_alignment"] = None
         reading["quote_gap"] = None
-        reading["runtime_status"] = "reference_quote_unavailable"
-        note += " Reference quote unavailable. The 0.08 percent comparison was not run and did not pass."
+        note += " No bid/ask is configured, so this plan uses the completed candle only. It is not a broker fill."
     reading["reason"] = note + " " + (reading.get("reason") or "")
     reading["live_quote"] = live_quote
-    withhold = reading.get("quote_alignment") == "diverged" or reading.get("runtime_status") == "reference_quote_unavailable"
-    if withhold and reading.get("decision") in {"BUY", "SELL"}:
+    if reading.get("quote_alignment") == "diverged" and reading.get("decision") in {"BUY", "SELL"}:
         reading["research_levels"] = {
             "entry": reading.get("entry"),
             "stop": reading.get("stop"),
@@ -185,11 +183,8 @@ def _finish_gold(reading, base, live_quote, preface):
         reading["watch_stop"] = None
         reading["watch_target"] = None
         reading["eligible_for_alert"] = False
-        reading["size"] = {"ok": False, "reason": reading.get("runtime_status"), "order": False, "quantity_orderable": False, "budget_ok": False}
-        if reading.get("runtime_status") == "reference_quote_unavailable":
-            reading["reason"] += " No independent quote was available, so this is not an actionable entry. Entry, stop and target are withheld."
-        else:
-            reading["reason"] += " The prices disagree, so this technical idea is not an actionable entry and is not sent as a trade. Entry, stop and target are withheld."
+        reading["size"] = {"ok": False, "reason": "quote_divergence", "order": False, "quantity_orderable": False, "budget_ok": False}
+        reading["reason"] += " The prices disagree, so this technical idea is not an actionable entry and is not sent as a trade. Entry, stop and target are withheld."
     elif reading.get("quote_alignment") == "diverged":
         reading["runtime_status"] = "quote_divergence"
     return reading
@@ -275,7 +270,21 @@ def _evaluate(symbol, interval, strategy, bars, now_ms, user, prior=None, live_q
     elif last.get("provider") in provider_source:
         base["source_id"] = provider_source[last.get("provider")]
     if not fresh:
-        return {**base, "decision": "WAIT", "reason": "The latest candle is missing, still forming, or too old to treat as live.", "blocked": "stale_or_incomplete"}
+        age = now_ms - int(last.get("close_time_ms") or 0)
+        gold_late = (
+            symbol == "XAUUSD"
+            and last.get("quote_semantics") == "ohlc_not_bid_ask"
+            and last.get("complete")
+            and 0 < age <= 15 * 60 * 1000
+            and strategy in {None, "", "auto"}
+        )
+        if gold_late:
+            base["reason_prefix"] = f"The last {interval} gold candle closed {max(1, round(age / 60000))} minutes ago. AutoPilot will not open a late candle. "
+        else:
+            if symbol == "XAUUSD":
+                base["strategy"] = "gold-ohlc-reading"
+                base["version"] = "gold-ohlc-reading"
+            return {**base, "decision": "WAIT", "reason": "The latest candle is missing, still forming, or too old to treat as live.", "blocked": "stale_or_incomplete"}
     if symbol == "XAUUSD" and not completed_bid_ask_bar(last):
         quote = last.get("quote_semantics") or "missing_bid_ask"
         if strategy in {None, "", "auto"} and quote == "spot_sample_not_bid_ask" and len(bars) < 24:
@@ -298,7 +307,7 @@ def _evaluate(symbol, interval, strategy, bars, now_ms, user, prior=None, live_q
             reading["gold_basis"] = "spot_ohlc"
             reading["strategy"] = "gold-ohlc-reading"
             reading["version"] = "gold-ohlc-reading"
-            note = "Yahoo chart proxy, not a first-party spot sample and not a bid/ask hour. The London rule was not calculated."
+            note = (base.get("reason_prefix") or "") + "Public chart candles, not a bid/ask. The London rule was not calculated."
             reading = _finish_gold(reading, base, live_quote, note)
             return reading
         extra = ""
@@ -461,6 +470,12 @@ def apply_persona(result, user):
             f"{spec['name']} does not size this {decision}. Reward/risk {reward:.2f} is below its floor of {floor}. "
             "The levels stay visible. No extra confirmation gate was applied."
         )
+        entry = result.get("entry")
+        stop = result.get("stop")
+        if isinstance(entry, (int, float)) and isinstance(stop, (int, float)) and entry != stop:
+            risk = abs(float(entry) - float(stop))
+            result["account_target"] = float(entry) - floor * risk if decision == "SELL" else float(entry) + floor * risk
+            result["persona_note"] += f" Meeting the {floor} floor would place the target near {result['account_target']:.2f}. The market plan was not rewritten."
         result["reason"] = f"{result.get('reason') or ''} {result['persona_note']}".strip()
         return result
     profile = (user or {}).get("profile") or {}

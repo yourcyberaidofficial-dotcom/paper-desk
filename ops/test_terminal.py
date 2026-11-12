@@ -159,7 +159,7 @@ def test_gold_spot_ohlc_is_read_and_london_is_not(now=None):
     assert result["approved"] is False
     assert result["eligible_for_alert"] is False
     assert "London rule was not calculated" in result["reason"]
-    assert "Yahoo chart proxy" in result["reason"]
+    assert "Public chart candles" in result["reason"]
     assert "2032" in result["reason"]
     named = decide("XAUUSD", "1h", "london-reclaim-1h-20261028", bars, now, _user(), live_quote=quote)
     assert named["blocked"] == "quote_not_bid_ask"
@@ -277,6 +277,11 @@ def test_a_divergent_gold_quote_is_not_an_inbox_trade():
     assert result["decision"] == "WAIT"
     assert result["technical_side"] == "SELL"
     assert result["entry"] is None
+    plain = decide("XAUUSD", "1h", "auto", bars, now, _user())
+    assert plain["decision"] == "SELL"
+    assert plain["entry"] is not None
+    assert plain["stop"] > plain["entry"] > plain["target"]
+    assert "completed candle only" in plain["reason"]
     assert result["stop"] is None
     assert result["target"] is None
     assert result["research_levels"]["stop"] > result["research_levels"]["entry"] > result["research_levels"]["target"]
