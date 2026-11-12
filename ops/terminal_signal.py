@@ -233,29 +233,6 @@ def _evaluate(symbol, interval, strategy, bars, now_ms, user, prior=None, live_q
         "order": False,
         "evaluated_ms": int(now_ms),
     }
-    if symbol == "XAUUSD" and interval in {"1m", "3m"}:
-        allowed = False
-        if interval == "1m":
-            from ops.entitlements import decide_use
-
-            decision = decide_use("twelve_data", "customer_reading", symbol="XAUUSD", interval="1m")
-            allowed = decision.get("verified") is True and decision.get("allowed") is True
-        if not allowed:
-            return {
-                **base,
-                "strategy": "xau-minute-unlicensed",
-                "version": "xau-minute-unlicensed",
-                "decision": "WAIT",
-                "reason": "XAUUSD 1-minute and 3-minute plans stay off until a licensed spot feed is confirmed. These bars were not turned into an entry, stop or target.",
-                "blocked": "xau_minute_unlicensed",
-                "blockers": ["xau_minute_unlicensed"],
-                "entry": None,
-                "stop": None,
-                "target": None,
-                "fresh": False,
-                "reference_price": None,
-                "validation_status": "BLOCKED",
-            }
     if symbol not in AUTO:
         return {**base, "decision": "WAIT", "reason": "This market is not supported.", "fresh": False, "reference_price": None}
     if chosen not in RULES or symbol not in (spec.get("instruments") or []):
@@ -316,7 +293,7 @@ def _evaluate(symbol, interval, strategy, bars, now_ms, user, prior=None, live_q
             reading["version"] = "gold-spot-sample"
             reading = _finish_gold(reading, base, live_quote, f"First-party spot samples aggregated to this {interval}. Not the Yahoo chart and not a bid/ask hour. The London rule was not calculated.")
             return reading
-        if strategy in {None, "", "auto"} and quote == "ohlc_not_bid_ask" and len(bars) >= 60:
+        if strategy in {None, "", "auto"} and quote == "ohlc_not_bid_ask" and len(bars) >= 50:
             reading = _requested_reading(base, symbol, interval, bars, user)
             reading["gold_basis"] = "spot_ohlc"
             reading["strategy"] = "gold-ohlc-reading"

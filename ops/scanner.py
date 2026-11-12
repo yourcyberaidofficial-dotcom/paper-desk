@@ -104,7 +104,7 @@ def present_window(window, now_ms):
         )
         return base
     if symbol == "XAUUSD" and interval in {"1m", "3m"}:
-        public = (last or {}).get("provider") == "xaus.com" and last.get("complete") and last.get("fresh")
+        public = (last or {}).get("provider") == "xaus.com" and last.get("complete")
         native = interval == "1m" and ((last or {}).get("provider") == "twelve-data" or window.get("provider") == "twelve-data")
         released = public
         if native:
@@ -133,7 +133,7 @@ def present_window(window, now_ms):
         quote = window.get("quote_semantics") or (last.get("quote_semantics") if last else None) or "missing_quote"
         if quote != "dukascopy_xauusd_bid_ask" or not completed_bid_ask_bar(last):
             shown = quote if quote != "dukascopy_xauusd_bid_ask" else "missing_bid_ask"
-            if quote in {"ohlc_not_bid_ask", "spot_sample_not_bid_ask"} and last and last.get("complete") and last.get("fresh") and len(bars) >= (24 if quote == "spot_sample_not_bid_ask" else 60):
+            if quote in {"ohlc_not_bid_ask", "spot_sample_not_bid_ask"} and last and last.get("complete") and len(bars) >= (24 if quote == "spot_sample_not_bid_ask" else 50):
                 if "live_quote" in window:
                     live_quote = window.get("live_quote")
                 elif last.get("source_type") != "fixture":
@@ -163,7 +163,7 @@ def present_window(window, now_ms):
                 price=None,
                 evidence_grade=None,
                 evaluated=False,
-                message=f"Gold is blocked. The feed is {shown}, not a completed bid/ask bar. The London rule was not calculated.",
+                message=f"Gold has no completed candle yet. The feed reported {shown}. A bid/ask bar was not invented, and the London rule was not calculated.",
             )
             return base
     if symbol == "XAUUSD" and not live:

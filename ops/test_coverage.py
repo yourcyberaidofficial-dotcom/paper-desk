@@ -44,8 +44,8 @@ def test_gold_minute_is_not_invented_and_a_1m_crypto_plan_stays_on_1m():
         ohlc_loader=empty, quote_loader=lambda now: {"ok": False},
     )
     assert status == 200
-    assert body["blocked"] == "xau_minute_unlicensed"
-    assert body["strategy"] == "xau-minute-unlicensed"
+    assert body["blocked"] == "missing_bars"
+    assert body["source_id"] == "xaus_public_chart"
     assert body["reference_price"] is None
     assert "not invented" in body["reason"]
     assert "London rule was not used" in body["reason"]

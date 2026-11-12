@@ -3786,7 +3786,6 @@ async function terminal(){
     }
     const next = requestedNow();
     status.textContent = "Selection changed. Evaluate market for " + next.symbol + " " + next.interval + ".";
-    if (next.symbol === "XAUUSD" && (next.interval === "1m" || next.interval === "3m")) status.textContent = "XAUUSD " + next.interval + " is unavailable. The restriction is xau_minute_unlicensed. No plan, size or paper order will be calculated.";
   }
   symbolEl.onchange = () => { markFrames(); labelPrevious(); loadDeskChart(); syncEvaluate(); };
   intervalEl.onchange = () => { labelPrevious(); loadDeskChart(); syncEvaluate(); };
