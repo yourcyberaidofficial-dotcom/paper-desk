@@ -190,6 +190,43 @@ def _finish_gold(reading, base, live_quote, preface):
     return reading
 
 
+def explain_reading(result, user=None):
+    """One explanation from the stored reading. A model is not required and cannot replace these numbers."""
+    result = result or {}
+    profile = ((user or {}).get("profile") or {}) if isinstance(user, dict) else {}
+    name = result.get("persona_name") or profile.get("signal_style_name") or "This account"
+    decision = result.get("decision") or "WAIT"
+    symbol = result.get("symbol") or "the market"
+    interval = result.get("interval") or "the requested candle"
+
+    def price(value):
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            return None
+        return f"{float(value):.2f}"
+
+    entry, stop, target = price(result.get("entry")), price(result.get("stop")), price(result.get("target"))
+    lines = [f"{decision} {symbol} {interval}."]
+    if entry and stop and target:
+        lines.append(f"Entry {entry}. Stop {stop}. Target {target}.")
+    else:
+        lines.append("No entry, stop and target were calculated on this candle.")
+    reward = result.get("reward_risk")
+    if isinstance(reward, (int, float)) and not isinstance(reward, bool):
+        lines.append(f"Reward to risk on the market plan is {float(reward):.2f}.")
+    if symbol == "XAUUSD":
+        lines.append("Gold is the completed public chart candle. It is not a bid, an ask, or a broker fill.")
+    else:
+        lines.append("This is the completed public candle. It is not a broker fill.")
+    if result.get("feed_state") == "last_good":
+        lines.append("The latest pull failed, so this is the last completed candle still on file. No price was invented.")
+    note = result.get("persona_note")
+    if isinstance(note, str) and note.strip():
+        lines.append(note.strip())
+    else:
+        lines.append(f"{name} can read this. It is not an approved strategy, and the model did not create the levels.")
+    return " ".join(lines)
+
+
 def decide(symbol, interval, strategy, bars, now_ms, user, prior=None, live_quote=None):
     explicit = strategy not in {None, "", "auto"}
     result = apply_auto_policy(_evaluate(symbol, interval, strategy, bars, now_ms, user, prior, live_quote), explicit)

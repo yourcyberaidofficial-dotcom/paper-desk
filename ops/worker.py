@@ -367,6 +367,8 @@ class Worker:
             return 0
         for user in users:
             personal = apply_persona(dict(result), user)
+            if window.get("feed_state"):
+                personal["feed_state"] = window.get("feed_state")
             outcome = deliver_evaluation(user.get("id"), user, personal)
             if outcome.get("stored"):
                 delivered += 1
@@ -388,7 +390,7 @@ class Worker:
         return delivered
 
     def _monitor_windows(self, now_ms):
-        from ops.terminal_route import load_crypto_bars, load_gold_ohlc
+        from ops.terminal_route import feed_state, load_crypto_bars, load_gold_ohlc
 
         windows = []
         for symbol, interval in COVERAGE:
@@ -404,13 +406,13 @@ class Worker:
                         "live_quote": None,
                     })
                     continue
-                windows.append({"symbol": symbol, "interval": interval, "bars": gold or [], "live_quote": None, "reason": None if gold else "missing_bars"})
+                windows.append({"symbol": symbol, "interval": interval, "bars": gold or [], "live_quote": None, "reason": None if gold else "missing_bars", "feed_state": feed_state(symbol, interval)})
                 continue
             loaded = load_crypto_bars(symbol, interval, now_ms)
             if isinstance(loaded, tuple):
                 windows.append({"symbol": symbol, "interval": interval, "bars": [], "reason": loaded[1]})
             else:
-                windows.append({"symbol": symbol, "interval": interval, "bars": loaded or []})
+                windows.append({"symbol": symbol, "interval": interval, "bars": loaded or [], "feed_state": feed_state(symbol, interval)})
         return windows
 
     def _shadow_book(self):
