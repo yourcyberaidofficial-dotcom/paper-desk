@@ -293,6 +293,10 @@ def consider(user, result, now_ms, opportunity_id=None):
         note(user_id, now_ms, opportunity_id, rejection="quote_divergence")
         _audit(user_id, now_ms, opportunity_id, "quote_divergence", result)
         return {"attempted": True, "ok": False, "reason": "quote_divergence"}
+    if result.get("fresh") is False:
+        note(user_id, now_ms, opportunity_id, rejection="delayed_feed")
+        _audit(user_id, now_ms, opportunity_id, "delayed_feed", result)
+        return {"attempted": True, "ok": False, "reason": "delayed_feed"}
     if result.get("blocked") or decision not in {"BUY", "SELL"} or result.get("entry") is None:
         reason = result.get("blocked") or "not_a_plan"
         note(user_id, now_ms, opportunity_id, rejection=reason)
