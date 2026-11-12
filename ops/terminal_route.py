@@ -59,7 +59,7 @@ def load_crypto_bars(symbol, interval, now_ms):
         if symbol in {"BTCUSDT", "ETHUSDT"}:
             key = (symbol, interval)
             cached = _BAR_CACHE.get(key)
-            if cached and now_ms - cached[0] < 30_000:
+            if cached and 0 <= now_ms - cached[0] < 30_000:
                 return cached[1]
             from ops.bars import interval_ms
             from ops.feeds import binance_bars
@@ -94,7 +94,7 @@ def load_gold_ohlc(interval, now_ms):
 
         if interval == "1m":
             cached = _BAR_CACHE.get(("XAUUSD", "1m"))
-            if cached and now_ms - cached[0] < 45_000 and cached[1]:
+            if cached and 0 <= now_ms - cached[0] < 45_000 and cached[1]:
                 return cached[1]
             try:
                 loaded = xaus_chart("1m", now_ms=now_ms, timeout=8, attempts=2)
@@ -106,7 +106,7 @@ def load_gold_ohlc(interval, now_ms):
                 return bars
             return _last_good("XAUUSD", "1m", now_ms, loaded.get("reason") if isinstance(loaded, dict) else "missing_bars")
         cached = _BAR_CACHE.get(("XAUUSD", "1m"))
-        if not (cached and now_ms - cached[0] < 45_000 and cached[1]):
+        if not (cached and 0 <= now_ms - cached[0] < 45_000 and cached[1]):
             try:
                 base = xaus_chart("1m", now_ms=now_ms, timeout=8, attempts=2)
             except Exception as exc:
@@ -129,7 +129,7 @@ def load_gold_ohlc(interval, now_ms):
         return None, "commercial_use_unverified"
     key = ("XAUUSD", interval)
     cached = _BAR_CACHE.get(key)
-    if cached and now_ms - cached[0] < 30_000:
+    if cached and 0 <= now_ms - cached[0] < 30_000:
         return cached[1]
     from ops.feeds import xaus_chart, xaus_spot_bars
     try:
