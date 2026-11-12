@@ -151,6 +151,7 @@ def test_a_gated_pair_is_not_described_as_a_live_signal(tmp_path, monkeypatch):
     from ops.app import DASHBOARD
     from ops.signal_engine import cycle
 
+    monkeypatch.setattr("ops.signal_engine._public_bars", lambda *_args, **_kwargs: {"bars": [], "reason": "source_failure"})
     body = cycle(1_700_000_000_000, transport=lambda *_args: (_ for _ in ()).throw(AssertionError("network")))
     gold = next(row for row in body["markets"] if row["symbol"] == "XAUUSD" and row["interval"] == "1h")
     btc = next(row for row in body["markets"] if row["symbol"] == "BTCUSDT" and row["interval"] == "15m")

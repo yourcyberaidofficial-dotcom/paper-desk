@@ -103,32 +103,57 @@ def _released(symbol, interval):
     return candles_released(symbol, interval) or reading_released(symbol, interval)
 
 
+def _public_bars(symbol, interval, now_ms):
+    """The released public feed. This is not a substitute for a different venue's grant."""
+    if symbol == "XAUUSD":
+        from ops.terminal_route import load_gold_ohlc
+
+        loaded = load_gold_ohlc(interval, now_ms)
+        source = "xaus_public_chart"
+    elif symbol in {"BTCUSDT", "ETHUSDT"}:
+        from ops.terminal_route import load_crypto_bars
+
+        loaded = load_crypto_bars(symbol, interval, now_ms)
+        source = "binance_spot_rest_klines"
+    else:
+        return None
+    if isinstance(loaded, tuple) or not loaded:
+        reason = loaded[1] if isinstance(loaded, tuple) else "missing_bars"
+        return {"bars": [], "source_id": source, "reason": reason}
+    return {"bars": loaded, "source_id": (loaded[-1].get("source_id") or source)}
+
+
 def _load(symbol, interval, now_ms, transport):
     if symbol == "XAUUSD":
-        if interval == "3m" or not _released(symbol, interval):
-            return None
         from ops.twelve_data import authorized_bars
 
-        loaded = authorized_bars(symbol, interval, now_ms)
-        if isinstance(loaded, tuple):
-            return {"bars": loaded[0] or [], "source_id": "twelve_data"}
+        if interval != "3m" and _released(symbol, interval):
+            loaded = authorized_bars(symbol, interval, now_ms)
+            if isinstance(loaded, tuple) and loaded[0]:
+                return {"bars": loaded[0], "source_id": "twelve_data"}
+        if candles_released(symbol, interval) or reading_released(symbol, interval):
+            return _public_bars(symbol, interval, now_ms)
         return None
     from ops.entitlements import decide_use
     from ops.kraken_public import authorized_bars
 
     decision = decide_use("kraken_public_ohlc", "candle_display", symbol=symbol, interval=interval)
-    if decision.get("verified") is not True:
-        return None
-    if interval == "3m":
-        if decision.get("reason") != "derived_from_native_1m":
-            return None
-        native = authorized_bars(symbol, "1m", now_ms, transport=transport)
-        derived = derive_3m((native or {}).get("bars") or [], now_ms)
-        if not derived.get("ok"):
-            return {"bars": [], "source_id": "kraken_public_ohlc", "reason": derived.get("reason")}
-        return {"bars": derived["bars"], "source_id": "kraken_public_ohlc", "derived": True}
-    loaded = authorized_bars(symbol, interval, now_ms, transport=transport)
-    return {"bars": (loaded or {}).get("bars") or [], "source_id": "kraken_public_ohlc", "reason": (loaded or {}).get("reason")}
+    if decision.get("verified") is True:
+        if interval == "3m":
+            if decision.get("reason") != "derived_from_native_1m":
+                return _public_bars(symbol, interval, now_ms) if _released(symbol, interval) else None
+            native = authorized_bars(symbol, "1m", now_ms, transport=transport)
+            derived = derive_3m((native or {}).get("bars") or [], now_ms)
+            if not derived.get("ok"):
+                return {"bars": [], "source_id": "kraken_public_ohlc", "reason": derived.get("reason")}
+            return {"bars": derived["bars"], "source_id": "kraken_public_ohlc", "derived": True}
+        loaded = authorized_bars(symbol, interval, now_ms, transport=transport)
+        bars = (loaded or {}).get("bars") or []
+        if bars:
+            return {"bars": bars, "source_id": "kraken_public_ohlc", "reason": (loaded or {}).get("reason")}
+    if _released(symbol, interval):
+        return _public_bars(symbol, interval, now_ms)
+    return None
 
 
 def _higher(symbol, interval):
@@ -223,7 +248,8 @@ def _observe(symbol, interval, bars, source_id, now_ms):
     result["approved"] = False
     result["autopilot_eligible"] = False
     result["manual_paper"] = False
-    result["validation_status"] = result.get("validation_status") or "FAIL"
+    if result.get("validation_status") in {None, "", "FAIL", "FAILED", "BLOCKED", "REJECTED"}:
+        result["validation_status"] = "not_promoted"
     result["price"] = result.get("price") if result.get("price") is not None else result.get("reference_price")
     result["opportunity_id"] = canonical_opportunity_id(symbol, interval, result, bars)
     result["conditions"] = facts["evidence"]
