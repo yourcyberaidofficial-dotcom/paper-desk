@@ -3577,7 +3577,11 @@ async function loadDesk(){
       : row.observation === "expired" ? "Expired — earlier row kept"
       : "Market observation — not a signal";
     const shown = unavailable || stale || row.price == null ? "—" : row.price;
-    return `<article class="card"><h3>${row.symbol || ""} ${row.interval || ""}</h3><p>${title}</p><p class="muted">Permission ${row.permission || "not granted"}. Research ${row.research || "not recorded"}. AutoPilot ${row.execution || "not eligible"}. Source ${row.source_id || "not shown"}. Freshness ${row.freshness || "not retrieved"}. Reading ${shown}.</p><p class="muted">${row.note || ""}</p><p class="muted">${row.conditions || ""} ${row.higher_timeframe || ""}</p></article>`;
+    const permission = row.permission === "granted" ? "shown on this account" : "not granted";
+    const research = row.research === "research_failed" ? "the registered study did not pass" : row.research === "not_promoted" ? "not an approved strategy" : (row.research || "not recorded");
+    const execution = row.execution === "autopilot_eligible" ? "AutoPilot can paper this" : row.execution === "paper_eligible" ? "manual paper only" : "AutoPilot will not open this";
+    const plan = !unavailable && row.entry != null ? `<p>Entry ${row.entry}. Stop ${row.stop}. Target ${row.target}. ${row.decision || "WAIT"}.</p>` : "";
+    return `<article class="card"><h3>${row.symbol || ""} ${row.interval || ""}</h3><p>${title}</p><p class="muted">Permission ${permission}. Research ${research}. ${execution}. Source ${row.source_id || "not shown"}. Freshness ${row.freshness || "not retrieved"}. Reading ${shown}.</p>${plan}<p class="muted">${row.note || ""}</p><p class="muted">${row.conditions || ""} ${row.higher_timeframe || ""}</p></article>`;
   }).join("");
   const history = (body.history || []).map(row => `<div class="row"><span>${row.symbol || ""} ${row.interval || ""}</span><span>${row.observation || ""}</span></div><p class="muted">${row.note || row.conditions || ""}</p>`).join("");
   host.innerHTML = `<h2>Live desk</h2><p class="muted">${aiLine} A signal, a research result and an AutoPilot decision are three different facts.</p>${cards}<h3>History</h3><p class="muted">Every stored row is listed. A later state is appended. Earlier rows stay.</p>${history || "<p>No observation is stored yet.</p>"}`;

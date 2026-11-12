@@ -105,6 +105,7 @@ def test_one_authorised_pair_does_not_unlock_the_others(tmp_path, monkeypatch):
     from ops.signal_engine import cycle
     from ops.signal_ledger import read
 
+    monkeypatch.setattr("ops.signal_engine._public_bars", lambda *_args, **_kwargs: {"bars": [], "reason": "source_failure", "source_id": "binance_spot_rest_klines"})
     now_ms = last * 1000 + 1_000
     first = cycle(now_ms, transport=transport)
     second = cycle(now_ms, transport=transport)
@@ -114,7 +115,7 @@ def test_one_authorised_pair_does_not_unlock_the_others(tmp_path, monkeypatch):
     gold = by[("XAUUSD", "1h")]
     assert btc["observation"] != "data_unavailable"
     assert btc["price"] is not None
-    assert btc["research"] == "research_failed"
+    assert btc["research"] == "not_promoted"
     assert btc["execution"] == "not_eligible"
     assert eth["observation"] == "data_unavailable" and eth["price"] is None
     assert gold["observation"] == "data_unavailable" and gold["price"] is None
@@ -130,8 +131,50 @@ def test_one_authorised_pair_does_not_unlock_the_others(tmp_path, monkeypatch):
     assert "424242" not in json.dumps(first)
 
 
+def test_a_released_public_feed_is_shown_without_a_kraken_grant(tmp_path, monkeypatch):
+    monkeypatch.setenv("AUREON_DATA", str(tmp_path))
+    now_ms = 1_700_000_000_000
+
+    def bars(symbol, interval, _now):
+        step = 3_600_000 if interval == "1h" else 900_000
+        rows = []
+        for index in range(60):
+            close = 100 + index * 0.2
+            open_ms = now_ms - (60 - index) * step
+            rows.append({
+                "symbol": symbol,
+                "interval": interval,
+                "complete": True,
+                "open": close - 0.1,
+                "high": close + 1,
+                "low": close - 1,
+                "close": close,
+                "open_time_ms": open_ms,
+                "close_time_ms": open_ms + step,
+                "provider": "xaus.com" if symbol == "XAUUSD" else "binance",
+                "source_id": "xaus_public_chart" if symbol == "XAUUSD" else "binance_spot_rest_klines",
+                "quote_semantics": "ohlc_not_bid_ask",
+            })
+        return {"bars": rows, "source_id": rows[-1]["source_id"]}
+
+    monkeypatch.setattr("ops.signal_engine._public_bars", bars)
+    from ops.signal_engine import cycle
+
+    body = cycle(now_ms, transport=lambda *_args: (_ for _ in ()).throw(AssertionError("kraken")))
+    by = {(row["symbol"], row["interval"]): row for row in body["markets"]}
+    btc = by[("BTCUSDT", "1h")]
+    gold = by[("XAUUSD", "1h")]
+    assert btc["permission"] == "granted" and btc["price"] is not None
+    assert btc["observation"] != "data_unavailable"
+    assert btc["research"] == "not_promoted"
+    assert gold["permission"] == "granted" and gold["price"] is not None
+    assert gold["observation"] != "data_unavailable"
+    assert "not granted" not in json.dumps(btc)
+
+
 def test_restart_keeps_history_and_a_rejection_does_not_delete_it(tmp_path, monkeypatch):
     monkeypatch.setenv("AUREON_DATA", str(tmp_path))
+    monkeypatch.setattr("ops.signal_engine._public_bars", lambda *_args, **_kwargs: {"bars": [], "reason": "source_failure"})
     _grant(tmp_path)
     payload, last = _payload()
     from ops.activity import read as read_activity
@@ -190,6 +233,7 @@ def test_an_offline_model_does_not_stop_the_cycle(tmp_path, monkeypatch):
     monkeypatch.delenv("OLLAMA_MODEL", raising=False)
     from ops.signal_engine import cycle
 
+    monkeypatch.setattr("ops.signal_engine._public_bars", lambda *_args, **_kwargs: {"bars": [], "reason": "source_failure"})
     body = cycle(1_700_000_000_000, transport=lambda *_args: (_ for _ in ()).throw(AssertionError("network")))
     assert body["markets"]
     assert body["broker"] is False
