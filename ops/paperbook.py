@@ -224,15 +224,24 @@ def open_order(user, opportunity, now_ms, commit=True, opened_by="account", auto
     sized = qualify_size(symbol, profile.get("capital"), risk, profile.get("currency"), entry, stop)
     if not sized.get("ok"):
         return {"ok": False, "reason": sized.get("reason") or "unsized", "size": sized}
+    venue = None
+    if commit and bool(profile.get("live_trading")) and symbol in {"BTCUSDT", "ETHUSDT"} and direction == "BUY":
+        from ops.live_broker import execute
+
+        sent = execute(symbol, "BUY", sized.get("quantity"), stop, price=entry)
+        if sent.get("reason") != "not_configured":
+            if not sent.get("ok"):
+                return {"ok": False, "reason": sent.get("reason"), "order_opened": False, "live": False}
+            venue = sent
     origin = opened_by if opened_by in {"account", "autopilot"} else "account"
     if not commit:
         book = load(user_id)
         if book.get("unreadable"):
             return {"ok": False, "reason": "record_unreadable"}
-        return _admit(book, row, now_ms, spec, sized, reward, _week(now_ms), origin, automation_cap, float(profile.get("capital")), plan.get("weekly_loss_limit_percent"), commit=False)
+        return _admit(book, row, now_ms, spec, sized, reward, _week(now_ms), origin, automation_cap, float(profile.get("capital")), plan.get("weekly_loss_limit_percent"), commit=False, venue=venue)
     admitted = _update_orders(
         user_id,
-        lambda book: _admit(book, row, now_ms, spec, sized, reward, _week(now_ms), origin, automation_cap, float(profile.get("capital")), plan.get("weekly_loss_limit_percent"), commit=True),
+        lambda book: _admit(book, row, now_ms, spec, sized, reward, _week(now_ms), origin, automation_cap, float(profile.get("capital")), plan.get("weekly_loss_limit_percent"), commit=True, venue=venue),
     )
     if not admitted or not admitted.get("ok"):
         return admitted or {"ok": False, "reason": "record_unreadable"}
@@ -260,7 +269,7 @@ def open_order(user, opportunity, now_ms, commit=True, opened_by="account", auto
     return admitted
 
 
-def _admit(book, row, now_ms, spec, sized, reward, week, origin, automation_cap, capital, loss_limit, commit):
+def _admit(book, row, now_ms, spec, sized, reward, week, origin, automation_cap, capital, loss_limit, commit, venue=None):
     if book.get("unreadable"):
         return {"ok": False, "reason": "record_unreadable", "save": False}
     orders = book["orders"]
@@ -294,10 +303,15 @@ def _admit(book, row, now_ms, spec, sized, reward, week, origin, automation_cap,
         return {"ok": False, "reason": "open_risk", "save": False}
     if not commit:
         return {"ok": True, "reason": "allowed", "committed": False, "save": False}
-    quantity = budget / abs(float(entry) - float(stop))
-    opened_note = "Opened by AutoPilot as a paper trade. Not a notification and not a broker order." if origin == "autopilot" else "Opened by the account. Not opened by a notification."
+    quantity = (venue or {}).get("quantity") or budget / abs(float(entry) - float(stop))
+    live = bool(venue)
+    opened_note = (
+        "Opened on Binance spot with a protective stop."
+        if live else
+        "Opened by AutoPilot as a paper trade. Not a notification and not a broker order." if origin == "autopilot" else "Opened by the account. Not opened by a notification."
+    )
     order = {
-        "id": f"paper:{opportunity_id}:{int(now_ms)}",
+        "id": f"{'live' if live else 'paper'}:{opportunity_id}:{int(now_ms)}",
         "schema": SCHEMA,
         "opportunity_id": opportunity_id,
         "symbol": symbol,
@@ -310,9 +324,12 @@ def _admit(book, row, now_ms, spec, sized, reward, week, origin, automation_cap,
         "reward_risk": reward,
         "risk_budget_usd": budget,
         "quantity": quantity,
-        "quantity_basis": "unrounded_spot_estimate",
-        "executable": False,
-        "venue_step_verified": False,
+        "quantity_basis": "binance_lot" if live else "unrounded_spot_estimate",
+        "executable": live,
+        "venue": "binance-spot" if live else "paper",
+        "exchange_order_id": (venue or {}).get("order_id"),
+        "stop_order_id": (venue or {}).get("stop_order_id"),
+        "venue_step_verified": live,
         "status": "open",
         "opened_ms": int(now_ms),
         "opened_by": origin,
@@ -323,7 +340,7 @@ def _admit(book, row, now_ms, spec, sized, reward, week, origin, automation_cap,
         "exit_kind": None,
         "pnl_usd": None,
         "exit_price": None,
-        "note": "Paper estimate. The venue quantity step was not verified, so this is not an exchange order.",
+        "note": "Binance spot market buy. A stop order was accepted." if live else "Paper estimate. The venue quantity step was not verified, so this is not an exchange order.",
         "events": [{"state": "opened", "created_ms": int(now_ms), "opened_by": origin, "note": opened_note}],
     }
     orders.append(order)
