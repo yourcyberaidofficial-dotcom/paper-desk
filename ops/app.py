@@ -1729,7 +1729,9 @@ def gold_candles():
             "note": "A native gold minute candle was not returned. A coarser candle was not split to fill it.",
         })
     sample = "spot_sample_not_bid_ask" if interval in {"15m", "1h"} else None
-    if not candles_released("XAUUSD", interval, sample):
+    chart_released = candles_released("XAUUSD", interval)
+    sample_released = bool(sample) and candles_released("XAUUSD", interval, sample)
+    if not chart_released and not sample_released:
         return jsonify(unavailable_candles("XAUUSD", interval))
     if interval in {"1m", "3m", "15m", "1h"}:
         from ops.desk_snapshot import observe
@@ -3733,13 +3735,19 @@ async function terminal(){
     const note = document.getElementById("chartnote");
     const hover = document.getElementById("crosshair");
     const requested = requestedNow();
+    const finish = () => {
+      const button = document.getElementById("generate");
+      if (button && !button.disabled) button.click();
+    };
     const url = requested.symbol === "XAUUSD" ? `/api/gold/candles?interval=${requested.interval}` : `/api/klines?symbol=${requested.symbol}&interval=${requested.interval}`;
     const bars = await fetch(url).then(r => r.json()).catch(() => null);
     if (!bars || bars.blocked === "xau_minute_unlicensed" || bars.customer_status === "reading_unavailable" || !(bars.candles || []).length) {
       const minute = bars && bars.blocked === "xau_minute_unlicensed";
+      const said = (bars && bars.note) ? bars.note : (minute ? "Gold 1-minute and 3-minute are not offered. No candle was drawn." : "A verified live reading is not available.");
       chartHold(minute ? "This timeframe is not available." : "A verified live reading is not available.");
-      if (note) note.textContent = minute ? "Gold 1-minute and 3-minute are not offered. No candle was drawn." : "A verified live reading is not available.";
+      if (note) note.textContent = said;
       if (hover) hover.textContent = "";
+      finish();
       return;
     }
     chartShow();
@@ -3759,6 +3767,7 @@ async function terminal(){
         line.textContent = "Pointer " + Math.round(event.clientX - rect.left) + "×" + Math.round(event.clientY - rect.top) + " on the completed-candle chart. This is not an order ticket.";
       };
     }
+    finish();
   }
   async function loadBook(){
     const box = document.getElementById("termbook");
