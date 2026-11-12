@@ -19,18 +19,10 @@ COVERAGE = tuple(
 
 
 def pair_availability():
-    """Live desk pairs. Gold minutes stay separately unlicensed."""
+    """Live desk pairs. Gold uses the public chart, including 1m and 3m."""
     rows = []
     for symbol, interval in COVERAGE:
-        if symbol == "XAUUSD" and interval in {"1m", "3m"}:
-            rows.append({
-                "symbol": symbol,
-                "interval": interval,
-                "status": "unavailable",
-                "feed": "none",
-                "reason": "No licensed one-minute XAUUSD spot feed. A five-minute sample is not split into a 1-minute or 3-minute candle.",
-            })
-        elif symbol == "XAUUSD":
+        if symbol == "XAUUSD":
             rows.append({
                 "symbol": symbol,
                 "interval": interval,
@@ -319,22 +311,13 @@ class Worker:
         except Exception:
             pass
         if symbol == "XAUUSD" and interval in {"1m", "3m"} and not bars:
-            reason = window.get("reason") or "xau_minute_unlicensed"
-            if reason != "xau_minute_unlicensed":
-                evaluations.append({
-                    "symbol": symbol,
-                    "interval": interval,
-                    "decision": "DATA BLOCK",
-                    "reason": reason,
-                    "blocked": reason,
-                })
-                return 0
+            reason = window.get("reason") or "missing_bars"
             evaluations.append({
                 "symbol": symbol,
                 "interval": interval,
-                "decision": "UNAVAILABLE",
-                "blocked": "xau_minute_unlicensed",
-                "reason": "xau_minute_unlicensed",
+                "decision": "DATA BLOCK",
+                "reason": reason,
+                "blocked": reason,
             })
             return 0
         from ops.data_rights import is_rights_reason

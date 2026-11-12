@@ -91,7 +91,9 @@ def test_emergency_stop_stale_data_and_gold_minutes_open_nothing(tmp_path, monke
     now = 1_700_000_060_000
     bars = [{"high": 10, "low": 9, "close": 9.5, "complete": True, "close_time_ms": now - 1000, "provider": "dukascopy", "quote_semantics": "dukascopy_xauusd_bid_ask"}] * 80
     gold = decide("XAUUSD", "1m", "auto", bars, now, None)
-    assert consider(user, gold, now, "opp:gold")["reason"] == "xau_minute_unlicensed"
+    opened = consider(user, gold, now, "opp:gold")
+    assert opened.get("ok") is not True
+    assert gold.get("entry") is None
     assert summary(owner["id"])["orders"] == []
 
 

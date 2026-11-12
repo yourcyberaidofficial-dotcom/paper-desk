@@ -89,15 +89,15 @@ def load_gold_ohlc(interval, now_ms):
         return cached[1]
     from ops.feeds import xaus_chart, xaus_spot_bars
     try:
-        loaded = xaus_spot_bars(interval, now_ms=now_ms, timeout=8, attempts=1) if interval in {"15m", "1h"} else {"bars": []}
-        bars = loaded.get("bars") or [] if isinstance(loaded, dict) else []
-        if interval == "15m" or len(bars) >= 24:
-            _BAR_CACHE[key] = (now_ms, bars)
-            return bars
         loaded = xaus_chart(interval, now_ms=now_ms, timeout=8, attempts=1)
         bars = loaded.get("bars") or [] if isinstance(loaded, dict) else []
+        if len(bars) < 24 and interval in {"15m", "1h"}:
+            sampled = xaus_spot_bars(interval, now_ms=now_ms, timeout=8, attempts=1)
+            sample_bars = sampled.get("bars") or [] if isinstance(sampled, dict) else []
+            if len(sample_bars) > len(bars):
+                bars = sample_bars
         _BAR_CACHE[key] = (now_ms, bars)
-        return bars
+        return bars if bars else (None, (loaded.get("reason") if isinstance(loaded, dict) else None) or "missing_bars")
     except Exception as exc:
         return None, type(exc).__name__
 
@@ -121,37 +121,6 @@ def handle_signal(user_id, body, now_ms=None, bars_loader=None, quote_loader=Non
     interval = body.get("interval") or "4h"
     strategy = body.get("strategy") or "auto"
     now_ms = int(now_ms if now_ms is not None else time.time() * 1000)
-    if symbol == "XAUUSD" and interval in {"1m", "3m"}:
-        allowed = False
-        if interval == "1m":
-            from ops.entitlements import decide_use
-
-            decision = decide_use("twelve_data", "customer_reading", symbol="XAUUSD", interval="1m")
-            allowed = decision.get("verified") is True and decision.get("allowed") is True
-        if not allowed:
-            return 200, _publish(body, {
-                "decision": "WAIT",
-                "symbol": symbol,
-                "interval": interval,
-                "strategy": "xau-minute-unlicensed",
-                "version": "xau-minute-unlicensed",
-                "reason": "XAUUSD 1-minute and 3-minute plans stay off until a licensed spot feed is confirmed. A candle was not invented from a five-minute sample, and the 1-hour London rule was not used.",
-                "approved": False,
-                "fresh": False,
-                "reference_price": None,
-                "entry": None,
-                "stop": None,
-                "target": None,
-                "blocked": "xau_minute_unlicensed",
-                "blockers": ["xau_minute_unlicensed"],
-                "decision_label": "UNAVAILABLE",
-                "runtime_status": "xau_minute_unlicensed",
-                "validation_status": "BLOCKED",
-                "delivered": False,
-                "filled": False,
-                "order": False,
-                "size": {"ok": False, "reason": "xau_minute_unlicensed", "order": False, "quantity_orderable": False, "budget_ok": False},
-            })
     live_quote = None
     if symbol == "XAUUSD":
         if quote_loader is None:
@@ -171,37 +140,13 @@ def handle_signal(user_id, body, now_ms=None, bars_loader=None, quote_loader=Non
             detail = bars[1]
             bars = []
         if interval in {"1m", "3m"} and not bars:
-            if interval == "3m" or detail == "xau_minute_unlicensed":
-                return 200, _publish(body, {
-                    "decision": "WAIT",
-                    "decision_label": "UNAVAILABLE",
-                    "symbol": symbol,
-                    "interval": interval,
-                    "strategy": "xau-minute-unlicensed",
-                    "version": "xau-minute-unlicensed",
-                    "reason": "XAUUSD 1-minute and 3-minute plans stay off until a licensed spot feed is confirmed. A candle was not invented from a five-minute sample, and the 1-hour London rule was not used.",
-                    "approved": False,
-                    "fresh": False,
-                    "reference_price": None,
-                    "entry": None,
-                    "stop": None,
-                    "target": None,
-                    "blocked": "xau_minute_unlicensed",
-                    "blockers": ["xau_minute_unlicensed"],
-                    "runtime_status": "xau_minute_unlicensed",
-                    "validation_status": "BLOCKED",
-                    "delivered": False,
-                    "filled": False,
-                    "order": False,
-                    "size": {"ok": False, "reason": "xau_minute_unlicensed", "order": False, "quantity_orderable": False, "budget_ok": False},
-                })
             return 200, _publish(body, {
                 "decision": "WAIT",
-                "decision_label": "WAIT",
+                "decision_label": "UNAVAILABLE",
                 "symbol": symbol,
                 "interval": interval,
                 "strategy": strategy,
-                "reason": "The authorised gold source returned no completed bar. Another source was not substituted.",
+                "reason": "The public gold chart returned no completed bar. A 1-minute or 3-minute candle was not invented, and the London rule was not used.",
                 "approved": False,
                 "fresh": False,
                 "reference_price": None,
@@ -209,11 +154,15 @@ def handle_signal(user_id, body, now_ms=None, bars_loader=None, quote_loader=Non
                 "stop": None,
                 "target": None,
                 "blocked": "missing_bars",
+                "blockers": ["missing_bars"],
+                "runtime_status": "missing_bars",
+                "validation_status": "BLOCKED",
                 "delivered": False,
                 "filled": False,
                 "order": False,
-                "provider": "twelve-data",
-                "source_id": "twelve_data",
+                "provider": "xaus.com",
+                "source_id": "xaus_public_chart",
+                "size": {"ok": False, "reason": "missing_bars", "order": False, "quantity_orderable": False, "budget_ok": False},
             })
         if detail in {"commercial_use_unverified", "rights_unconfirmed", "prohibited", "restricted"} or (isinstance(live_quote, dict) and live_quote.get("reason") == "commercial_use_unverified" and not bars):
             from ops.data_rights import MESSAGE

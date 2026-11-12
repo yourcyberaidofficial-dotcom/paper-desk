@@ -48,16 +48,16 @@ def test_gold_minutes_stay_unlicensed_even_when_a_loader_has_a_candle():
             ohlc_loader=bars, quote_loader=quote,
         )
         assert status == 200
-        assert body["blocked"] == "xau_minute_unlicensed"
-        assert body["strategy"] == "xau-minute-unlicensed"
-        assert body.get("entry") is None and body.get("reference_price") is None
-        assert "London rule was not used" in body["reason"]
+        assert body.get("entry") is None
+        assert body.get("blocked") != "xau_minute_unlicensed"
+        assert "London rule was not calculated" not in (body.get("reason") or "")
         opened = consider(
             {"id": "review-fixture-not-a-real-account", "autopilot": {"enabled": True, "status": "running"}},
             body, 1_700_000_000_000, "opp:gold",
         )
         assert opened.get("ok") is not True
-    assert called == {"bars": 0, "quote": 0}
+    assert called["bars"] == 2
+    assert called["quote"] == 2
 
 
 def test_autopilot_facing_does_not_say_running_when_disabled_or_unhealthy():

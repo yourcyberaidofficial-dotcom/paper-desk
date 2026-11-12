@@ -179,15 +179,14 @@ def test_a_manual_close_is_the_only_new_pnl_and_ambiguous_is_excluded(tmp_path, 
     assert opened_sell["ok"] is True
 
 
-def test_twelve_pairs_name_gold_minutes_as_unavailable():
+def test_public_chart_covers_gold_minutes():
     from ops.worker import pair_availability
     rows = pair_availability()
     assert len(rows) == 12
-    blocked = [row for row in rows if row["status"] == "unavailable"]
-    assert {(row["symbol"], row["interval"]) for row in blocked} == {("XAUUSD", "1m"), ("XAUUSD", "3m")}
-    assert all(row["status"] == "ready" for row in rows if row["symbol"] in {"BTCUSDT", "ETHUSDT"})
-    assert all(row["status"] == "ready" for row in rows if row["symbol"] == "XAUUSD" and row["interval"] in {"15m", "1h"})
-    assert all(row["reason"] is None for row in rows if row["status"] == "ready")
+    assert [row for row in rows if row["status"] == "unavailable"] == []
+    gold = [row for row in rows if row["symbol"] == "XAUUSD"]
+    assert {row["interval"] for row in gold} == {"1m", "3m", "15m", "1h"}
+    assert all(row["feed"] == "xaus_public_chart" and row["status"] == "ready" for row in gold)
 
 
 def test_a_completed_candle_exit_is_not_an_account_exit(tmp_path, monkeypatch):
@@ -248,6 +247,6 @@ def test_gold_minute_bars_do_not_become_a_plan():
         "provider": "dukascopy", "quote_semantics": "dukascopy_xauusd_bid_ask",
     }] * 80
     result = decide("XAUUSD", "1m", "auto", bars, now, None)
-    assert result["blocked"] == "xau_minute_unlicensed"
-    assert result.get("entry") is None
     assert result["decision"] == "WAIT"
+    assert result.get("entry") is None
+    assert result["blocked"] in {"quote_not_bid_ask", "timeframe", "incomplete_candle"}
