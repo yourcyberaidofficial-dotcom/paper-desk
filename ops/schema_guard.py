@@ -10,6 +10,8 @@ import json
 from pathlib import Path
 
 CURRENT = 1
+# Paper excursion fields are additive on the existing per-account book (schema 1).
+# They do not migrate, rewrite, or add a tenth volume.
 
 
 def schema_path(root):
@@ -39,7 +41,11 @@ def _stamp(root):
     path = schema_path(root)
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_suffix(".json.tmp")
-    body = {"schema": CURRENT, "stores": {"readings": CURRENT}, "rewritten_accounts": False}
+    body = {
+        "schema": CURRENT,
+        "stores": {"readings": CURRENT, "paper_orders": CURRENT},
+        "rewritten_accounts": False,
+    }
     temporary.write_text(json.dumps(body, sort_keys=True), encoding="utf-8")
     temporary.replace(path)
     return body

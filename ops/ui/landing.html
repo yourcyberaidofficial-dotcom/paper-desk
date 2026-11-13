@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Aureon Trading Lab</title>
+<style>
+body{margin:0;font-family:Inter,system-ui,sans-serif;background:#070b12;color:#eef3fb}
+header{display:flex;justify-content:space-between;align-items:center;padding:18px 28px;border-bottom:1px solid #1d2a3d;position:sticky;top:0;background:#070b12ee}
+.brand{font-weight:700;font-size:1.05rem}
+.muted{color:#8ea0b8}
+nav{display:flex;gap:8px;align-items:center}
+nav a{color:#eef3fb;text-decoration:none;padding:8px 12px;border-radius:8px}
+.hero{max-width:1080px;margin:0 auto;padding:64px 24px 24px;display:grid;grid-template-columns:1.2fr .8fr;gap:28px;align-items:center}
+h1{font-size:clamp(36px,5vw,58px);line-height:1.05;margin:8px 0 12px;letter-spacing:-.03em}
+.lede{font-size:1.05rem;color:#c5d2e4;max-width:40rem}
+.actions{display:flex;gap:12px;margin:22px 0;flex-wrap:wrap}
+.btn{background:#0f766e;color:white;border:0;padding:12px 18px;border-radius:10px;text-decoration:none;font-weight:600}
+.ghost{background:transparent;border:1px solid #334155;color:#eef3fb}
+.preview{background:linear-gradient(180deg,#121c2c,#0c1422);border:1px solid #1d2a3d;border-radius:16px;padding:18px}
+.preview .row{display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid #1d2a3d;font-size:.92rem}
+.wrap{max-width:1080px;margin:0 auto;padding:8px 24px 48px}
+.grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px}
+.card{background:#101826;border:1px solid #1d2a3d;border-radius:14px;padding:16px}
+.card h3{margin:0 0 8px}
+footer a{color:#99f6e4}
+@media(max-width:800px){header{flex-wrap:wrap;gap:10px;padding:16px}.hero,.grid{grid-template-columns:1fr}.hero{padding:28px 16px 16px}h1{font-size:2rem}nav{width:100%;flex-wrap:wrap}.wrap{padding:8px 16px 32px}}
+</style>
+</head>
+<body>
+<header>
+  <div><div class="brand">Aureon Trading Lab</div><div class="muted">Brought to you by Cyber Aid</div></div>
+  <nav><a href="#styles">Signal styles</a><a href="#risk">Research & risk</a><a href="/login" class="ghost">Sign in</a><a href="/register" class="btn">Create account</a></nav>
+</header>
+<section class="hero">
+  <div>
+    <p class="muted">Paper trading and research</p>
+    <h1>See the market clearly. Research with discipline.</h1>
+    <p class="lede">One account for the live desk, free paper AutoPilot, the Academy and your Trading Lab. AutoPilot opens paper trades after you turn it on. Fills stay on this desk. They are not sent to a live exchange. Aureon AI answers from the model that is actually reachable. A paper fill is not a broker order.</p>
+    <div class="actions"><a class="btn" href="/register">Create your account</a><a class="btn ghost" href="/login">Sign in</a></div>
+  </div>
+  <aside class="preview" aria-label="Product preview">
+    <p class="muted">Illustrative desk layout. Not a live quote and not a performance claim.</p>
+    <div class="row"><span>Production</span><strong>WAIT_DEFAULT</strong></div>
+    <div class="row"><span>Paper broker</span><strong>On</strong></div>
+    <div class="row"><span>Live exchange</span><strong>Off. Paper only.</strong></div>
+    <div class="row"><span>Account currency</span><strong>Set by you</strong></div>
+    <div class="row"><span>Paper position</span><strong>Only if recorded</strong></div>
+  </aside>
+</section>
+<section class="wrap" id="styles">
+  <h2>Three signal styles, one login</h2>
+  <p class="muted">Recovered from Awuru's account personas. They change confirmation strictness and risk caps. They do not promote a strategy.</p>
+  <div class="grid">
+    <article class="card"><h3>Apex Momentum</h3><p>Up to 2.5% risk and a 1.7 reward floor. Paper timeframes include 1m, 3m, 15m and 1h. Same entry rule as the other styles.</p></article>
+    <article class="card"><h3>Orion Precision</h3><p>Up to 1.5% risk and a 2.0 reward floor. Paper orders on 15m and 1h. A plan below the floor stays visible.</p></article>
+    <article class="card"><h3>Aegis Shield</h3><p>Up to 0.8% risk and a 2.5 reward floor. Paper orders on 15m and 1h. Not a vote of three indicators.</p></article>
+  </div>
+</section>
+<section class="wrap" id="platform">
+  <div class="grid">
+    <article class="card"><h3>Market workspace</h3><p>Market prices stay hidden until commercial-use permissions are confirmed. Gold one-minute and three-minute data stay unlicensed. Nothing on this page is a live quote.</p></article>
+    <article class="card"><h3>Research signals</h3><p>E1, SMA20, and RSI14 stay labeled as research. A WAIT result is kept visible.</p></article>
+    <article class="card"><h3>AutoPilot</h3><p>Free automated paper trading. It stays off until you enable it. A paper fill is recorded on this desk and is not a live-exchange order.</p></article>
+  </div>
+  <article class="card" id="risk"><h3>Research and risk</h3><p>The platform paper-trades BTC, ETH and gold from completed public candles. Live-exchange execution is off. Research archives stay closed. There is no guarantee of profitable results. Account balances keep the currency you choose. Aureon does not convert them.</p></article>
+</section>
+<footer>Aureon Trading Lab · Brought to you by Cyber Aid · Paper broker on · Live exchange off<br><a href="/register">Create account</a> · <a href="/login">Sign in</a> · <a href="#styles">Signal styles</a> · <a href="#risk">Research and risk</a></footer>
+</body>
+</html>

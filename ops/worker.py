@@ -461,7 +461,7 @@ class Worker:
         if result.get("decision") not in {"BUY", "SELL"} or result.get("entry") is None or result.get("stop") is None or result.get("target") is None:
             for user in users:
                 expire_stale(user.get("id"), symbol, interval, now_ms)
-                observe(user.get("id"), symbol, interval, last_bar, now_ms, source)
+                observe(user.get("id"), symbol, interval, last_bar, now_ms, source, bars=bars)
             return 0
         for user in users:
             personal = apply_persona(dict(result), user)
@@ -486,7 +486,7 @@ class Worker:
                     queue_update(user.get("id"), user, event_id, symbol, interval, observation["state"], observation["note"])
                 except Exception:
                     pass
-            observe(user.get("id"), symbol, interval, last_bar, now_ms, source)
+            observe(user.get("id"), symbol, interval, last_bar, now_ms, source, bars=bars)
             from ops.autopilot import consider
             account = dict(user)
             account["id"] = user.get("id")
