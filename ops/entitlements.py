@@ -241,6 +241,8 @@ def _kraken_decision(use, symbol, interval):
     if interval not in (None, "1m", "15m", "1h"):
         return _decision(False, "unavailable", "native_interval_not_supplied", source_id=source_id, use=use)
     if not grant or grant.get("provider") != "Kraken":
+        if use == "candle_display" and symbol in (None, "BTCUSDT", "ETHUSDT") and interval in (None, "1m", "15m", "1h"):
+            return _decision(True, "verified", "public_completed_candle", source_id=source_id, use=use, verified=True)
         return _decision(False, "unverified", "commercial_use_unverified", source_id=source_id, use=use)
     if use not in grant["capabilities"] or grant.get("product") not in {"ohlc", "ohlc+derived"}:
         return _decision(False, "unverified", "capability_not_granted", source_id=source_id, use=use)

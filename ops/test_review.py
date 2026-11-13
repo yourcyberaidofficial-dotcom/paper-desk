@@ -153,12 +153,12 @@ def test_worker_does_not_fetch_unlicensed_gold_minutes(monkeypatch, tmp_path):
     windows = worker._monitor_windows(1_700_000_000_000)
     minutes = [row for row in windows if row["symbol"] == "XAUUSD" and row["interval"] in {"1m", "3m"}]
     assert [row["interval"] for row in minutes] == ["1m", "3m"]
-    assert called[:2] == ["1m", "3m"]
-    assert all(row["bars"] == [] for row in minutes)
+    assert "1m" not in called and "3m" not in called
+    assert all(row["bars"] == [] and row["reason"] == "xau_minute_unsupported" for row in minutes)
     evaluations = []
     assert Worker(Ledger(tmp_path / "ledger.jsonl"), tmp_path / "prefs.json")._monitor_one(1_700_000_000_000, minutes[0], [], evaluations) == 0
     assert evaluations[0]["decision"] == "DATA BLOCK"
-    assert evaluations[0]["reason"] == "missing_bars"
+    assert evaluations[0]["reason"] == "xau_minute_unsupported"
 
 
 def test_gold_minute_chart_is_not_a_substituted_candle(monkeypatch):

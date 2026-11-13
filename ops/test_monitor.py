@@ -165,7 +165,7 @@ def test_one_pass_loads_each_pair_once(tmp_path, monkeypatch):
     monkeypatch.setattr("ops.terminal_route.load_gold_ohlc", gold)
     worker = Worker(Ledger(tmp_path / "ledger.jsonl"), tmp_path / "prefs.json")
     summary = worker.monitor(now_ms=1_700_000_000_000)
-    assert counts == {"crypto": 8, "gold": 4}
+    assert counts == {"crypto": 8, "gold": 2}
     assert summary["error"] is None
     assert len(summary["evaluations"]) == 12
 

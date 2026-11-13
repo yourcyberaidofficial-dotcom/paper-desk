@@ -14,6 +14,7 @@ from pathlib import Path
 _LOCK = threading.Lock()
 _READINGS = {}
 _REVISION = 0
+_SEEN = None
 SCHEMA = 1
 
 _FIELDS = (
@@ -28,6 +29,7 @@ _FIELDS = (
     "bar_close_ms",
     "fresh",
     "reference_price",
+    "price",
     "blocked",
     "strategy",
     "source_name",
@@ -39,10 +41,14 @@ _FIELDS = (
 
 
 def _path():
-    root = os.environ.get("AUREON_DATA", "").strip()
-    if not root:
-        return None
+    root = os.environ.get("AUREON_DATA", "").strip() or "data"
     return Path(root) / "canonical" / "readings.json"
+
+
+def _stamp(path):
+    stat = path.stat()
+    digest = hashlib.sha256(path.read_bytes()).hexdigest()
+    return (str(path.resolve()), stat.st_mtime_ns, stat.st_size, digest)
 
 
 def _snapshot_id(row):
@@ -58,49 +64,66 @@ def _snapshot_id(row):
 
 def _save():
     path = _path()
-    if path is None:
-        return
     path.parent.mkdir(parents=True, exist_ok=True)
     body = {"schema": SCHEMA, "readings": [dict(row) for row in _READINGS.values()]}
     temporary = path.with_suffix(".json.tmp")
     temporary.write_text(json.dumps(body, sort_keys=True), encoding="utf-8")
     temporary.replace(path)
+    global _SEEN
+    _SEEN = _stamp(path)
 
 
 def load():
-    """Fill an empty memory from disk. A restart calls this before the next close."""
+    """Reload when the file changes. An unchanged file does not wipe a newer memory row."""
     path = _path()
-    if path is None or not path.is_file():
-        return False
-    try:
-        body = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        return False
-    if not isinstance(body, dict) or body.get("schema") != SCHEMA:
-        return False
-    rows = body.get("readings")
-    if not isinstance(rows, list):
-        return False
-    global _REVISION
-    with _LOCK:
-        if _READINGS:
+    for _attempt in range(2):
+        if not path.is_file():
             return False
-        for row in rows:
-            if not isinstance(row, dict) or not row.get("symbol") or not row.get("interval"):
+        try:
+            stamp = _stamp(path)
+            body = json.loads(path.read_text(encoding="utf-8"))
+            if _stamp(path) != stamp:
                 continue
-            _READINGS[(row["symbol"], row["interval"])] = {key: row.get(key) for key in _FIELDS}
-            _READINGS[(row["symbol"], row["interval"])]["evaluated_at_ms"] = row.get("evaluated_at_ms")
-        _REVISION = len(_READINGS)
+        except (OSError, ValueError):
+            return False
+        if not isinstance(body, dict) or body.get("schema") != SCHEMA:
+            return False
+        rows = body.get("readings")
+        if not isinstance(rows, list):
+            return False
+        global _REVISION, _SEEN
+        with _LOCK:
+            try:
+                current = _stamp(path) if path.is_file() else None
+            except OSError:
+                return bool(_READINGS)
+            if current != stamp:
+                continue
+            if stamp == _SEEN and _READINGS:
+                return True
+            _READINGS.clear()
+            for row in rows:
+                if not isinstance(row, dict) or not row.get("symbol") or not row.get("interval"):
+                    continue
+                stored = {key: row.get(key) for key in _FIELDS}
+                stored["evaluated_at_ms"] = row.get("evaluated_at_ms")
+                if stored.get("price") is None:
+                    stored["price"] = stored.get("reference_price")
+                _READINGS[(row["symbol"], row["interval"])] = stored
+            _REVISION = len(_READINGS)
+            _SEEN = stamp
+            return bool(_READINGS)
     return bool(_READINGS)
 
 
 def bind():
     """Use the current data directory. A restart reloads the file. A test directory starts empty."""
-    global _REVISION
+    global _REVISION, _SEEN
     with _LOCK:
         _READINGS.clear()
         _REVISION = 0
-    if _path() is not None:
+        _SEEN = None
+    if _path().is_file():
         load()
 
 
@@ -150,6 +173,8 @@ def publish(result, now_ms):
         return False
     row = {key: result.get(key) for key in _FIELDS}
     row["evaluated_at_ms"] = int(now_ms)
+    if row.get("price") is None:
+        row["price"] = row.get("reference_price")
     row["snapshot_id"] = result.get("snapshot_id") or _snapshot_id(row)
     row["schema"] = SCHEMA
     key = (symbol, interval)
@@ -242,12 +267,62 @@ def account_view(user):
     }
 
 
+def project_markets(body):
+    """Replace a page's market rows with the stored candle when that pair is released."""
+    if not isinstance(body, dict):
+        return body
+    markets = body.get("markets")
+    if not isinstance(markets, list):
+        return body
+    from ops.customer_release import reading_released
+
+    shown = []
+    for item in markets:
+        if not isinstance(item, dict):
+            shown.append(item)
+            continue
+        symbol = item.get("symbol") or item.get("instrument")
+        interval = item.get("interval") or item.get("timeframe")
+        stored = get(symbol, interval) if symbol and interval else None
+        if not stored or not stored.get("snapshot_id") or not reading_released(symbol, interval):
+            shown.append(item)
+            continue
+        row = dict(item)
+        decision = stored.get("decision_label") or stored.get("decision")
+        price = stored.get("reference_price")
+        if price is None:
+            price = stored.get("price")
+        row["snapshot_id"] = stored.get("snapshot_id")
+        row["bar_close_ms"] = stored.get("bar_close_ms")
+        row["decision"] = stored.get("decision")
+        row["decision_label"] = decision
+        row["entry"] = stored.get("entry")
+        row["stop"] = stored.get("stop")
+        row["target"] = stored.get("target")
+        row["source"] = "canonical"
+        data = dict(row.get("data") or {})
+        data["bar_close_ms"] = stored.get("bar_close_ms")
+        data["timeframe"] = interval
+        if price is not None:
+            row["price"] = price
+            row["close"] = price
+            row["reference_price"] = stored.get("reference_price")
+            data["price"] = price
+            data["close"] = price
+        row["data"] = data
+        shown.append(row)
+    body = dict(body)
+    body["markets"] = shown
+    return body
+
+
 def reset():
     """Test isolation. Production does not call this."""
-    global _REVISION
+    global _REVISION, _SEEN
     with _LOCK:
         _READINGS.clear()
         _REVISION = 0
+        _SEEN = None
         path = _path()
-    if path is not None and path.exists():
+    if path.exists():
         path.unlink()

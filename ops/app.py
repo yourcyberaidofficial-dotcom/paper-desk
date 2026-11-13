@@ -1316,6 +1316,16 @@ def markets():
         if stored and stored.get("snapshot_id"):
             payload["snapshot_id"] = stored.get("snapshot_id")
             payload["bar_close_ms"] = stored.get("bar_close_ms")
+            price = stored.get("reference_price")
+            if price is None:
+                price = stored.get("price")
+            display = dict(display)
+            display["bar_close_ms"] = stored.get("bar_close_ms")
+            display["timeframe"] = frame
+            if price is not None:
+                display["price"] = price
+                display["close"] = price
+            payload["data"] = display
             if isinstance(shown, dict):
                 shown = dict(shown)
                 shown["decision"] = stored.get("decision_label") or stored.get("decision")
@@ -2391,6 +2401,9 @@ def scanner_api():
                 "probability": None,
             })
         body["notice"] = "The scan did not return a reading. No price was invented."
+    from ops.desk_pulse import project_markets
+
+    body = project_markets(body)
     user_id = session.get("user_id")
     if user_id:
         from ops.inbox import record_scan
@@ -2412,9 +2425,12 @@ def desk_api():
     if not any_customer_display():
         return jsonify(empty_desk())
     try:
-        return jsonify(release_scan(desk_scan(now_ms)))
+        body = release_scan(desk_scan(now_ms))
     except Exception as exc:
-        return jsonify({"markets": [], "notice": "The scan did not return a reading. No price was invented.", "broker": False, "snapshots": []})
+        body = {"markets": [], "notice": "The scan did not return a reading. No price was invented.", "broker": False, "snapshots": []}
+    from ops.desk_pulse import project_markets
+
+    return jsonify(project_markets(body))
 
 
 @app.post("/api/desk/plan")
@@ -2565,6 +2581,9 @@ def workspace_api():
             body = release_scan(desk_scan(now_ms))
         except Exception:
             body = empty_desk()
+    from ops.desk_pulse import project_markets
+
+    body = project_markets(body)
     remember_live(body)
     from ops.leader_run import published_leaders
     body["leaders"] = published_leaders()

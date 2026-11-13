@@ -23,6 +23,7 @@ services:
       - desk-activity:/app/data/activity
       - desk-rights:/app/data/rights
       - desk-cache:/app/data/cache
+      - desk-canonical:/app/data/canonical
       - desk-ai:/app/data/ai
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/health')"]
@@ -37,4 +38,5 @@ volumes:
   desk-activity:
   desk-rights:
   desk-cache:
+  desk-canonical:
   desk-ai:

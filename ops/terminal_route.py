@@ -171,7 +171,8 @@ def handle_signal(user_id, body, now_ms=None, bars_loader=None, quote_loader=Non
     from ops.terminal_signal import apply_persona
 
     stored = stored_reading(symbol, interval)
-    if stored and stored.get("bar_close_ms") is not None:
+    injected = any(loader is not None for loader in (bars_loader, quote_loader, session_loader, ohlc_loader))
+    if strategy in {None, "", "auto"} and not injected and stored and stored.get("bar_close_ms") is not None:
         user = get(user_id) or {}
         personal = apply_persona(dict(stored), user)
         personal["snapshot_id"] = stored.get("snapshot_id")
