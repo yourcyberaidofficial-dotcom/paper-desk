@@ -30,6 +30,15 @@ def polling_enabled():
     return bool(os.environ.get("TELEGRAM_BOT_TOKEN"))
 
 
+def intake_mode():
+    """Webhook and polling are exclusive. A secret means webhook; otherwise poll."""
+    if os.environ.get("TELEGRAM_WEBHOOK_SECRET", "").strip():
+        return "webhook"
+    if polling_enabled():
+        return "polling"
+    return "off"
+
+
 class UpdateInbox:
     def __init__(self, path=None):
         self.path = Path(path) if path is not None else SEEN_PATH
@@ -158,7 +167,7 @@ _webhook_cleared = False
 
 def poll_if_enabled(opener=None):
     global _webhook_cleared
-    if not polling_enabled():
+    if intake_mode() != "polling":
         return None
     token = os.environ.get("TELEGRAM_BOT_TOKEN")
     if not token:
