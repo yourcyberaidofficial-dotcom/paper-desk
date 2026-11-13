@@ -89,3 +89,37 @@ def test_a_later_wait_supersedes_the_old_entry(tmp_path, monkeypatch):
     assert saved[0]["lifecycle"] == "expired"
     assert "its own candle" in saved[0]["lifecycle_note"]
 
+
+def test_an_unchanged_candle_is_carried_and_not_decided_again(tmp_path, monkeypatch):
+    monkeypatch.setenv("AUREON_DATA", str(tmp_path))
+    import ops.users as users
+    from ops.desk_pulse import account_view
+    from ops.terminal_signal import decide as real_decide
+
+    monkeypatch.setattr(users, "ROOT", tmp_path / "users")
+    users.ROOT.mkdir(parents=True, exist_ok=True)
+    owner = register("ada", "password-s")
+    calls = {"n": 0}
+
+    def counting(symbol, interval, *args, **kwargs):
+        if symbol == "BTCUSDT" and interval == "4h":
+            calls["n"] += 1
+        return real_decide(symbol, interval, *args, **kwargs)
+
+    monkeypatch.setattr("ops.terminal_signal.decide", counting)
+    bars = _compress()
+    now = bars[-1]["close_time_ms"] + 1000
+    worker = Worker(Ledger(tmp_path / "ledger.jsonl"), tmp_path / "prefs.json")
+    window = [{"symbol": "BTCUSDT", "interval": "4h", "bars": bars}]
+    first = worker.monitor(now_ms=now, windows=window)
+    second = worker.monitor(now_ms=now + 1000, windows=window)
+    assert calls["n"] == 1
+    assert second["unchanged"] == 1
+    assert second["evaluations"][0]["carried"] is True
+    view = account_view(users.get(owner["id"]))
+    assert view["broker"] is False
+    assert view["readings"][0]["symbol"] == "BTCUSDT"
+    assert view["readings"][0]["entry"] == 106
+    assert "Entry 106.00" in view["readings"][0]["explanation"]
+
+

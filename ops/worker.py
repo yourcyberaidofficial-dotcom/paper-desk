@@ -103,6 +103,12 @@ class Worker:
         self.last_monitor = None
         self.last_monitor_error = None
         self.last_cycle_error = None
+        try:
+            from ops.desk_pulse import reset
+
+            reset()
+        except Exception:
+            pass
 
     def prefs(self) -> dict:
         if not self.prefs_path.exists():
@@ -270,8 +276,11 @@ class Worker:
 
         try:
             from ops.signal_engine import cycle
-            cycle(now_ms)
-            self.last_cycle_error = None
+
+            if time.time() - getattr(self, "_cycle_wall", 0) >= 45:
+                cycle(now_ms)
+                self.last_cycle_error = None
+                self._cycle_wall = time.time()
         except Exception as exc:
             self.last_cycle_error = type(exc).__name__
         if windows is None:
@@ -279,10 +288,19 @@ class Worker:
         users = list_users()
         evaluations = []
         delivered = 0
+        unchanged = 0
         for window in windows:
             symbol = window.get("symbol")
             interval = window.get("interval")
             try:
+                from ops.desk_pulse import carried, same_bar
+
+                if same_bar(window):
+                    remembered = carried(window)
+                    if remembered:
+                        evaluations.append(remembered)
+                        unchanged += 1
+                        continue
                 delivered += self._monitor_one(now_ms, window, users, evaluations)
             except Exception as exc:
                 evaluations.append({
@@ -291,7 +309,7 @@ class Worker:
                     "decision": "DATA BLOCK",
                     "reason": type(exc).__name__,
                 })
-        return {"evaluated_at_ms": now_ms, "evaluations": evaluations, "delivered": delivered, "error": None}
+        return {"evaluated_at_ms": now_ms, "evaluations": evaluations, "delivered": delivered, "unchanged": unchanged, "error": None}
 
     def _monitor_one(self, now_ms, window, users, evaluations):
         from ops.inbox import append_event, deliver_evaluation, expire_stale
@@ -336,6 +354,13 @@ class Worker:
             evaluations.append({"symbol": symbol, "interval": interval, "decision": "DATA BLOCK", "reason": window.get("reason") or "missing_bars"})
             return 0
         result = decide(symbol, interval, "auto", bars, now_ms, None, live_quote=window.get("live_quote"))
+        result["feed_state"] = window.get("feed_state") or "live"
+        try:
+            from ops.desk_pulse import publish
+
+            publish(result, now_ms)
+        except Exception:
+            pass
         try:
             from ops.customer_release import candles_released, reading_released
             if candles_released(symbol, interval) or reading_released(symbol, interval):

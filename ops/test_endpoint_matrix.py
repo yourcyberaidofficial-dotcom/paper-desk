@@ -13,7 +13,7 @@ PUBLIC_GET = {
     "/api/signal", "/api/signal-history", "/api/triad", "/health", "/version",
 }
 SESSION_GET = {
-    "/api/activity", "/api/autopilot", "/api/bot/thread", "/api/candles/import", "/api/desk", "/api/eligibility", "/api/experience", "/api/accounts", "/api/inbox/settings",
+    "/api/activity", "/api/autopilot", "/api/bot/thread", "/api/candles/import", "/api/desk", "/api/desk/pulse", "/api/eligibility", "/api/experience", "/api/accounts", "/api/inbox/settings",
     "/api/lab", "/api/me", "/api/notifications", "/api/paper/book", "/api/plan",
     "/api/qualification", "/api/registry", "/api/scanner", "/api/signals/lifecycle",
     "/api/terminal/history", "/api/workspace",
