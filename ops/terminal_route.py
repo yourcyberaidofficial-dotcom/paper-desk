@@ -167,6 +167,22 @@ def handle_signal(user_id, body, now_ms=None, bars_loader=None, quote_loader=Non
     interval = body.get("interval") or "4h"
     strategy = body.get("strategy") or "auto"
     now_ms = int(now_ms if now_ms is not None else time.time() * 1000)
+    from ops.desk_pulse import get as stored_reading
+    from ops.terminal_signal import apply_persona
+
+    stored = stored_reading(symbol, interval)
+    if stored and stored.get("bar_close_ms") is not None:
+        user = get(user_id) or {}
+        personal = apply_persona(dict(stored), user)
+        personal["snapshot_id"] = stored.get("snapshot_id")
+        personal["bar_close_ms"] = stored.get("bar_close_ms")
+        personal["approved"] = False
+        personal["order"] = False
+        personal["filled"] = False
+        personal["delivered"] = False
+        personal["broker"] = False
+        personal["source"] = "canonical"
+        return 200, _publish(body, personal)
     live_quote = None
     if symbol == "XAUUSD":
         if quote_loader is None:

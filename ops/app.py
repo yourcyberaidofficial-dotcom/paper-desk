@@ -165,6 +165,8 @@ def _csrf_ok():
         return True
     if request.method in {"GET", "HEAD", "OPTIONS"}:
         return True
+    if request.path == "/api/telegram/update":
+        return True
     auth = request.headers.get("Authorization", "")
     if auth.startswith("Bearer ") and not session.get("user_id") and not session.get("ok"):
         return True
@@ -356,8 +358,20 @@ def _reading_not_shown():
 
 def _gold_health_row():
     from ops.customer_release import STATUS, candles_released
+    from ops.desk_pulse import health_label, latest
 
-    released = any(candles_released("XAUUSD", interval) for interval in ("1m", "15m", "1h"))
+    released = any(candles_released("XAUUSD", interval) for interval in ("15m", "1h"))
+    stored = latest("XAUUSD")
+    if stored:
+        label = health_label(stored, int(time.time() * 1000))
+        return {
+            "status": label,
+            "source_reachable": "worker",
+            "last_close_time_ms": stored.get("bar_close_ms"),
+            "snapshot_id": stored.get("snapshot_id"),
+            "kind": "canonical_reading",
+            "note": "Worker gold reading. Not a paid vendor and not a bid or ask.",
+        }
     return {
         "status": "source_authorised" if released else "not_shown",
         "source_reachable": "not_checked",
@@ -417,6 +431,14 @@ def _market_report(snapshot):
             "desk_snapshot": False,
             "note": "Independent completed-kline check from the Binance spot REST klines endpoint. Not a quote and not the desk snapshot.",
         }
+        from ops.desk_pulse import health_label, latest
+
+        stored = latest(symbol)
+        if stored:
+            out[symbol]["feed"] = health_label(stored, now_ms)
+            out[symbol]["snapshot_id"] = stored.get("snapshot_id")
+            if stored.get("bar_close_ms") is not None:
+                out[symbol]["last_close_time_ms"] = stored.get("bar_close_ms")
     out["XAUUSD"] = _gold_health_row()
     return out
 
@@ -1288,6 +1310,21 @@ def markets():
             payload["source"] = source
             payload["kind"] = "sampled_reference" if sampled else "completed_bar"
             payload["snapshot_id"] = snap.get("snapshot_id")
+        from ops.desk_pulse import get as canonical_reading
+
+        stored = canonical_reading(symbol, frame) if reading_released(symbol, frame, sample) else None
+        if stored and stored.get("snapshot_id"):
+            payload["snapshot_id"] = stored.get("snapshot_id")
+            payload["bar_close_ms"] = stored.get("bar_close_ms")
+            if isinstance(shown, dict):
+                shown = dict(shown)
+                shown["decision"] = stored.get("decision_label") or stored.get("decision")
+                shown["entry"] = stored.get("entry")
+                shown["stop"] = stored.get("stop")
+                shown["target"] = stored.get("target")
+                shown["snapshot_id"] = stored.get("snapshot_id")
+                shown["candle_close_ms"] = stored.get("bar_close_ms")
+                payload["reading"] = shown
         return payload
 
     return jsonify({
@@ -1816,6 +1853,33 @@ def gold_signal():
         body = derived_withheld("XAUUSD", "1h")
         body["quote_semantics"] = "unavailable"
         return jsonify(body)
+    from ops.desk_pulse import get as canonical_reading
+
+    stored = canonical_reading("XAUUSD", "1h")
+    if stored and stored.get("bar_close_ms") is not None:
+        decision = stored.get("decision_label") or stored.get("decision") or "WAIT"
+        return jsonify({
+            "symbol": "XAUUSD",
+            "interval": "1h",
+            "strategy": stored.get("strategy"),
+            "state": "canonical",
+            "reason": stored.get("runtime_status"),
+            "result": decision,
+            "direction": decision,
+            "decision": decision,
+            "entry": stored.get("entry"),
+            "stop": stored.get("stop"),
+            "target": stored.get("target"),
+            "candle_close_ms": stored.get("bar_close_ms"),
+            "bar_close_ms": stored.get("bar_close_ms"),
+            "snapshot_id": stored.get("snapshot_id"),
+            "production": "WAIT_DEFAULT",
+            "approved": False,
+            "validated": False,
+            "broker": False,
+            "quote_semantics": "ohlc_not_bid_ask",
+            "note": "Same completed-candle paper reading as the worker. Not bid/ask, not a broker fill, and not an approved signal.",
+        })
     from ops.desk_snapshot import headline_board, public_reading
 
     shown = {}
@@ -4329,7 +4393,7 @@ async function learnPage(){
     }).join("");
     return `<h2>${course.title}</h2>${lessons}`;
   }).join("");
-  const custom = ((lab.rules || {}).custom_rules || []).map(rule => `<p>${rule.text}</p><p class="muted">${rule.note}</p>`).join("");
+  const custom = ((lab.rules || {}).custom_rules || []).map(rule => `<p>${escapeHtml(rule.text)}</p><p class="muted">${escapeHtml(rule.note)}</p>`).join("");
   view.innerHTML = `<article class="card"><h2>Academy</h2><p>${done.size} of ${total} lessons completed on this account.</p><p>${(lab.rules || {}).verified_note || ""}</p><p class="muted">These lessons explain the desk. They do not open a paper trade. Completion is not a skill score.</p></article><div class="courses">${cards}</div><article class="card"><h2>Your own challenge note</h2>${custom || "<p>No personal note yet.</p>"}<label>Note <input id="rule" maxlength="400"></label><button id="saverule" type="button">Save as my note</button><p class="muted">A note you type is not confirmed as a firm's current rule.</p></article>`;
   document.querySelectorAll("[data-lesson]").forEach(button => { button.onclick = async () => {
     const lessonId = button.dataset.lesson;
@@ -4359,9 +4423,9 @@ async function labPage(){
   const focus = new Set(lab.focus || []);
   const ideas = (lab.improvement || []).map(item => `<li><a href="/learn#lesson-${item.lesson_id}">${item.lesson_id}</a>: ${item.because}</li>`).join("");
   const journal = (lab.journal || []).map(row => `<p>${row.opened_by === "autopilot" ? "AutoPilot" : "Account"} · ${row.symbol || ""} · ${row.status || ""} · ${row.exit_kind || "no exit"}. ${row.note || ""}</p>`).join("");
-  const reflections = (lab.journal_notes || []).map(row => `<p>${row.text}</p>`).join("");
+  const reflections = (lab.journal_notes || []).map(row => `<p>${escapeHtml(row.text)}</p>`).join("");
   const botLine = autoSentence(bot);
-  view.innerHTML = `<article class="card"><h2>Your desk</h2><p>Experience you stated: ${escapeHtml(lab.experience)}. Objective: ${escapeHtml(lab.objective || "not set")}.</p><p>Persona ${escapeHtml(persona.name || "not selected")}. Risk cap ${persona.risk_per_trade_percent ?? "—"}%. Reward floor ${persona.min_rr ?? "—"}. Paper timeframes ${(persona.paper_timeframes || []).join(", ") || "—"}.</p><p>Markets saved on the account: ${((lab.preferences || {}).markets || []).join(", ") || "not set"}.</p><p>AutoPilot ${botLine}</p><p>${lab.observation}</p><p class="muted">${figures.trades ? "Closed paper trades: " + figures.trades + "." : "No completed paper trade."} ${lab.note}</p></article><article class="card"><h2>Journal</h2>${journal || "<p>No paper order is recorded for this account.</p>"}<p class="muted">These lines come from the paper book. They are not a broker history, and they do not diagnose discipline.</p><h3>Your notes</h3>${reflections || "<p>No reflection saved.</p>"}<label>Reflection <input id="journalnote" maxlength="500"></label><button id="savenote" type="button">Save reflection</button><p class="muted">A note is what you wrote. It is not an inferred weakness.</p></article><article class="card"><h2>What to study next</h2><ul>${ideas || "<li>No further suggestion.</li>"}</ul><p class="muted">A suggestion is an unfinished lesson. It is not a skill score. <a href="/learn">Open Academy</a></p></article><form id="labform" class="card"><h2>Learning profile</h2><label>Experience <select id="exp"><option value="new">New</option><option value="developing">Developing</option><option value="independent">Independent</option></select></label><label>Objective <input id="objective" maxlength="160" value="${lab.objective || ""}"></label><div class="checks"><label><input type="checkbox" value="candles" ${focus.has("candles")?"checked":""}> Candles</label><label><input type="checkbox" value="risk" ${focus.has("risk")?"checked":""}> Risk</label><label><input type="checkbox" value="psychology" ${focus.has("psychology")?"checked":""}> Psychology</label><label><input type="checkbox" value="prop" ${focus.has("prop")?"checked":""}> Prop education</label></div><button type="submit">Save lab profile</button><p id="labsaved" class="muted"></p></form>`;
+  view.innerHTML = `<article class="card"><h2>Your desk</h2><p>Experience you stated: ${escapeHtml(lab.experience)}. Objective: ${escapeHtml(lab.objective || "not set")}.</p><p>Persona ${escapeHtml(persona.name || "not selected")}. Risk cap ${persona.risk_per_trade_percent ?? "—"}%. Reward floor ${persona.min_rr ?? "—"}. Paper timeframes ${(persona.paper_timeframes || []).join(", ") || "—"}.</p><p>Markets saved on the account: ${((lab.preferences || {}).markets || []).join(", ") || "not set"}.</p><p>AutoPilot ${botLine}</p><p>${lab.observation}</p><p class="muted">${figures.trades ? "Closed paper trades: " + figures.trades + "." : "No completed paper trade."} ${lab.note}</p></article><article class="card"><h2>Journal</h2>${journal || "<p>No paper order is recorded for this account.</p>"}<p class="muted">These lines come from the paper book. They are not a broker history, and they do not diagnose discipline.</p><h3>Your notes</h3>${reflections || "<p>No reflection saved.</p>"}<label>Reflection <input id="journalnote" maxlength="500"></label><button id="savenote" type="button">Save reflection</button><p class="muted">A note is what you wrote. It is not an inferred weakness.</p></article><article class="card"><h2>What to study next</h2><ul>${ideas || "<li>No further suggestion.</li>"}</ul><p class="muted">A suggestion is an unfinished lesson. It is not a skill score. <a href="/learn">Open Academy</a></p></article><form id="labform" class="card"><h2>Learning profile</h2><label>Experience <select id="exp"><option value="new">New</option><option value="developing">Developing</option><option value="independent">Independent</option></select></label><label>Objective <input id="objective" maxlength="160" value="${escapeHtml(lab.objective || "")}"></label><div class="checks"><label><input type="checkbox" value="candles" ${focus.has("candles")?"checked":""}> Candles</label><label><input type="checkbox" value="risk" ${focus.has("risk")?"checked":""}> Risk</label><label><input type="checkbox" value="psychology" ${focus.has("psychology")?"checked":""}> Psychology</label><label><input type="checkbox" value="prop" ${focus.has("prop")?"checked":""}> Prop education</label></div><button type="submit">Save lab profile</button><p id="labsaved" class="muted"></p></form>`;
   if (lab.experience && lab.experience !== "not_stated") document.getElementById("exp").value = lab.experience;
   document.getElementById("labform").onsubmit = async (event) => {
     event.preventDefault();

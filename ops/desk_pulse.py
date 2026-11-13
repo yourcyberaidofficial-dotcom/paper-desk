@@ -1,15 +1,20 @@
 """The latest closed-candle reading for each market.
 
 The worker publishes a reading when a candle closes. Pages read this
-instead of deciding the same candle again. Nothing here is a tick, a
-broker fill, or another account's record.
+instead of deciding the same candle again. The record is also written
+under $AUREON_DATA so a restart does not blank the desk.
 """
 
+import hashlib
+import json
+import os
 import threading
+from pathlib import Path
 
 _LOCK = threading.Lock()
 _READINGS = {}
 _REVISION = 0
+SCHEMA = 1
 
 _FIELDS = (
     "symbol",
@@ -29,7 +34,109 @@ _FIELDS = (
     "feed_state",
     "runtime_status",
     "higher_timeframe",
+    "snapshot_id",
 )
+
+
+def _path():
+    root = os.environ.get("AUREON_DATA", "").strip()
+    if not root:
+        return None
+    return Path(root) / "canonical" / "readings.json"
+
+
+def _snapshot_id(row):
+    identity = "|".join([
+        str(row.get("symbol") or ""),
+        str(row.get("interval") or ""),
+        str(row.get("bar_close_ms") or ""),
+        str(row.get("decision") or ""),
+        str(row.get("feed_state") or ""),
+    ])
+    return hashlib.sha256(identity.encode()).hexdigest()[:20]
+
+
+def _save():
+    path = _path()
+    if path is None:
+        return
+    path.parent.mkdir(parents=True, exist_ok=True)
+    body = {"schema": SCHEMA, "readings": [dict(row) for row in _READINGS.values()]}
+    temporary = path.with_suffix(".json.tmp")
+    temporary.write_text(json.dumps(body, sort_keys=True), encoding="utf-8")
+    temporary.replace(path)
+
+
+def load():
+    """Fill an empty memory from disk. A restart calls this before the next close."""
+    path = _path()
+    if path is None or not path.is_file():
+        return False
+    try:
+        body = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return False
+    if not isinstance(body, dict) or body.get("schema") != SCHEMA:
+        return False
+    rows = body.get("readings")
+    if not isinstance(rows, list):
+        return False
+    global _REVISION
+    with _LOCK:
+        if _READINGS:
+            return False
+        for row in rows:
+            if not isinstance(row, dict) or not row.get("symbol") or not row.get("interval"):
+                continue
+            _READINGS[(row["symbol"], row["interval"])] = {key: row.get(key) for key in _FIELDS}
+            _READINGS[(row["symbol"], row["interval"])]["evaluated_at_ms"] = row.get("evaluated_at_ms")
+        _REVISION = len(_READINGS)
+    return bool(_READINGS)
+
+
+def bind():
+    """Use the current data directory. A restart reloads the file. A test directory starts empty."""
+    global _REVISION
+    with _LOCK:
+        _READINGS.clear()
+        _REVISION = 0
+    if _path() is not None:
+        load()
+
+
+def get(symbol, interval):
+    load()
+    with _LOCK:
+        row = _READINGS.get((symbol, interval))
+        return dict(row) if row else None
+
+
+def latest(symbol):
+    load()
+    with _LOCK:
+        rows = [dict(row) for row in _READINGS.values() if row.get("symbol") == symbol and row.get("interval") not in {"1m", "3m"}]
+    if not rows:
+        return None
+    rows.sort(key=lambda item: int(item.get("bar_close_ms") or 0), reverse=True)
+    return rows[0]
+
+
+def health_label(row, now_ms):
+    """live, cached, market_closed, or feed_down. A closed gold market is not a dead feed."""
+    if not row:
+        return "feed_down"
+    if row.get("symbol") == "XAUUSD":
+        from datetime import datetime, timezone
+        from ops.sessions import gold_market_open
+
+        if not gold_market_open(datetime.fromtimestamp(int(now_ms) / 1000, timezone.utc)):
+            return "market_closed"
+    state = row.get("feed_state") or "live"
+    if state == "last_good":
+        return "cached"
+    if state in {"down", "feed_down"}:
+        return "feed_down"
+    return "live"
 
 
 def publish(result, now_ms):
@@ -43,6 +150,8 @@ def publish(result, now_ms):
         return False
     row = {key: result.get(key) for key in _FIELDS}
     row["evaluated_at_ms"] = int(now_ms)
+    row["snapshot_id"] = result.get("snapshot_id") or _snapshot_id(row)
+    row["schema"] = SCHEMA
     key = (symbol, interval)
     with _LOCK:
         previous = _READINGS.get(key)
@@ -52,6 +161,7 @@ def publish(result, now_ms):
             return False
         _READINGS[key] = row
         _REVISION += 1
+        _save()
     return True
 
 
@@ -95,6 +205,7 @@ def account_view(user):
     from ops.terminal_signal import apply_persona, explain_reading
 
     settings = inbox_settings(user)
+    load()
     with _LOCK:
         revision = _REVISION
         rows = [dict(row) for row in _READINGS.values()]
@@ -114,6 +225,7 @@ def account_view(user):
             "target": personal.get("target"),
             "reward_risk": personal.get("reward_risk"),
             "bar_close_ms": personal.get("bar_close_ms"),
+            "snapshot_id": row.get("snapshot_id"),
             "fresh": personal.get("fresh"),
             "feed_state": personal.get("feed_state") or "live",
             "persona_release": personal.get("persona_release"),
@@ -136,3 +248,6 @@ def reset():
     with _LOCK:
         _READINGS.clear()
         _REVISION = 0
+        path = _path()
+    if path is not None and path.exists():
+        path.unlink()
