@@ -440,13 +440,20 @@ class Worker:
                 delivered += 1
             observation = observe_levels(personal.get("decision"), personal.get("stop"), personal.get("target"), last_bar)
             if observation and outcome.get("opportunity_id"):
+                event_id = f"evt:{outcome.get('opportunity_id')}:{observation['state']}:{result.get('bar_close_ms')}"
                 append_event(user.get("id"), outcome.get("opportunity_id"), {
-                    "id": f"evt:{outcome.get('opportunity_id')}:{observation['state']}:{result.get('bar_close_ms')}",
+                    "id": event_id,
                     "state": observation["state"],
                     "note": observation["note"],
                     "created_ms": now_ms,
                     "source": source.get("name"),
                 })
+                try:
+                    from ops.inbox_notify import queue_update
+
+                    queue_update(user.get("id"), user, event_id, symbol, interval, observation["state"], observation["note"])
+                except Exception:
+                    pass
             observe(user.get("id"), symbol, interval, last_bar, now_ms, source)
             from ops.autopilot import consider
             account = dict(user)
