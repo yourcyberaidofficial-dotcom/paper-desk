@@ -47,6 +47,12 @@ def classify_card(card):
         execution = "paper_eligible"
     else:
         execution = "not_eligible"
+    if card.get("correction") == "revised":
+        note = "The provider revised this completed candle. The original decision was not rewritten."
+    elif card.get("correction") == "late":
+        note = "This candle arrived after a newer close. It was recorded and did not replace the newer decision."
+    else:
+        note = _note(observation, research, execution)
     released = observation != "data_unavailable"
     return {
         "symbol": card.get("symbol"),
@@ -61,7 +67,7 @@ def classify_card(card):
         "target": card.get("target") if released else None,
         "source_id": card.get("source_id") if released else None,
         "opportunity_id": card.get("opportunity_id"),
-        "note": _note(observation, research, execution),
+        "note": note,
     }
 
 

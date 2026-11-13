@@ -2039,6 +2039,17 @@ def set_prefs():
     return jsonify(worker.save_prefs(body))
 
 
+@app.get("/api/desk/pulse")
+def desk_pulse():
+    user_id = session.get("user_id")
+    if not user_id or not _user_ok():
+        return jsonify({"error": "unauthorized"}), 401
+    from ops.desk_pulse import account_view
+    from ops.users import get
+
+    return jsonify(account_view(get(user_id) or {}))
+
+
 def _loop():
     def work():
         worker.evaluate()
@@ -3837,6 +3848,8 @@ async function terminal(){
         out.innerHTML = `<article class="card" data-request="${requestId}" data-symbol="${body.symbol}" data-interval="${body.interval}"><h2>${body.symbol || ""} ${body.interval || ""}</h2><p>${minute ? "This timeframe is not available." : "A verified live reading is not available."}</p><p class="muted">No evaluation was calculated. The manual paper plan on this page is empty until you type it.</p></article>`;
         return;
       }
+      out.dataset.manual = "1";
+      out.dataset.bar = String(body.bar_close_ms || "");
       const licensed = body.blocked === "xau_minute_unlicensed";
       const size = body.size_presentation && body.size_presentation.text ? body.size_presentation.text : (body.size && body.size.reason ? `Executable sizing is unavailable: ${plainReason(body.size.reason)}.` : "No position size on this result.");
       const headline = licensed ? "UNAVAILABLE" : (body.decision_label || body.decision || "WAIT");
@@ -3902,6 +3915,24 @@ async function terminal(){
   loadDeskChart();
   loadBook();
   history();
+  async function paintPulse(){
+    const out = document.getElementById("termout");
+    if (!out || path !== "/trading") return;
+    const pulse = await fetch("/api/desk/pulse", {credentials:"same-origin"}).then(r => r.ok ? r.json() : null).catch(() => null);
+    const requested = requestedNow();
+    const row = ((pulse && pulse.readings) || []).find(item => item.symbol === requested.symbol && item.interval === requested.interval);
+    if (!row) return;
+    const incoming = String(row.bar_close_ms || "");
+    if (out.dataset.manual === "1" && out.dataset.bar === incoming) return;
+    const level = (value) => value == null ? "—" : priceText(row.symbol, value);
+    const feed = row.feed_state === "last_good" ? "Last completed candle. The latest pull failed. No price was invented." : "Completed candle from the desk loop.";
+    const context = row.higher_timeframe ? ` Higher timeframe: ${plainReason(row.higher_timeframe)}` : "";
+    out.dataset.bar = incoming;
+    out.innerHTML = `<article class="card"><h2>${row.decision_label || row.decision || "WAIT"} · ${row.symbol} ${row.interval}</h2><div class="row"><span>Entry</span><span class="num">${level(row.entry)}</span></div><div class="row"><span>Stop</span><span class="num">${level(row.stop)}</span></div><div class="row"><span>Target</span><span class="num">${level(row.target)}</span></div><p>${plainReason(row.explanation || "")}</p><p class="muted">${feed}${context} Not a broker fill and not an approved strategy.</p></article>`;
+  }
+  if (window.__deskPulse) clearInterval(window.__deskPulse);
+  paintPulse();
+  window.__deskPulse = setInterval(paintPulse, 20000);
   bindManualPlan();
 }
 async function signalsLegacy(){
