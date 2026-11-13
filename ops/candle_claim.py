@@ -10,9 +10,7 @@ from __future__ import annotations
 import contextlib
 import fcntl
 import json
-import os
 import threading
-from pathlib import Path
 
 _GUARD = threading.Lock()
 _THREADS = {}
@@ -25,7 +23,9 @@ def fingerprint(bar):
 
 
 def _root():
-    return Path(os.environ.get("AUREON_DATA") or "data") / "claims"
+    from ops.paths import claims_root
+
+    return claims_root()
 
 
 def _state_path(symbol, interval):

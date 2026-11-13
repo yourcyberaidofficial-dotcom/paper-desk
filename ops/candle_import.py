@@ -8,9 +8,7 @@ from __future__ import annotations
 
 import csv
 import io
-import os
 import time
-from pathlib import Path
 
 from ops.candle_book import CandleBook
 from ops.signal_pipeline import SignalBook
@@ -24,8 +22,9 @@ def _root(account_id):
     safe = "".join(ch for ch in str(account_id) if ch.isalnum())
     if not safe:
         return None
-    base = Path(os.environ.get("AUREON_DATA") or "data") / "imports" / safe
-    return base
+    from ops.paths import imports_root
+
+    return imports_root(account_id)
 
 
 def _book(account_id):
