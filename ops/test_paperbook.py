@@ -54,6 +54,23 @@ def test_a_saved_plan_can_be_opened_and_does_not_rewrite_its_prices(tmp_path, mo
     assert summary(other["id"])["empty"] is True
 
 
+def test_a_live_flag_does_not_send_before_the_risk_check(tmp_path, monkeypatch):
+    users, owner, _other = _account(tmp_path, monkeypatch)
+    delivered = deliver_evaluation(owner["id"], users.get(owner["id"]), _plan())
+    user = users.get(owner["id"])
+    user["id"] = owner["id"]
+    user["profile"]["live_trading"] = True
+    calls = []
+    monkeypatch.setattr("ops.live_broker.execute", lambda *args, **kwargs: calls.append(args) or {"ok": True, "sent": True, "reason": "opened"})
+    from ops.paperbook import opportunity_row
+    opened = open_order(user, opportunity_row(owner["id"], delivered["opportunity_id"]), 1_700_000_100_000)
+    assert calls == []
+    assert opened["ok"] is True
+    assert opened["order"]["venue"] == "paper"
+    assert opened["order"]["executable"] is False
+
+
+
 def test_stop_target_and_ambiguous_candles(tmp_path, monkeypatch):
     users, owner, _other = _account(tmp_path, monkeypatch)
     delivered = deliver_evaluation(owner["id"], users.get(owner["id"]), _plan(decision="BUY", entry=100, stop=99, target=103))

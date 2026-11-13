@@ -224,15 +224,9 @@ def open_order(user, opportunity, now_ms, commit=True, opened_by="account", auto
     sized = qualify_size(symbol, profile.get("capital"), risk, profile.get("currency"), entry, stop)
     if not sized.get("ok"):
         return {"ok": False, "reason": sized.get("reason") or "unsized", "size": sized}
+    # Risk admission is the next step. Live execution is locked off, so no
+    # exchange call can run before, or instead of, that admission.
     venue = None
-    if commit and bool(profile.get("live_trading")) and symbol in {"BTCUSDT", "ETHUSDT"} and direction == "BUY":
-        from ops.live_broker import execute
-
-        sent = execute(symbol, "BUY", sized.get("quantity"), stop, price=entry)
-        if sent.get("reason") != "not_configured":
-            if not sent.get("ok"):
-                return {"ok": False, "reason": sent.get("reason"), "order_opened": False, "live": False}
-            venue = sent
     origin = opened_by if opened_by in {"account", "autopilot"} else "account"
     if not commit:
         book = load(user_id)

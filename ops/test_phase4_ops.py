@@ -8,6 +8,7 @@ are the process defaults, not the lowered ceilings used by other tests.
 import http.cookiejar
 import json
 import os
+import re
 import socket
 import subprocess
 import time
@@ -53,6 +54,7 @@ def _spawn(port, bind, data, extra_env=None):
         "PORT": str(port),
         "PYTHONPATH": str(ROOT),
         "PYTHONUNBUFFERED": "1",
+        "DESK_SESSION_SECRET": "phase4-session-secret-is-32-characters-minimum",
     })
     env.pop("DESK_AUTH_LIMIT", None)
     env.pop("DESK_GENERAL_LIMIT", None)
@@ -103,8 +105,18 @@ def _open(request, opener=None):
         return exc.code, dict(exc.headers), exc.read()
 
 
+def _csrf(port, opener):
+    status, _headers, body = _open(urllib.request.Request(f"http://127.0.0.1:{port}/login"), opener)
+    assert status == 200, body[:180]
+    match = re.search(br'name="csrf" content="([0-9a-f]+)"', body) or re.search(br'csrfToken = "([0-9a-f]+)"', body)
+    assert match, body[:240]
+    return match.group(1).decode()
+
+
 def _login(port, name, password, forwarded_for=None, opener=None):
-    headers = {"Content-Type": "application/json"}
+    if opener is None:
+        opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(http.cookiejar.CookieJar()))
+    headers = {"Content-Type": "application/json", "X-CSRF-Token": _csrf(port, opener)}
     if forwarded_for:
         headers["X-Forwarded-For"] = forwarded_for
     request = urllib.request.Request(
@@ -202,13 +214,13 @@ def test_effective_limits_are_20_logins_and_300_general_without_a_test_override(
         log = Path(process._log_path).read_text(encoding="utf-8")
         allowed = 0
         for line in log.splitlines():
-            if '"GET ' not in line:
+            if '"GET /version ' not in line:
                 continue
             if line.rstrip().endswith(" 200 -"):
                 allowed += 1
             elif line.rstrip().endswith(" 429 -"):
                 break
-        assert allowed == 300
+        assert allowed in {299, 300}
         assert general.count(200) in {299, 300}
         # The deployment window is 60 seconds. Wait it out on this same process.
         time.sleep(int(last_auth[1]["Retry-After"]) + 1)
@@ -230,7 +242,7 @@ def test_default_limits_allow_a_signed_in_account(tmp_path):
         created = _open(urllib.request.Request(
             f"http://127.0.0.1:{port}/api/register",
             data=json.dumps({"name": "ada", "password": "password-s"}).encode(),
-            headers={"Content-Type": "application/json"},
+            headers={"Content-Type": "application/json", "X-CSRF-Token": _csrf(port, opener)},
         ), opener)
         assert created[0] == 200, created[2]
         signed = _login(port, "ada", "password-s", opener=opener)

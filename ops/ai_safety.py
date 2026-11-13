@@ -243,6 +243,8 @@ def accept_display_name(raw):
         return None
     if display_name_token(cleaned) is None:
         return None
+    if any(mark in cleaned for mark in "<>"):
+        return None
     return cleaned
 
 

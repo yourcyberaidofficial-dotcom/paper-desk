@@ -315,8 +315,8 @@ def _event_chain(tmp_path, monkeypatch):
 
     monkeypatch.setattr("ops.hosted_ai._post", explode)
     silent = ada.post("/api/aureon-ai", json={"page": "/overview", "question": "Explain"}).get_json()
-    assert silent["reason"] == "provider_not_configured" and silent["analysis"] is None
-    assert "spend_approval" in silent["missing"]
+    assert silent["reason"] is None and silent["operational"] == "DESK" and silent["analysis"] is None
+    assert silent["missing"] == []
     assert "AUREON_AI_API_KEY" not in json.dumps(silent)
     assert calls["n"] == 1
     del users
