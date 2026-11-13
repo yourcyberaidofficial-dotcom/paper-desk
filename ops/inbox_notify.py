@@ -42,6 +42,30 @@ def enabled(user):
     return True
 
 
+def allowed(user, card):
+    """A saved inbox filter is authoritative. An account with no filter is unchanged."""
+    saved = (user or {}).get("inbox_delivery") if isinstance(user, dict) else None
+    if not isinstance(saved, dict):
+        return True
+    from ops.inbox import inbox_settings
+
+    settings = inbox_settings(user)
+    if not settings["enabled"]:
+        return False
+    symbol = (card or {}).get("symbol")
+    interval = str((card or {}).get("interval") or "")
+    side = (card or {}).get("decision") or (card or {}).get("state")
+    if symbol not in settings["markets"] or interval not in settings["timeframes"]:
+        return False
+    if side == "BUY" and not settings["buy"]:
+        return False
+    if side == "SELL" and not settings["sell"]:
+        return False
+    if side in {"BUY", "SELL"} and not settings["experimental"]:
+        return False
+    return True
+
+
 def _number(value):
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         return None
@@ -222,8 +246,12 @@ def flush(sender=None):
 
 
 def queue_card(user_id, user, card):
+    if not allowed(user, card):
+        return {"queued": False, "reason": "filtered"}
     return queue(user_id, user, card.get("event_id") or card.get("id"), card_text(card))
 
 
 def queue_update(user_id, user, event_id, symbol, interval, state, note):
+    if not allowed(user, {"symbol": symbol, "interval": interval}):
+        return {"queued": False, "reason": "filtered"}
     return queue(user_id, user, event_id, update_text(symbol, interval, state, note))

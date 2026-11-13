@@ -120,3 +120,6 @@ def test_telegram_update_links_once_and_a_public_post_does_not(tmp_path, monkeyp
     page = app.test_client().get("/learn")
     assert page.status_code in {302, 401}
     assert polling_enabled() is False
+    bare = {"update_id": 42, "message": {"text": "/start", "from": {"id": 8}, "chat": {"id": 8}}}
+    assert apply_update(bare, inbox)["reason"] == "start_without_token"
+    assert get(user["id"])["telegram"]["chat_id"] == "9"
