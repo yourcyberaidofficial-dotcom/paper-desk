@@ -39,19 +39,24 @@ def _payload(count=40):
     return {"error": [], "result": {"XBTUSDT": rows, "last": start + count * step}}, start + count * step
 
 
-def test_kraken_does_not_open_a_socket_without_a_grant(tmp_path, monkeypatch):
+def test_public_kraken_ohlc_does_not_need_a_grant_file(tmp_path, monkeypatch):
     monkeypatch.setenv("AUREON_DATA", str(tmp_path))
+    from ops.entitlements import decide_use
     from ops.kraken_public import authorized_bars
 
-    def transport(url, timeout):
-        raise AssertionError(url)
+    seen = []
 
-    refused = authorized_bars("BTCUSDT", "15m", 1, transport=transport)
-    assert refused["called"] is False
-    assert refused["bars"] == []
+    def transport(url, timeout):
+        seen.append(url)
+        return 200, {"error": ["stop"]}
+
+    opened = authorized_bars("BTCUSDT", "15m", 1, transport=transport)
+    assert opened["called"] is True
+    assert seen and "XBTUSDT" in seen[0]
+    assert decide_use("kraken_public_ohlc", "candle_display", symbol="ETHUSDT", interval="1h")["reason"] == "public_completed_candle"
     assert authorized_bars("BTCUSDT", "3m", 1, transport=transport)["called"] is False
     assert authorized_bars("XAUUSD", "1h", 1, transport=transport)["called"] is False
-    assert "BTC/USD" not in json.dumps(refused)
+    assert "BTC/USD" not in json.dumps(opened)
 
 
 def test_a_grant_cannot_verify_binance_or_invent_a_native_3m(tmp_path, monkeypatch):

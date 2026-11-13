@@ -473,53 +473,89 @@ class Worker:
             expire_stale(user.get("id"), symbol, interval, now_ms, protect_bar_ms=result.get("bar_close_ms"))
         return delivered
 
+    def _cached(self, symbol, interval, now_ms, reason, blocked=None):
+        from ops.market_cache import recall
+
+        remembered = recall(symbol, interval, now_ms) or []
+        if remembered:
+            return {
+                "symbol": symbol,
+                "interval": interval,
+                "bars": remembered,
+                "reason": None,
+                "blocked": blocked,
+                "live_quote": None,
+                "feed_state": "last_good",
+            }
+        return {
+            "symbol": symbol,
+            "interval": interval,
+            "bars": [],
+            "reason": reason,
+            "blocked": blocked if blocked is not None else reason,
+            "live_quote": None,
+            "feed_state": "down",
+        }
+
     def _monitor_windows(self, now_ms):
         windows = []
         for symbol, interval in COVERAGE:
             try:
                 windows.append(self._one_window(symbol, interval, now_ms))
             except Exception as exc:
-                windows.append({
-                    "symbol": symbol,
-                    "interval": interval,
-                    "bars": [],
-                    "reason": type(exc).__name__,
-                    "blocked": type(exc).__name__,
-                    "live_quote": None,
-                    "feed_state": "down",
-                })
+                self._feed_failed(symbol, now_ms)
+                windows.append(self._cached(symbol, interval, now_ms, type(exc).__name__))
         return windows
 
     def _one_window(self, symbol, interval, now_ms):
         from ops.terminal_route import feed_state, load_crypto_bars, load_gold_ohlc
 
-        if not self._feed_allowed(symbol, now_ms):
-            from ops.market_cache import recall
-
-            remembered = recall(symbol, interval, now_ms) or []
+        if symbol == "XAUUSD" and interval in {"1m", "3m"}:
             return {
                 "symbol": symbol,
                 "interval": interval,
-                "bars": remembered,
-                "reason": None if remembered else "circuit_open",
+                "bars": [],
+                "reason": "xau_minute_unsupported",
+                "blocked": "xau_minute_unlicensed",
                 "live_quote": None,
-                "feed_state": "last_good" if remembered else "down",
+                "feed_state": "down",
             }
+        if not self._feed_allowed(symbol, now_ms):
+            return self._cached(symbol, interval, now_ms, "circuit_open")
         if symbol == "XAUUSD":
             gold = load_gold_ohlc(interval, now_ms)
             if isinstance(gold, tuple):
                 self._feed_failed(symbol, now_ms)
-                return {"symbol": symbol, "interval": interval, "bars": [], "reason": gold[1], "blocked": gold[1], "live_quote": None, "feed_state": "down"}
+                return self._cached(symbol, interval, now_ms, gold[1], gold[1])
+            if not gold:
+                cached = self._cached(symbol, interval, now_ms, "missing_bars")
+                if cached.get("bars"):
+                    return cached
+                return {
+                    "symbol": symbol,
+                    "interval": interval,
+                    "bars": [],
+                    "live_quote": None,
+                    "reason": "missing_bars",
+                    "feed_state": "down",
+                }
             self._feed_ok(symbol)
-            return {"symbol": symbol, "interval": interval, "bars": gold or [], "live_quote": None, "reason": None if gold else "missing_bars", "feed_state": feed_state(symbol, interval)}
+            return {"symbol": symbol, "interval": interval, "bars": gold, "live_quote": None, "reason": None, "feed_state": feed_state(symbol, interval)}
         loaded = load_crypto_bars(symbol, interval, now_ms)
-        if isinstance(loaded, tuple) or not loaded:
-            loaded = self._kraken_bars(symbol, interval, now_ms) or loaded
         if isinstance(loaded, tuple):
+            alt = self._kraken_bars(symbol, interval, now_ms)
+            if alt:
+                self._feed_ok(symbol)
+                return {"symbol": symbol, "interval": interval, "bars": alt, "feed_state": "live", "reason": None}
             self._feed_failed(symbol, now_ms)
-            return {"symbol": symbol, "interval": interval, "bars": [], "reason": loaded[1], "feed_state": "down"}
+            return self._cached(symbol, interval, now_ms, loaded[1])
+        if not loaded:
+            cached = self._cached(symbol, interval, now_ms, "missing_bars")
+            if cached.get("bars"):
+                return cached
+            return {"symbol": symbol, "interval": interval, "bars": [], "reason": "missing_bars", "feed_state": "down"}
         self._feed_ok(symbol)
-        return {"symbol": symbol, "interval": interval, "bars": loaded or [], "feed_state": feed_state(symbol, interval) if loaded else "down"}
+        return {"symbol": symbol, "interval": interval, "bars": loaded, "feed_state": feed_state(symbol, interval)}
 
     def _feed_allowed(self, symbol, now_ms):
         until = getattr(self, "_feed_until", {}).get(symbol) or 0
@@ -546,6 +582,20 @@ class Worker:
         try:
             from ops.kraken_public import authorized_bars
 
+            if interval == "3m":
+                native = authorized_bars(symbol, "1m", now_ms, timeout=8)
+                bars = (native or {}).get("bars") or []
+                if not bars:
+                    return None
+                from ops.signal_engine import derive_3m
+
+                derived = derive_3m(bars, now_ms)
+                if not derived.get("ok") or not derived.get("bars"):
+                    return None
+                from ops.terminal_route import _keep
+
+                _keep(symbol, interval, derived["bars"], now_ms)
+                return derived["bars"]
             alt = authorized_bars(symbol, interval, now_ms, timeout=8)
         except Exception:
             return None
