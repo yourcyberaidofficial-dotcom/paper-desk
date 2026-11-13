@@ -1,6 +1,7 @@
 """Scanner, Telegram intake, and the closed promotion gate. No live network."""
 
 import json
+import time
 
 from ops.bars import make_bar
 from ops.scanner import present_window, scan
@@ -123,3 +124,45 @@ def test_telegram_update_links_once_and_a_public_post_does_not(tmp_path, monkeyp
     bare = {"update_id": 42, "message": {"text": "/start", "from": {"id": 8}, "chat": {"id": 8}}}
     assert apply_update(bare, inbox)["reason"] == "start_without_token"
     assert get(user["id"])["telegram"]["chat_id"] == "9"
+
+
+def test_a_typed_telegram_id_connects_only_after_its_code(tmp_path, monkeypatch):
+    monkeypatch.setenv("AUREON_DATA", str(tmp_path))
+    import ops.users as users
+    monkeypatch.setattr(users, "ROOT", tmp_path / "users")
+    users.ROOT.mkdir(parents=True, exist_ok=True)
+    owner = register("ada", "password-s")
+    other = register("bea", "password-s")
+    sent = {}
+
+    def accepted(text, chat_id=None):
+        sent["text"] = text
+        sent["chat_id"] = chat_id
+        return {"delivered": True, "telegram_message_id": 7, "telegram_chat_id": chat_id}
+
+    monkeypatch.setattr("ops.notify.send_alert", accepted)
+    from ops.app import app
+    app.config["TESTING"] = True
+    client = app.test_client()
+    with client.session_transaction() as sess:
+        sess["user_id"] = owner["id"]
+        sess["user_exp"] = time.time() + 3600
+    refused = client.post("/api/telegram/code", json={"telegram_id": "abc"})
+    assert refused.status_code == 400
+    sent_code = client.post("/api/telegram/code", json={"telegram_id": "424242"})
+    assert sent_code.status_code == 200
+    assert sent["chat_id"] == "424242"
+    code = sent["text"].split()[2].rstrip(".")
+    assert code not in sent_code.get_data(as_text=True)
+    assert client.post("/api/telegram/code/verify", json={"telegram_id": "424242", "code": "000000"}).status_code == 400
+    assert get(owner["id"])["telegram"] in (None, {})
+    assert client.post("/api/telegram/code/verify", json={"telegram_id": "424242", "code": code}).status_code == 200
+    assert get(owner["id"])["telegram"]["verified"] is True
+    assert get(owner["id"])["telegram"]["chat_id"] == "424242"
+    with client.session_transaction() as sess:
+        sess["user_id"] = other["id"]
+        sess["user_exp"] = time.time() + 3600
+    taken = client.post("/api/telegram/code", json={"telegram_id": "424242"})
+    assert taken.status_code == 400
+    assert taken.get_json()["error"] == "destination_in_use"
+

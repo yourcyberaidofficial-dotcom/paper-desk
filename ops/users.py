@@ -233,6 +233,80 @@ def link_telegram(user_id: str, chat_id: str) -> dict | None:
     return None
 
 
+def _chat_id(value) -> str | None:
+    text = str(value or "").strip()
+    if not text.isdigit() or not 5 <= len(text) <= 15:
+        return None
+    return text
+
+
+def _chat_taken(chat_id: str, except_id: str | None) -> bool:
+    for path in ROOT.glob("*.json"):
+        try:
+            other = json.loads(path.read_text())
+        except (OSError, json.JSONDecodeError):
+            continue
+        current = other.get("telegram") or {}
+        if other.get("id") != except_id and current.get("verified") and str(current.get("chat_id")) == chat_id:
+            return True
+    return False
+
+
+def begin_telegram_code(user_id: str, chat_id: str) -> dict:
+    """Store a hash for this account. The raw code is returned only to the sender."""
+    chat_id = _chat_id(chat_id)
+    if chat_id is None:
+        return {"error": "invalid_id"}
+    if _chat_taken(chat_id, user_id):
+        return {"error": "destination_in_use"}
+    code = f"{secrets.randbelow(1000000):06d}"
+
+    def mutator(user):
+        user["telegram_code"] = {
+            "chat_id": chat_id,
+            "code_hash": _token_hash(code),
+            "expires": time.time() + 600,
+        }
+        return user
+
+    saved = _commit(user_id, mutator)
+    if not saved or saved.get("conflict"):
+        return {"error": "not_found"}
+    return {"ok": True, "chat_id": chat_id, "code": code}
+
+
+def finish_telegram_code(user_id: str, chat_id: str, code: str) -> dict:
+    """Connect only when the typed code matches the one sent to that same ID."""
+    chat_id = _chat_id(chat_id)
+    typed = str(code or "").strip()
+    if chat_id is None or not typed.isdigit() or len(typed) != 6:
+        return {"error": "invalid_id"}
+    if _chat_taken(chat_id, user_id):
+        return {"error": "destination_in_use"}
+    user = get(user_id)
+    pending = (user or {}).get("telegram_code") or {}
+    if pending.get("chat_id") != chat_id or time.time() > float(pending.get("expires") or 0):
+        return {"error": "expired"}
+    if pending.get("code_hash") != _token_hash(typed):
+        return {"error": "mismatch"}
+
+    def mutator(current):
+        current["telegram"] = {
+            "id": chat_id,
+            "chat_id": chat_id,
+            "verified": True,
+            "revoked": False,
+        }
+        current.pop("telegram_code", None)
+        return current
+
+    saved = _commit(user_id, mutator)
+    if not saved or saved.get("conflict"):
+        return {"error": "not_found"}
+    return {"ok": True, "user_id": user_id}
+
+
+
 def _token_hash(token: str) -> str:
     return hashlib.sha256(token.encode()).hexdigest()
 
