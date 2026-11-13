@@ -22,7 +22,7 @@ SESSION_POST = {
     "/api/activity/read", "/api/ai/ask", "/api/aureon-ai", "/api/autopilot", "/api/candles/evaluate", "/api/candles/import", "/api/desk/plan", "/api/digest", "/api/explain",
     "/api/experience", "/api/inbox/settings", "/api/lab", "/api/notifications/read", "/api/paper/close",
     "/api/paper/orders", "/api/plan", "/api/prefs", "/api/profile", "/api/size",
-    "/api/telegram/code", "/api/telegram/code/verify", "/api/telegram/connect", "/api/telegram/link", "/api/telegram/test", "/api/telegram/unlink", "/api/terminal/signal",
+    "/api/telegram/connect", "/api/telegram/link", "/api/telegram/test", "/api/telegram/unlink", "/api/terminal/signal",
 }
 TOKEN_GET = {"/api/evaluations", "/api/events", "/api/experimental", "/api/prefs", "/api/state"}
 TOKEN_POST = {"/api/alert-test", "/api/bar", "/api/worker/prefs"}
@@ -33,7 +33,7 @@ PAGES = {
     "/accounts",
 }
 PUBLIC_PAGES = {"/", "/login", "/register"}
-AUTH_FREE_POST = {"/api/login", "/api/logout", "/api/register", "/api/telegram/confirm", "/api/telegram/update", "/login", "/logout"}
+AUTH_FREE_POST = {"/api/login", "/api/logout", "/api/register", "/api/telegram/update", "/login", "/logout"}
 LIFECYCLE_WRITE = {"/api/signals/lifecycle"}
 
 
@@ -111,8 +111,6 @@ def _kind(method, rule):
         return "lifecycle-write"
     if rule == "/api/users/<user_id>":
         return "closed-user"
-    if rule == "/api/users/<user_id>/telegram":
-        return "telegram-user"
     return None
 
 
@@ -203,12 +201,6 @@ def _success(client, method, path, kind, token):
         if response.status_code == 200 and body.get("order_opened") is False and body.get("reason") == "reading_unavailable":
             return {"status": "PASS", "code": 200, "reason": "No display grant. The plan route refused and did not open an order."}
         return {"status": "FAIL", "code": response.status_code, "body": response.get_data(as_text=True)[:180]}
-    if method == "POST" and path == "/api/telegram/confirm":
-        response = _call(client, method, path, json={"token": "typed", "telegram_id": "1"})
-        body = response.get_json(silent=True) or {}
-        if response.status_code == 400 and body.get("error") == "typed_id_not_accepted":
-            return {"status": "PASS", "code": 400, "reason": "A typed Telegram id is refused. That is the route contract."}
-        return {"status": "FAIL", "code": response.status_code, "body": response.get_data(as_text=True)[:160]}
     if method == "POST" and path == "/api/bar":
         payload = {"symbol": "BTCUSDT", "bar": {"close": 1}}
     if method == "POST" and path == "/api/worker/prefs":
@@ -240,8 +232,6 @@ def _success(client, method, path, kind, token):
         good = response.status_code == 405 and response.get_json()["modified"] is False
     elif kind == "closed-user":
         good = response.status_code == 404
-    elif kind == "telegram-user":
-        good = response.status_code == 403
     elif kind == "auth-free" and path == "/api/register":
         good = response.status_code == 400
     elif kind == "auth-free" and path == "/login":
@@ -309,8 +299,6 @@ def _missing(app, method, path, kind, owner, other, token):
         sess["user_id"] = owner["id"]
         sess["user_exp"] = 9_999_999_999
     target = path
-    if kind == "telegram-user":
-        target = "/api/users/does-not-exist/telegram"
     response = _call(client, method, target, json={"symbol": "BTCUSDT", "interval": "15m"}, headers={"Authorization": "Bearer " + token} if kind == "token" else {})
     text, _payload = _body(response)
     if response.status_code >= 500 or "matrix-other" in text or "password_hash" in text:
@@ -327,7 +315,7 @@ def _missing(app, method, path, kind, owner, other, token):
         with gone.session_transaction() as sess:
             sess["user_id"] = owner["id"]
             sess["user_exp"] = 9_999_999_999
-        response = _call(gone, method, path if kind != "telegram-user" else "/api/users/does-not-exist/telegram", json={})
+        response = _call(gone, method, path, json={})
         text, _payload = _body(response)
         if response.status_code >= 500 or other["id"] in text and "matrix-other" in text:
             return {"status": "FAIL", "code": response.status_code, "body": text[:160]}
