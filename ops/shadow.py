@@ -31,8 +31,9 @@ REQUIRED = (
 
 
 def default_path():
-    root = Path(__file__).resolve().parents[1]
-    return root / "data" / "shadow" / "observations.jsonl"
+    from ops.paths import shadow_observations_path
+
+    return shadow_observations_path()
 
 
 class ShadowLedger:

@@ -7,16 +7,15 @@ that is still running at the deadline is not recorded as complete.
 from __future__ import annotations
 
 import json
-import os
 import threading
-from pathlib import Path
 
 from ops.files import update_json
 
 
 def _state_path():
-    root = Path(os.environ.get("AUREON_DATA") or "data")
-    return root / "worker" / "runtime.json"
+    from ops.paths import runtime_state_path
+
+    return runtime_state_path()
 
 
 class DeskRuntime:
