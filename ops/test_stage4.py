@@ -301,7 +301,7 @@ def test_volume_backup_copies_and_does_not_delete(tmp_path):
 
 
 def test_settings_polls_me_while_telegram_is_pending():
-    text = (ROOT / "ops" / "app.py").read_text(encoding="utf-8")
+    text = (ROOT / "ops" / "ui" / "dashboard.html").read_text(encoding="utf-8")
     assert "function watchTelegram()" in text
     assert 'fetch("/api/me"' in text
     assert 'if (me.telegram_state === "pending") watchTelegram();' in text

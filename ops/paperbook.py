@@ -171,7 +171,7 @@ def plan_preview(user, row):
     }
 
 
-def open_order(user, opportunity, now_ms, commit=True, opened_by="account", automation_cap=None):
+def open_order(user, opportunity, now_ms, commit=True, opened_by="account", automation_cap=None, bars=None):
     user = user or {}
     user_id = user.get("id")
     row = opportunity or {}
@@ -232,10 +232,10 @@ def open_order(user, opportunity, now_ms, commit=True, opened_by="account", auto
         book = load(user_id)
         if book.get("unreadable"):
             return {"ok": False, "reason": "record_unreadable"}
-        return _admit(book, row, now_ms, spec, sized, reward, _week(now_ms), origin, automation_cap, float(profile.get("capital")), plan.get("weekly_loss_limit_percent"), commit=False, venue=venue)
+        return _admit(book, row, now_ms, spec, sized, reward, _week(now_ms), origin, automation_cap, float(profile.get("capital")), plan.get("weekly_loss_limit_percent"), commit=False, venue=venue, bars=bars)
     admitted = _update_orders(
         user_id,
-        lambda book: _admit(book, row, now_ms, spec, sized, reward, _week(now_ms), origin, automation_cap, float(profile.get("capital")), plan.get("weekly_loss_limit_percent"), commit=True, venue=venue),
+        lambda book: _admit(book, row, now_ms, spec, sized, reward, _week(now_ms), origin, automation_cap, float(profile.get("capital")), plan.get("weekly_loss_limit_percent"), commit=True, venue=venue, bars=bars),
     )
     if not admitted or not admitted.get("ok"):
         return admitted or {"ok": False, "reason": "record_unreadable"}
@@ -263,7 +263,7 @@ def open_order(user, opportunity, now_ms, commit=True, opened_by="account", auto
     return admitted
 
 
-def _admit(book, row, now_ms, spec, sized, reward, week, origin, automation_cap, capital, loss_limit, commit, venue=None):
+def _admit(book, row, now_ms, spec, sized, reward, week, origin, automation_cap, capital, loss_limit, commit, venue=None, bars=None):
     if book.get("unreadable"):
         return {"ok": False, "reason": "record_unreadable", "save": False}
     orders = book["orders"]
@@ -337,6 +337,23 @@ def _admit(book, row, now_ms, spec, sized, reward, week, origin, automation_cap,
         "note": "Binance spot market buy. A stop order was accepted." if live else "Paper estimate. The venue quantity step was not verified, so this is not an exchange order.",
         "events": [{"state": "opened", "created_ms": int(now_ms), "opened_by": origin, "note": opened_note}],
     }
+    try:
+        from ops.learning import attach_entry
+        attach_entry(order, row, int(now_ms), bars=bars)
+    except Exception:
+        order["regime"] = {
+            "trend": "unknown",
+            "momentum": "unknown",
+            "volatility": "unknown",
+            "freshness": "missing",
+            "source": "not_supplied",
+            "evidence": "Entry context was not stored. No regime was fetched.",
+        }
+        order["mae_r"] = None
+        order["mfe_r"] = None
+        order["bars_held"] = 0
+        order["realized_r"] = None
+        order["excursion"] = "no_bar_yet"
     orders.append(order)
     return {"ok": True, "reason": "opened", "order": order}
 
@@ -390,6 +407,11 @@ def close_order(user_id, order_id, exit_price, now_ms):
         order["slippage_bps"] = 0
         order["slippage_note"] = "No slippage was added. The account supplied this exit price."
         order["closed_ms"] = int(now_ms)
+        try:
+            from ops.learning import stamp_realized
+            stamp_realized(order)
+        except Exception:
+            order["realized_r"] = None
         order["events"] = list(order.get("events") or [])
         order["events"].append({
             "state": "closed",
@@ -425,19 +447,26 @@ def _adverse(direction, price):
     return (float(price) - slip) if direction == "BUY" else (float(price) + slip)
 
 
-def observe(user_id, symbol, interval, bar, now_ms, source=None):
+def observe(user_id, symbol, interval, bar, now_ms, source=None, bars=None):
     """Update open paper orders from one completed bar. Both prices in one bar stay unresolved."""
     from ops.plan import observe_levels
     book = load(user_id)
     if book.get("unreadable"):
-        return {"updated": 0}
+        return {"updated": 0, "excursion": 0}
     source = source or {}
     changed = 0
+    touched = 0
     for order in book["orders"]:
         if order.get("status") != "open":
             continue
         if order.get("symbol") != symbol or order.get("interval") != interval:
             continue
+        try:
+            from ops.learning import note_bar
+            if note_bar(order, bar, bars=bars, now_ms=now_ms, interval=interval):
+                touched += 1
+        except Exception:
+            pass
         reading = observe_levels(order.get("direction"), order.get("stop"), order.get("target"), bar)
         if not reading:
             continue
@@ -453,6 +482,8 @@ def observe(user_id, symbol, interval, bar, now_ms, source=None):
             order["exit_kind"] = "unresolved"
             order["pnl_usd"] = None
             order["exit_price"] = None
+            order["realized_r"] = None
+            order["realized_r_price"] = None
             order["events"] = list(order.get("events") or [])
             order["events"].append({**observed, "state": "ambiguous", "note": reading["note"]})
             changed += 1
@@ -471,6 +502,11 @@ def observe(user_id, symbol, interval, bar, now_ms, source=None):
         order["slippage_bps"] = SLIPPAGE_BPS
         order["slippage_note"] = "An assumed 2 bps adverse slippage was applied. It was not measured from a broker."
         order["closed_ms"] = int(now_ms)
+        try:
+            from ops.learning import stamp_realized
+            stamp_realized(order)
+        except Exception:
+            order["realized_r"] = None
         order["events"] = list(order.get("events") or [])
         order["events"].append({
             **observed,
@@ -482,9 +518,9 @@ def observe(user_id, symbol, interval, bar, now_ms, source=None):
             "cost_bps_per_fill": COST_BPS_PER_FILL,
         })
         changed += 1
-    if changed:
+    if changed or touched:
         save(user_id, book)
-    return {"updated": changed}
+    return {"updated": changed, "excursion": touched}
 
 
 def performance(user_id):
@@ -493,7 +529,7 @@ def performance(user_id):
     orders = book.get("orders") or []
     closed = [row for row in orders if row.get("status") in CLOSED and row.get("pnl_usd") is not None]
     if not closed:
-        return {
+        figures = {
             "trades": 0,
             "pnl_usd": None,
             "costs_usd": None,
@@ -502,19 +538,26 @@ def performance(user_id):
             "win_rate": None,
             "note": "No completed paper trade. Ambiguous candles are not counted.",
         }
-    pnl = sum(float(row.get("pnl_usd") or 0) for row in closed)
-    costs = sum(float(row.get("cost_usd") or 0) for row in closed)
-    wins = sum(1 for row in closed if float(row.get("pnl_usd") or 0) > 0)
-    losses = sum(1 for row in closed if float(row.get("pnl_usd") or 0) < 0)
-    return {
-        "trades": len(closed),
-        "pnl_usd": pnl,
-        "costs_usd": costs,
-        "wins": wins,
-        "losses": losses,
-        "win_rate": wins / len(closed),
-        "note": "Paper estimate after 11 bps per side. Not a broker result and not a validated return.",
-    }
+    else:
+        pnl = sum(float(row.get("pnl_usd") or 0) for row in closed)
+        costs = sum(float(row.get("cost_usd") or 0) for row in closed)
+        wins = sum(1 for row in closed if float(row.get("pnl_usd") or 0) > 0)
+        losses = sum(1 for row in closed if float(row.get("pnl_usd") or 0) < 0)
+        figures = {
+            "trades": len(closed),
+            "pnl_usd": pnl,
+            "costs_usd": costs,
+            "wins": wins,
+            "losses": losses,
+            "win_rate": wins / len(closed),
+            "note": "Paper estimate after 11 bps per side. Not a broker result and not a validated return.",
+        }
+    try:
+        from ops.learning import report
+        figures["diagnostics"] = report(orders)
+    except Exception:
+        figures["diagnostics"] = {"sample": "not_enough_evidence", "confidence": None, "promotes": False, "changes_approval": False}
+    return figures
 
 
 def summary(user_id):
