@@ -105,12 +105,18 @@ def test_a_level_update_is_queued_without_a_new_price(tmp_path, monkeypatch):
     assert "Entry" not in sent[0]
 
 
-def test_cards_already_in_the_inbox_are_sent_on_the_next_pass(tmp_path, monkeypatch):
+def test_cards_already_in_the_inbox_are_sent_without_scanning_every_account(tmp_path, monkeypatch):
     monkeypatch.setenv("AUREON_DATA", str(tmp_path))
+    from ops.inbox_notify import flush, queue_open
+
     user = _user()
     card = _card()
     card["lifecycle"] = "active"
-    monkeypatch.setattr("ops.users.list_users", lambda: [user])
+
+    def explode():
+        raise AssertionError("the outbox must not list every account")
+
+    monkeypatch.setattr("ops.users.list_users", explode)
     monkeypatch.setattr("ops.inbox.items", lambda user_id: [card] if user_id == "acct-a" else [])
     calls = []
 
@@ -118,6 +124,7 @@ def test_cards_already_in_the_inbox_are_sent_on_the_next_pass(tmp_path, monkeypa
         calls.append(chat_id)
         return {"delivered": True, "telegram_message_id": 4, "telegram_chat_id": chat_id}
 
+    assert queue_open(user) == 1
     assert flush(accepted)["sent"] == 1
     assert flush(accepted)["sent"] == 0
     assert calls == ["42"]

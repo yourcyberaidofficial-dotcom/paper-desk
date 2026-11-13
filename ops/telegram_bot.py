@@ -1,7 +1,8 @@
-"""Telegram delivery outbox. One update mode, one delivery per event.
+"""Research-event outbox. Customer notices use ops.inbox_notify instead.
 
-No token means no network call. A message cannot approve a strategy,
-change a risk limit, or open an order.
+Delivery decisions (429 backoff, blocked chat, one acceptance) come from
+inbox_notify.classify_transport so the two files do not invent two policies.
+This object does not walk the user directory.
 """
 
 from __future__ import annotations
@@ -113,15 +114,22 @@ class Bot:
                 row["status"] = "pending"
                 row["reason"] = "transport_error"
                 continue
-            result = payload.get("result") if isinstance(payload, dict) else None
-            message_id = result.get("message_id") if isinstance(result, dict) else None
-            if status == 200 and message_id is not None:
+            from ops.inbox_notify import classify_transport
+
+            kind, message_id, delay = classify_transport(status, payload)
+            if kind == "delivered":
                 row["status"] = "delivered"
                 row["telegram_message_id"] = message_id
+                row.pop("not_before", None)
                 delivered.append(row)
-            elif status == 429 and row["attempts"] < 2:
+            elif kind == "retry" and row["attempts"] < 5:
                 row["status"] = "pending"
                 row["reason"] = "rate_limited"
+                if delay:
+                    row["not_before"] = delay
+            elif kind == "blocked":
+                row["status"] = "failed"
+                row["reason"] = "user_blocked"
             else:
                 row["status"] = "failed"
                 row["reason"] = "telegram_rejected"

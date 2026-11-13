@@ -228,75 +228,120 @@ def save_inbox_delivery(user_id: str, incoming: dict) -> dict | None:
     return _commit(user_id, mutator)
 
 
+USERNAME_MESSAGE = (
+    "A Telegram @username is not a chat id. Open @AureonLabBot and tap Start on the one-time link. "
+    "You can also send /start followed by that token. The numeric chat id comes from Telegram, not from this form."
+)
+TYPED_MESSAGE = (
+    "A typed id is not accepted. Open @AureonLabBot and tap Start on the one-time link from Settings, "
+    "or send /start followed by that token."
+)
+
+
 def link_telegram(user_id: str, chat_id: str) -> dict | None:
     """A typed chat id is not verification. The bot update path is the only one."""
     return None
 
 
-def _chat_id(value) -> str | None:
+def _numeric_chat(value) -> str | None:
     text = str(value or "").strip()
-    if not text.isdigit() or not 5 <= len(text) <= 15:
+    if not text or text.startswith("@") or "@" in text:
+        return None
+    bare = text[1:] if text.startswith("-") else text
+    if not bare.isdigit():
         return None
     return text
 
 
 def _chat_taken(chat_id: str, except_id: str | None) -> bool:
+    """True when another verified account already owns this chat.
+
+    Callers that bind a chat hold _root_lock across this read and the write.
+    The lock is not taken here: flock on this file is not re-entrant.
+    """
+    if not ROOT.exists():
+        return False
     for path in ROOT.glob("*.json"):
         try:
             other = json.loads(path.read_text())
         except (OSError, json.JSONDecodeError):
             continue
+        if not isinstance(other, dict):
+            continue
         current = other.get("telegram") or {}
-        if other.get("id") != except_id and current.get("verified") and str(current.get("chat_id")) == chat_id:
+        if other.get("id") != except_id and current.get("verified") and not current.get("revoked") and str(current.get("chat_id")) == str(chat_id):
             return True
     return False
 
 
-def begin_telegram_code(user_id: str, chat_id: str) -> dict:
-    """Store a hash for this account. The raw code is returned only to the sender."""
-    chat_id = _chat_id(chat_id)
+def _bind_chat(user_id: str, chat_id: str, telegram_id: str | None = None) -> dict:
+    """Store one verified chat. The caller already holds _root_lock."""
+    if isinstance(chat_id, str) and (chat_id.strip().startswith("@") or (telegram_id and "@" in str(telegram_id))):
+        return {"error": "username_not_accepted", "message": USERNAME_MESSAGE}
+    chat_id = _numeric_chat(chat_id)
     if chat_id is None:
-        return {"error": "invalid_id"}
+        return {"error": "invalid_id", "message": TYPED_MESSAGE}
     if _chat_taken(chat_id, user_id):
         return {"error": "destination_in_use"}
-    code = f"{secrets.randbelow(1000000):06d}"
-
-    def mutator(user):
-        user["telegram_code"] = {
-            "chat_id": chat_id,
-            "code_hash": _token_hash(code),
-            "expires": time.time() + 600,
-        }
-        return user
-
-    saved = _commit(user_id, mutator)
-    if not saved or saved.get("conflict"):
-        return {"error": "not_found"}
-    return {"ok": True, "chat_id": chat_id, "code": code}
-
-
-def connect_telegram(user_id: str, chat_id: str) -> dict:
-    """Store the chat Telegram confirmed. A typed ID alone is not enough."""
-    chat_id = str(chat_id or "").strip()
-    if not chat_id.lstrip("-").isdigit():
-        return {"error": "invalid_id"}
-    if _chat_taken(chat_id, user_id):
-        return {"error": "destination_in_use"}
+    holder = {}
 
     def mutator(current):
+        if _chat_taken(chat_id, user_id):
+            holder["taken"] = True
+            return {"__skip__": "taken"}
         current["telegram"] = {
-            "id": chat_id,
-            "chat_id": chat_id,
+            "id": str(telegram_id or chat_id),
+            "chat_id": str(chat_id),
             "verified": True,
             "revoked": False,
         }
         current.pop("telegram_code", None)
+        current.pop("telegram_pending", None)
         return current
 
     saved = _commit(user_id, mutator)
+    if holder.get("taken"):
+        return {"error": "destination_in_use"}
     if not saved or saved.get("conflict"):
         return {"error": "not_found"}
+    try:
+        from ops.inbox_notify import queue_open
+
+        queue_open(saved)
+    except Exception:
+        pass
     return {"ok": True, "user_id": user_id}
+
+
+def telegram_state(user: dict | None) -> str:
+    """unlinked, pending, or connected. A revoked chat is not connected."""
+    telegram = (user or {}).get("telegram") if isinstance(user, dict) else None
+    if isinstance(telegram, dict) and telegram.get("verified") and not telegram.get("revoked") and telegram.get("chat_id") not in (None, ""):
+        return "connected"
+    pending = (user or {}).get("telegram_pending") if isinstance(user, dict) else None
+    if isinstance(pending, dict) and pending.get("token_hash") and time.time() <= float(pending.get("expires") or 0):
+        return "pending"
+    return "unlinked"
+
+
+def begin_telegram_code(user_id: str, chat_id: str) -> dict:
+    """The confirmation-code path is retired. The bot start token is the only link."""
+    text = str(chat_id or "")
+    if text.strip().startswith("@") or "@" in text:
+        return {"error": "username_not_accepted", "message": USERNAME_MESSAGE}
+    return {"error": "typed_id_not_accepted", "message": TYPED_MESSAGE}
+
+
+def connect_telegram(user_id: str, chat_id: str) -> dict:
+    """Store a chat id that Telegram already confirmed. A typed @username is refused."""
+    text = str(chat_id or "")
+    if text.strip().startswith("@") or "@" in text:
+        return {"error": "username_not_accepted", "message": USERNAME_MESSAGE}
+    handle = _root_lock()
+    try:
+        return _bind_chat(user_id, text, text)
+    finally:
+        _root_unlock(handle)
 
 
 
@@ -464,12 +509,17 @@ def start_telegram_link(user_id: str, claimed_id: str | None = None) -> dict | N
 
 
 def confirm_telegram_link(token: str, telegram_id: str) -> dict:
-    return {"error": "typed_id_not_accepted"}
+    text = str(telegram_id or "")
+    if text.strip().startswith("@") or "@" in text:
+        return {"error": "username_not_accepted", "message": USERNAME_MESSAGE}
+    return {"error": "typed_id_not_accepted", "message": TYPED_MESSAGE}
 
 
 def process_start_command(token: str, telegram_id: str, chat_id: str) -> dict:
     if not token or not telegram_id or not chat_id:
         return {"error": "incomplete_update"}
+    if str(telegram_id).strip().startswith("@") or str(chat_id).strip().startswith("@"):
+        return {"error": "username_not_accepted", "message": USERNAME_MESSAGE}
     handle = _root_lock()
     try:
         digest = _token_hash(token)
@@ -477,44 +527,25 @@ def process_start_command(token: str, telegram_id: str, chat_id: str) -> dict:
         for path in ROOT.glob("*.json"):
             try:
                 user = json.loads(path.read_text())
-            except json.JSONDecodeError:
+            except (OSError, json.JSONDecodeError):
+                continue
+            if not isinstance(user, dict):
                 continue
             pending = user.get("telegram_pending") or {}
             if pending.get("token_hash") != digest:
                 continue
-            if time.time() > pending.get("expires", 0):
-                def clear(current, path=path):
+            if time.time() > float(pending.get("expires") or 0):
+                def clear(current):
                     current.pop("telegram_pending", None)
                     return current
+
                 _commit(user.get("id"), clear)
                 return {"error": "expired"}
             owner = user
             break
         if owner is None:
             return {"error": "not_found"}
-        for path in ROOT.glob("*.json"):
-            try:
-                other = json.loads(path.read_text())
-            except json.JSONDecodeError:
-                continue
-            current = other.get("telegram") or {}
-            if other.get("id") != owner.get("id") and current.get("verified") and str(current.get("chat_id")) == str(chat_id):
-                return {"error": "destination_in_use"}
-
-        def link(current):
-            current["telegram"] = {
-                "id": str(telegram_id),
-                "chat_id": str(chat_id),
-                "verified": True,
-                "revoked": False,
-            }
-            current.pop("telegram_pending", None)
-            return current
-
-        saved = _commit(owner.get("id"), link)
-        if not saved or saved.get("conflict"):
-            return {"error": "not_found"}
-        return {"ok": True, "user_id": owner.get("id")}
+        return _bind_chat(owner.get("id"), str(chat_id), str(telegram_id))
     finally:
         _root_unlock(handle)
 
