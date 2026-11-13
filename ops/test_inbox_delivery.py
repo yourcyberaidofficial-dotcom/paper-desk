@@ -130,7 +130,9 @@ def test_settings_and_signal_route_keep_users_apart(tmp_path, monkeypatch):
     with client.session_transaction() as sess:
         sess["user_id"] = other["id"]
         sess["user_exp"] = time.time() + 3600
-    assert client.get("/api/inbox/settings").get_json()["settings"]["experimental"] is False
+    other_settings = client.get("/api/inbox/settings").get_json()["settings"]
+    assert other_settings["markets"] == ["BTCUSDT", "ETHUSDT", "XAUUSD"]
+    assert other_settings["timeframes"] != ["4h"]
     assert client.get("/api/notifications").get_json()["items"] == []
 
 
@@ -163,3 +165,16 @@ def test_a_short_idea_is_delivered_only_when_sell_and_experimental_are_on(tmp_pa
     assert card["approved"] is False
     assert card["entry"] == idea["entry"]
     assert users.get(owner["id"])["inbox_delivery"]["experimental"] is True
+
+
+def test_a_new_account_starts_with_its_own_markets(tmp_path, monkeypatch):
+    monkeypatch.setenv("AUREON_DATA", str(tmp_path))
+    import ops.users as users
+    monkeypatch.setattr(users, "ROOT", tmp_path / "users")
+    users.ROOT.mkdir(parents=True, exist_ok=True)
+    created = users.register("ada", "password-s")
+    saved = users.get(created["id"])["inbox_delivery"]
+    assert saved["experimental"] is True
+    assert saved["markets"] == ["BTCUSDT", "ETHUSDT", "XAUUSD"]
+    assert "15m" in saved["timeframes"] and "4h" in saved["timeframes"]
+    assert saved["buy"] is True and saved["sell"] is True

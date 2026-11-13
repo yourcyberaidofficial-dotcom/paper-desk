@@ -60,6 +60,30 @@ class UpdateInbox:
         return True
 
 
+_BOT_USERNAME = None
+
+
+def bot_username(opener=None):
+    """The bot username from Telegram. Nothing is invented if the call fails."""
+    global _BOT_USERNAME
+    if _BOT_USERNAME:
+        return _BOT_USERNAME
+    if "pytest" in sys.modules and opener is None:
+        return None
+    token = os.environ.get("TELEGRAM_BOT_TOKEN")
+    if not token:
+        return None
+    try:
+        result = opener(token, "getMe", {}) if opener is not None else _api(token, "getMe", {})
+    except Exception:
+        return None
+    name = result.get("username") if isinstance(result, dict) else None
+    if not name or not str(name).replace("_", "").isalnum():
+        return None
+    _BOT_USERNAME = str(name)
+    return _BOT_USERNAME
+
+
 def apply_update(update, inbox=None):
     update = update or {}
     inbox = inbox or UpdateInbox()
@@ -68,19 +92,32 @@ def apply_update(update, inbox=None):
         return {"ok": True, "duplicate": True}
     message = update.get("message") or {}
     text = str(message.get("text") or "")
+    chat = message.get("chat") or {}
+    chat_id = str(chat.get("id") or "")
+    if text.strip() == "/start":
+        if "pytest" not in sys.modules and chat_id:
+            try:
+                from ops.notify import send_alert
+
+                send_alert(
+                    "This chat is not connected yet. In Aureon, open Settings and press Create a one-time Telegram link. Then tap that link. This is not a trade.",
+                    chat_id=chat_id,
+                )
+            except Exception:
+                pass
+        return {"ok": True, "ignored": True, "reason": "start_without_token"}
     if not text.startswith("/start "):
         return {"ok": True, "ignored": True}
     token = text.split(" ", 1)[1].strip().split()[0]
     sender = message.get("from") or {}
-    chat = message.get("chat") or {}
-    result = process_start_command(token, str(sender.get("id") or ""), str(chat.get("id") or ""))
+    result = process_start_command(token, str(sender.get("id") or ""), chat_id)
     if result.get("ok") and "pytest" not in sys.modules:
         try:
             from ops.notify import send_alert
 
             send_alert(
-                "Aureon is connected to this chat. Notices you allow in Settings will come here. This is not a trade.",
-                chat_id=str(chat.get("id") or ""),
+                "Aureon is connected to this chat. Only notices that match this account's saved markets, timeframes and directions will come here. This is not a trade.",
+                chat_id=chat_id,
             )
         except Exception:
             pass

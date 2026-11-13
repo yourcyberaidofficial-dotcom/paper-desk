@@ -36,6 +36,7 @@ def test_background_scan_delivers_once_and_stays_private(tmp_path, monkeypatch):
     users.ROOT.mkdir(parents=True, exist_ok=True)
     allowed = register("ada", "password-s")
     quiet = register("bea", "password-s")
+    save_inbox_delivery(quiet["id"], {"experimental": False})
     save_inbox_delivery(allowed["id"], {"experimental": True, "markets": ["BTCUSDT"], "timeframes": ["4h", "15m"], "buy": True})
     bars = _compress()
     now = bars[-1]["close_time_ms"] + 1000

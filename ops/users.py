@@ -142,6 +142,10 @@ def register(name: str, password: str) -> dict | None:
         if _folded_taken(cleaned):
             return None
         user_id = secrets.token_hex(8)
+        from ops.inbox import primary_inbox
+
+        delivery = primary_inbox(None)
+        delivery["timeframes"] = ["15m", "1h", "4h", "1d"]
         user = {
             "id": user_id,
             "name": cleaned,
@@ -149,6 +153,7 @@ def register(name: str, password: str) -> dict | None:
             "created_at": time.time(),
             "telegram": None,
             "prefs": {"markets": ["BTCUSDT", "ETHUSDT", "XAUUSD"]},
+            "inbox_delivery": delivery,
             "revision": 1,
         }
         update_json(_path(user_id), lambda _current: user, user)

@@ -121,3 +121,35 @@ def test_cards_already_in_the_inbox_are_sent_on_the_next_pass(tmp_path, monkeypa
     assert flush(accepted)["sent"] == 1
     assert flush(accepted)["sent"] == 0
     assert calls == ["42"]
+
+
+def test_each_account_only_gets_the_markets_it_saved(tmp_path, monkeypatch):
+    monkeypatch.setenv("AUREON_DATA", str(tmp_path))
+    btc = _user("1")
+    btc["inbox_delivery"] = {
+        "enabled": True,
+        "markets": ["BTCUSDT"],
+        "timeframes": ["15m"],
+        "buy": True,
+        "sell": True,
+        "experimental": True,
+    }
+    eth = _user("2")
+    eth["id"] = "acct-b"
+    eth["inbox_delivery"] = {
+        "enabled": True,
+        "markets": ["ETHUSDT"],
+        "timeframes": ["1h"],
+        "buy": False,
+        "sell": True,
+        "experimental": True,
+    }
+    btc_card = _card()
+    eth_card = _card()
+    eth_card["event_id"] = "evt-eth"
+    eth_card["symbol"] = "ETHUSDT"
+    eth_card["interval"] = "1h"
+    assert queue_card("acct-a", btc, btc_card)["queued"] is True
+    assert queue_card("acct-a", btc, eth_card)["reason"] == "filtered"
+    assert queue_card("acct-b", eth, eth_card)["queued"] is True
+    assert queue_card("acct-b", eth, btc_card)["reason"] == "filtered"
