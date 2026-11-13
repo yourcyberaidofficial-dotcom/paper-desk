@@ -3926,8 +3926,9 @@ async function terminal(){
     if (out.dataset.manual === "1" && out.dataset.bar === incoming) return;
     const level = (value) => value == null ? "—" : priceText(row.symbol, value);
     const feed = row.feed_state === "last_good" ? "Last completed candle. The latest pull failed. No price was invented." : "Completed candle from the desk loop.";
+    const context = row.higher_timeframe ? ` Higher timeframe: ${plainReason(row.higher_timeframe)}` : "";
     out.dataset.bar = incoming;
-    out.innerHTML = `<article class="card"><h2>${row.decision_label || row.decision || "WAIT"} · ${row.symbol} ${row.interval}</h2><div class="row"><span>Entry</span><span class="num">${level(row.entry)}</span></div><div class="row"><span>Stop</span><span class="num">${level(row.stop)}</span></div><div class="row"><span>Target</span><span class="num">${level(row.target)}</span></div><p>${plainReason(row.explanation || "")}</p><p class="muted">${feed} Not a broker fill and not an approved strategy.</p></article>`;
+    out.innerHTML = `<article class="card"><h2>${row.decision_label || row.decision || "WAIT"} · ${row.symbol} ${row.interval}</h2><div class="row"><span>Entry</span><span class="num">${level(row.entry)}</span></div><div class="row"><span>Stop</span><span class="num">${level(row.stop)}</span></div><div class="row"><span>Target</span><span class="num">${level(row.target)}</span></div><p>${plainReason(row.explanation || "")}</p><p class="muted">${feed}${context} Not a broker fill and not an approved strategy.</p></article>`;
   }
   if (window.__deskPulse) clearInterval(window.__deskPulse);
   paintPulse();

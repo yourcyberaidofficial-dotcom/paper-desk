@@ -310,26 +310,85 @@ def _gated(symbol, interval, reason):
     return card
 
 
-def cycle(now_ms=None, transport=None):
-    """One pass across the desk. Each pair keeps its own result."""
+_ACCEPTED = {}
+_DECISIONS = {}
+
+
+def take_decisions():
+    """The decision just made for each pair. The worker reuses it instead of deciding again."""
+    return {key: dict(value) for key, value in _DECISIONS.items()}
+
+
+def _remembered(symbol, interval, bars, source_id):
+    """Skip a decision only when this exact close is already in this process and in the ledger.
+
+    A clock is not an identity. An empty result is not remembered, so a later recovery still runs.
+    """
+    if not bars or not isinstance(bars[-1], dict):
+        return None
+    close_ms = bars[-1].get("close_time_ms")
+    previous = _ACCEPTED.get((symbol, interval))
+    if not previous or previous[0] != close_ms or previous[1] != source_id:
+        return None
+    from ops.signal_ledger import read
+
+    stored = any(
+        row.get("symbol") == symbol
+        and row.get("interval") == interval
+        and row.get("observation") != "data_unavailable"
+        for row in read()
+    )
+    if not stored:
+        return None
+    return dict(previous[2])
+
+
+def cycle(now_ms=None, transport=None, windows=None):
+    """One pass across the desk. Each pair keeps its own result.
+
+    When the caller already loaded the candles, those candles are the snapshot.
+    The same close is not decided again. A new close is decided immediately.
+    """
+    global _DECISIONS
     now_ms = int(now_ms if now_ms is not None else time.time() * 1000)
+    supplied = {}
+    for window in windows or []:
+        if isinstance(window, dict):
+            supplied[(window.get("symbol"), window.get("interval"))] = window
     markets = []
-    for symbol, interval in DESK:
+    decisions = {}
+    pairs = list(supplied.keys()) if windows is not None else list(DESK)
+    for symbol, interval in pairs:
+        window = supplied.get((symbol, interval))
         if not _released(symbol, interval):
             note_unavailable(symbol, interval, "reading_unavailable", now_ms, component="signal_engine")
             markets.append(_gated(symbol, interval, "reading_unavailable"))
             continue
-        try:
-            loaded = _load(symbol, interval, now_ms, transport)
-        except Exception:
-            loaded = None
-        bars = (loaded or {}).get("bars") or []
+        if window is not None:
+            bars = list(window.get("bars") or [])
+            source_id = window.get("source_id") or (bars[-1].get("source_id") if bars and isinstance(bars[-1], dict) else None)
+            loaded = {"bars": bars, "source_id": source_id, "reason": window.get("reason") or window.get("blocked")}
+        else:
+            try:
+                loaded = _load(symbol, interval, now_ms, transport)
+            except Exception:
+                loaded = None
+            bars = (loaded or {}).get("bars") or []
+            source_id = (loaded or {}).get("source_id")
         if not bars:
             note_unavailable(symbol, interval, (loaded or {}).get("reason") or "source_failure", now_ms, component="signal_engine")
             markets.append(_gated(symbol, interval, "source_failure"))
             continue
+        remembered = _remembered(symbol, interval, bars, source_id)
+        if remembered is not None:
+            follow = _expire_or_invalidate(remembered, now_ms)
+            if follow:
+                record_observations([follow], now_ms=now_ms, component="signal_engine")
+            decisions[(symbol, interval)] = remembered
+            markets.append(remembered)
+            continue
         try:
-            card = _observe(symbol, interval, bars, loaded.get("source_id"), now_ms)
+            card = _observe(symbol, interval, bars, source_id, now_ms)
         except Exception:
             note_unavailable(symbol, interval, "evaluation_failed", now_ms, component="signal_engine")
             markets.append(_gated(symbol, interval, "source_failure"))
@@ -343,6 +402,13 @@ def cycle(now_ms=None, transport=None):
         classified["higher_timeframe"] = card.get("higher_timeframe")
         classified["freshness"] = card.get("freshness")
         classified["permission"] = "granted"
+        classified["bar_close_ms"] = card.get("bar_close_ms")
+        classified["decision_label"] = card.get("decision_label")
+        classified["strategy"] = card.get("strategy")
+        classified["reference_price"] = card.get("reference_price")
+        classified["reward_risk"] = card.get("reward_risk")
+        classified["fresh"] = card.get("fresh")
+        classified["runtime_status"] = card.get("runtime_status")
         if card.get("freshness") == "stale" or card.get("quality") == "stale":
             classified["price"] = None
             classified["entry"] = None
@@ -351,7 +417,10 @@ def cycle(now_ms=None, transport=None):
             classified["note"] = "The candle is stale. It is not a current signal and it is not a missing licence."
         if stored.get("rows"):
             classified = {**classified, "persisted": True}
+        _ACCEPTED[(symbol, interval)] = (bars[-1].get("close_time_ms"), source_id, dict(classified))
+        decisions[(symbol, interval)] = dict(classified)
         markets.append(classified)
+    _DECISIONS = decisions
     return {
         "markets": markets,
         "broker": False,

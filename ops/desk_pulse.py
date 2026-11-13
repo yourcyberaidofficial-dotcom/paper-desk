@@ -28,6 +28,7 @@ _FIELDS = (
     "source_name",
     "feed_state",
     "runtime_status",
+    "higher_timeframe",
 )
 
 
@@ -115,6 +116,7 @@ def account_view(user):
             "feed_state": personal.get("feed_state") or "live",
             "persona_release": personal.get("persona_release"),
             "explanation": personal.get("explanation"),
+            "higher_timeframe": personal.get("higher_timeframe"),
             "evaluated_at_ms": row.get("evaluated_at_ms"),
         })
     shown.sort(key=lambda item: (item.get("symbol") or "", item.get("interval") or ""))

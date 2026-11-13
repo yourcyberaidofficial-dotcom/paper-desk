@@ -274,17 +274,21 @@ class Worker:
     def _monitor(self, now_ms, windows):
         from ops.users import list_users
 
-        try:
-            from ops.signal_engine import cycle
-
-            if time.time() - getattr(self, "_cycle_wall", 0) >= 45:
-                cycle(now_ms)
-                self.last_cycle_error = None
-                self._cycle_wall = time.time()
-        except Exception as exc:
-            self.last_cycle_error = type(exc).__name__
         if windows is None:
             windows = self._monitor_windows(now_ms)
+        try:
+            from ops.signal_engine import cycle, take_decisions
+
+            cycle(now_ms, windows=windows)
+            self.last_cycle_error = None
+            decisions = take_decisions()
+        except Exception as exc:
+            self.last_cycle_error = type(exc).__name__
+            decisions = {}
+        for window in windows:
+            shared = decisions.get((window.get("symbol"), window.get("interval")))
+            if isinstance(shared, dict):
+                window["engine_result"] = shared
         users = list_users()
         evaluations = []
         delivered = 0
@@ -353,8 +357,18 @@ class Worker:
         if not bars:
             evaluations.append({"symbol": symbol, "interval": interval, "decision": "DATA BLOCK", "reason": window.get("reason") or "missing_bars"})
             return 0
-        result = decide(symbol, interval, "auto", bars, now_ms, None, live_quote=window.get("live_quote"))
+        shared = window.get("engine_result")
+        if isinstance(shared, dict) and shared.get("decision"):
+            result = dict(shared)
+        else:
+            result = decide(symbol, interval, "auto", bars, now_ms, None, live_quote=window.get("live_quote"))
         result["feed_state"] = window.get("feed_state") or "live"
+        try:
+            from ops.signal_engine import _higher
+
+            result["higher_timeframe"] = result.get("higher_timeframe") or _higher(symbol, interval)
+        except Exception:
+            pass
         try:
             from ops.desk_pulse import publish
 

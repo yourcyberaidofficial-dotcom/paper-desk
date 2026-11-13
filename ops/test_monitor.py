@@ -123,3 +123,50 @@ def test_an_unchanged_candle_is_carried_and_not_decided_again(tmp_path, monkeypa
     assert "Entry 106.00" in view["readings"][0]["explanation"]
 
 
+def test_a_new_close_is_not_suppressed_by_the_clock(tmp_path, monkeypatch):
+    monkeypatch.setenv("AUREON_DATA", str(tmp_path))
+    import ops.users as users
+    from ops.signal_engine import cycle as real_cycle
+
+    monkeypatch.setattr(users, "ROOT", tmp_path / "users")
+    users.ROOT.mkdir(parents=True, exist_ok=True)
+    calls = {"n": 0}
+
+    def wrapped(now_ms=None, transport=None, windows=None):
+        calls["n"] += 1
+        return real_cycle(now_ms, transport=transport, windows=windows)
+
+    monkeypatch.setattr("ops.signal_engine.cycle", wrapped)
+    bars = _compress()
+    now = bars[-1]["close_time_ms"] + 1000
+    worker = Worker(Ledger(tmp_path / "ledger.jsonl"), tmp_path / "prefs.json")
+    window = [{"symbol": "BTCUSDT", "interval": "4h", "bars": bars}]
+    worker.monitor(now_ms=now, windows=window)
+    moved = [dict(bar) for bar in bars]
+    moved[-1]["close_time_ms"] = moved[-1]["close_time_ms"] + 14_400_000
+    worker.monitor(now_ms=now + 1000, windows=[{"symbol": "BTCUSDT", "interval": "4h", "bars": moved}])
+    assert calls["n"] == 2
+
+
+def test_one_pass_loads_each_pair_once(tmp_path, monkeypatch):
+    monkeypatch.setenv("AUREON_DATA", str(tmp_path))
+    counts = {"crypto": 0, "gold": 0}
+
+    def crypto(*_args, **_kwargs):
+        counts["crypto"] += 1
+        return []
+
+    def gold(*_args, **_kwargs):
+        counts["gold"] += 1
+        return []
+
+    monkeypatch.setattr("ops.terminal_route.load_crypto_bars", crypto)
+    monkeypatch.setattr("ops.terminal_route.load_gold_ohlc", gold)
+    worker = Worker(Ledger(tmp_path / "ledger.jsonl"), tmp_path / "prefs.json")
+    summary = worker.monitor(now_ms=1_700_000_000_000)
+    assert counts == {"crypto": 8, "gold": 4}
+    assert summary["error"] is None
+    assert len(summary["evaluations"]) == 12
+
+
+

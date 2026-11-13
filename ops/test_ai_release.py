@@ -256,7 +256,7 @@ def test_a_cycle_failure_is_not_reported_as_a_fresh_retrieval(tmp_path, monkeypa
 
     worker = Worker(Ledger(tmp_path / "ledger.jsonl"), tmp_path / "prefs.json")
 
-    def boom(_now_ms=None, transport=None):
+    def boom(_now_ms=None, transport=None, windows=None):
         raise RuntimeError("scan failed")
 
     monkeypatch.setattr("ops.signal_engine.cycle", boom)
