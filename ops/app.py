@@ -1447,37 +1447,63 @@ def telegram_unlink():
     return jsonify({"ok": ok})
 
 
-@app.post("/api/telegram/code")
-def telegram_code():
+def _telegram_destination(value):
+    import re
+
+    text = str(value or "").strip()
+    if text.startswith("@"):
+        name = text[1:]
+        if name.replace("_", "").isalnum() and 5 <= len(name) <= 32:
+            return "@" + name
+        return None
+    match = re.search(r"\d{5,15}", text)
+    return match.group(0) if match else None
+
+
+def _connect_telegram_chat():
+    """Send one confirmation. Connect only the chat Telegram accepted."""
+    from ops.inbox_notify import flush
     from ops.notify import send_alert
-    from ops.users import begin_telegram_code
+    from ops.users import _chat_taken, connect_telegram
 
     user_id = session.get("user_id")
     if not user_id or not _user_ok():
         return jsonify({"error": "unauthorized"}), 401
-    pending = begin_telegram_code(user_id, (request.json or {}).get("telegram_id"))
-    if pending.get("error"):
-        return jsonify({"ok": False, "error": pending["error"]}), 400
-    text = f"Aureon code {pending['code']}. Enter this code in Settings. It expires in 10 minutes. This is not a trade."
-    result = send_alert(text, chat_id=pending["chat_id"])
-    delivered = bool(result.get("delivered")) and result.get("telegram_message_id") is not None and str(result.get("telegram_chat_id")) == pending["chat_id"]
+    destination = _telegram_destination((request.json or {}).get("telegram_id"))
+    if destination is None:
+        return jsonify({"ok": False, "error": "invalid_id"}), 400
+    if destination.isdigit() and _chat_taken(destination, user_id):
+        return jsonify({"ok": False, "error": "destination_in_use"}), 400
+    result = send_alert(
+        "Aureon is connected to this account. Paper notices that match your saved markets, timeframes and directions will come here. This is not a trade.",
+        chat_id=destination,
+    )
+    confirmed = str(result.get("telegram_chat_id") or "")
+    delivered = bool(result.get("delivered")) and result.get("telegram_message_id") is not None and confirmed.lstrip("-").isdigit()
     if not delivered:
         return jsonify({"ok": False, "delivered": False, "reason": result.get("reason") or "not_delivered"}), 400
-    return jsonify({"ok": True, "delivered": True})
+    saved = connect_telegram(user_id, confirmed)
+    if saved.get("error"):
+        return jsonify({"ok": False, "error": saved["error"]}), 400
+    summary = flush()
+    return jsonify({"ok": True, "delivered": True, "sent": summary.get("sent", 0)})
+
+
+@app.post("/api/telegram/connect")
+def telegram_connect():
+    return _connect_telegram_chat()
+
+
+@app.post("/api/telegram/code")
+def telegram_code():
+    return _connect_telegram_chat()
 
 
 @app.post("/api/telegram/code/verify")
 def telegram_code_verify():
-    from ops.users import finish_telegram_code
-
-    user_id = session.get("user_id")
-    if not user_id or not _user_ok():
+    if not session.get("user_id") or not _user_ok():
         return jsonify({"error": "unauthorized"}), 401
-    body = request.json or {}
-    result = finish_telegram_code(user_id, body.get("telegram_id"), body.get("code"))
-    if result.get("error"):
-        return jsonify({"ok": False, "error": result["error"]}), 400
-    return jsonify({"ok": True})
+    return jsonify({"ok": False, "error": "not_required"}), 400
 
 
 @app.post("/api/telegram/confirm")
@@ -4510,7 +4536,7 @@ async function settings(){
   const profile = me.profile || {};
   const styles = (catalog.profiles||[]).map(p => `<label><input type="radio" name="style" value="${p.key}" ${profile.signal_style===p.key?"checked":""}> ${p.name} — ${p.risk_mode}. ${p.confirmation}</label>`).join("");
   const currencies = (catalog.currencies||[]).map(c => `<option value="${c}" ${profile.currency===c?"selected":""}>${c}</option>`).join("");
-  view.innerHTML = `<article class="card"><h2>${path==="/onboarding"?"Choose a signal style":"Signal style"}</h2><p class="muted">${catalog.note||""}</p><div class="styles">${styles}</div></article><article class="card"><h2>Base currency and capital</h2><div class="field"><span>Currency</span><select id="currency"><option value="">Not set</option>${currencies}</select></div><div class="field"><span>Paper capital</span><input id="capital" type="number" min="0" step="any" value="${profile.capital??""}"></div><p class="muted">Saving a currency does not convert the stored amount. Market quotes stay in USDT or USD/oz.</p></article><article class="card"><h2>Markets</h2><div class="checks"><label><input type="checkbox" id="btc" ${has("BTCUSDT")}> BTCUSDT</label><label><input type="checkbox" id="eth" ${has("ETHUSDT")}> ETHUSDT</label><label><input type="checkbox" id="gold" ${has("XAUUSD")}> XAUUSD</label></div><p class="muted">BTC, ETH, and gold stay on the desk. A verified live reading is not available until that source is approved. Gold 1-minute and 3-minute stay unavailable.</p></article><article class="card" id="display-card"><h2>Display</h2><p class="muted">These change how this account is shown. They do not change permission, persona risk, or market rights. Aureon AI stays on.</p><div class="field"><span>Time zone</span><input id="timezone" value="Africa/Lagos"></div><div class="field"><span>Density</span><select id="density"><option value="comfortable">Comfortable</option><option value="compact">Compact</option></select></div><div class="field"><span>Explanation</span><select id="depth"><option value="guided">Guided</option><option value="concise">Concise</option></select></div><div class="field"><span>Layout</span><select id="layout"><option value="guided">Guided</option><option value="market">Market</option></select></div><div class="field"><span>Theme</span><select id="theme"><option value="dark">Dark</option><option value="light">Light</option><option value="system">System</option></select></div><div class="field"><span>Contrast</span><select id="contrast"><option value="standard">Standard</option><option value="high">High</option></select></div><div class="field"><span>Motion</span><select id="motion"><option value="full">Full</option><option value="reduced">Reduced</option></select></div><button id="savedisplay" type="button">Save display</button><p id="displaysaved" class="muted"></p></article><article class="card"><h2>Experience</h2><label>How you describe your experience <select id="labexp"><option value="">Not stated</option><option value="new">New</option><option value="developing">Developing</option><option value="independent">Independent</option></select></label><p class="muted">This is what you say about yourself. It is stored on this account and is not a skill score.</p></article><article class="card" id="autopilot-card"><h2>AutoPilot</h2><p>Loading paper automation.</p></article><article class="card"><h2>Notifications and risk</h2><div class="checks"><label><input type="checkbox" id="exp" ${profile.experimental_alerts?"checked":""}> Experimental alerts</label><label><input type="checkbox" id="digest" ${profile.daily_report!==false?"checked":""}> Daily digest</label></div><div class="field"><span>Max risk per trade %</span><input id="risk" type="number" step="0.1" min="0" value="${profile.max_risk_pct??""}"></div><p class="muted">The in-app inbox is where your notices are kept. Telegram only repeats a notice that is already in that inbox, and only for this account. Production is WAIT_DEFAULT, so no trade alert is sent until a strategy is promoted. A paper notice is not that alert and it is not an order. Open @AureonLabBot, press the link button, then tap Start. Aureon never asks for the bot token. A test is accepted only when Telegram returns a message id.</p><div class="checks"><label><input type="checkbox" id="tg-notices" ${profile.telegram_notices!==false?"checked":""}> Send inbox notices to Telegram</label></div><p class="muted">Telegram is ${me.telegram_verified?"connected":"not connected"}. Open the bot and press Start, then enter your numeric Telegram ID. A code is sent only to that chat. Enter the code here to connect this account. Notices then follow the markets, timeframes and directions saved on this account.</p><div class="field"><span>Telegram ID</span><input id="tgid" inputmode="numeric" autocomplete="off" placeholder="Numeric ID only"></div><button id="tgcode" type="button">Send a code to this ID</button><div class="field"><span>Code from Telegram</span><input id="tgcodein" inputmode="numeric" autocomplete="one-time-code" placeholder="6 digits"></div><button id="tgverify" type="button">Connect this Telegram ID</button> <button id="tglink" type="button">Create a one-time Telegram link</button> <button id="tgtest" type="button">Send a connection test</button> <button id="tgunlink" type="button">Disconnect Telegram</button><p id="tglinkout" class="muted"></p></article><article class="card"><h2>Live Binance</h2><label><input type="checkbox" id="live-trading" ${profile.live_trading?"checked":""}> Send BTC and ETH buys to Binance spot</label><p class="muted">This stays paper until the server has AUREON_LIVE_TRADING=1 and both Binance keys. A short, and every gold trade, stays on the paper book. A buy that cannot place its stop is closed.</p></article><article class="card" id="inbox-settings"><h2>In-app inbox</h2><p class="muted" id="inboxnote">Loading delivery settings.</p></article><p><button id="saveall" type="button">Save</button> <button id="skip" type="button">Continue without optional alerts</button> <button id="out" type="button">Sign out</button></p><p id="savedp" class="muted"></p>`;
+  view.innerHTML = `<article class="card"><h2>${path==="/onboarding"?"Choose a signal style":"Signal style"}</h2><p class="muted">${catalog.note||""}</p><div class="styles">${styles}</div></article><article class="card"><h2>Base currency and capital</h2><div class="field"><span>Currency</span><select id="currency"><option value="">Not set</option>${currencies}</select></div><div class="field"><span>Paper capital</span><input id="capital" type="number" min="0" step="any" value="${profile.capital??""}"></div><p class="muted">Saving a currency does not convert the stored amount. Market quotes stay in USDT or USD/oz.</p></article><article class="card"><h2>Markets</h2><div class="checks"><label><input type="checkbox" id="btc" ${has("BTCUSDT")}> BTCUSDT</label><label><input type="checkbox" id="eth" ${has("ETHUSDT")}> ETHUSDT</label><label><input type="checkbox" id="gold" ${has("XAUUSD")}> XAUUSD</label></div><p class="muted">BTC, ETH, and gold stay on the desk. A verified live reading is not available until that source is approved. Gold 1-minute and 3-minute stay unavailable.</p></article><article class="card" id="display-card"><h2>Display</h2><p class="muted">These change how this account is shown. They do not change permission, persona risk, or market rights. Aureon AI stays on.</p><div class="field"><span>Time zone</span><input id="timezone" value="Africa/Lagos"></div><div class="field"><span>Density</span><select id="density"><option value="comfortable">Comfortable</option><option value="compact">Compact</option></select></div><div class="field"><span>Explanation</span><select id="depth"><option value="guided">Guided</option><option value="concise">Concise</option></select></div><div class="field"><span>Layout</span><select id="layout"><option value="guided">Guided</option><option value="market">Market</option></select></div><div class="field"><span>Theme</span><select id="theme"><option value="dark">Dark</option><option value="light">Light</option><option value="system">System</option></select></div><div class="field"><span>Contrast</span><select id="contrast"><option value="standard">Standard</option><option value="high">High</option></select></div><div class="field"><span>Motion</span><select id="motion"><option value="full">Full</option><option value="reduced">Reduced</option></select></div><button id="savedisplay" type="button">Save display</button><p id="displaysaved" class="muted"></p></article><article class="card"><h2>Experience</h2><label>How you describe your experience <select id="labexp"><option value="">Not stated</option><option value="new">New</option><option value="developing">Developing</option><option value="independent">Independent</option></select></label><p class="muted">This is what you say about yourself. It is stored on this account and is not a skill score.</p></article><article class="card" id="autopilot-card"><h2>AutoPilot</h2><p>Loading paper automation.</p></article><article class="card"><h2>Notifications and risk</h2><div class="checks"><label><input type="checkbox" id="exp" ${profile.experimental_alerts?"checked":""}> Experimental alerts</label><label><input type="checkbox" id="digest" ${profile.daily_report!==false?"checked":""}> Daily digest</label></div><div class="field"><span>Max risk per trade %</span><input id="risk" type="number" step="0.1" min="0" value="${profile.max_risk_pct??""}"></div><p class="muted">The in-app inbox is where your notices are kept. Telegram only repeats a notice that is already in that inbox, and only for this account. Production is WAIT_DEFAULT, so no trade alert is sent until a strategy is promoted. A paper notice is not that alert and it is not an order. Open @AureonLabBot, press the link button, then tap Start. Aureon never asks for the bot token. A test is accepted only when Telegram returns a message id.</p><div class="checks"><label><input type="checkbox" id="tg-notices" ${profile.telegram_notices!==false?"checked":""}> Send inbox notices to Telegram</label></div><p class="muted">Telegram is ${me.telegram_verified?"connected":"not connected"}. Open @AureonLabBot and press Start. Enter your numeric Telegram ID or @username, then press Connect. The account is connected only when Telegram accepts the message. Matching paper notices are sent to that same chat.</p><div class="field"><span>Telegram ID</span><input id="tgid" autocomplete="off" placeholder="Numeric ID or @username"></div><button id="tgconnect" type="button">Connect this Telegram ID</button> <button id="tgtest" type="button">Send a connection test</button> <button id="tgunlink" type="button">Disconnect Telegram</button><p id="tglinkout" class="muted"></p></article><article class="card"><h2>Live Binance</h2><label><input type="checkbox" id="live-trading" ${profile.live_trading?"checked":""}> Send BTC and ETH buys to Binance spot</label><p class="muted">This stays paper until the server has AUREON_LIVE_TRADING=1 and both Binance keys. A short, and every gold trade, stays on the paper book. A buy that cannot place its stop is closed.</p></article><article class="card" id="inbox-settings"><h2>In-app inbox</h2><p class="muted" id="inboxnote">Loading delivery settings.</p></article><p><button id="saveall" type="button">Save</button> <button id="skip" type="button">Continue without optional alerts</button> <button id="out" type="button">Sign out</button></p><p id="savedp" class="muted"></p>`;
   const inbox = await fetch("/api/inbox/settings", {credentials:"same-origin"}).then(r => r.ok ? r.json() : null);
   const box = (inbox && inbox.settings) || {};
   const on = (name) => box[name] ? "checked" : "";
@@ -4635,38 +4661,24 @@ async function settings(){
   }
   document.getElementById("saveall").onclick = () => save(path === "/onboarding");
   document.getElementById("skip").onclick = () => { location.href = "/overview"; };
-  document.getElementById("tgcode").onclick = async () => {
-    const r = await fetch("/api/telegram/code", {method:"POST", headers:{"Content-Type":"application/json"}, credentials:"same-origin", body: JSON.stringify({telegram_id: document.getElementById("tgid").value.trim()})});
-    const d = await r.json().catch(() => ({}));
-    document.getElementById("tglinkout").textContent = r.ok && d.delivered ? "Telegram accepted the code. Enter the 6 digits below." : "Telegram did not accept that ID. Press Start in the bot, then use the numeric ID for that chat.";
-  };
-  document.getElementById("tgverify").onclick = async () => {
-    const r = await fetch("/api/telegram/code/verify", {method:"POST", headers:{"Content-Type":"application/json"}, credentials:"same-origin", body: JSON.stringify({telegram_id: document.getElementById("tgid").value.trim(), code: document.getElementById("tgcodein").value.trim()})});
-    const d = await r.json().catch(() => ({}));
-    document.getElementById("tglinkout").textContent = r.ok && d.ok ? "Telegram is connected for this account. Notices follow the markets, timeframes and directions saved here." : "That code did not match this ID. Send a new code and try again.";
-  };
-  document.getElementById("tglink").onclick = async () => {
-    const r = await fetch("/api/telegram/link", {method:"POST", headers:{"Content-Type":"application/json"}, credentials:"same-origin", body: "{}"});
+  document.getElementById("tgconnect").onclick = async () => {
+    const r = await fetch("/api/telegram/connect", {method:"POST", headers:{"Content-Type":"application/json"}, credentials:"same-origin", body: JSON.stringify({telegram_id: document.getElementById("tgid").value.trim()})});
     const d = await r.json().catch(() => ({}));
     const out = document.getElementById("tglinkout");
-    if (!r.ok || !d.token) { out.textContent = "The link could not be created. Sign in again and retry."; return; }
-    const name = /^[A-Za-z0-9_]+$/.test(d.username || "") ? d.username : "AureonLabBot";
-    const url = "https://t.me/" + name + "?start=" + encodeURIComponent(d.token);
-    out.innerHTML = "Tap Open, then press Start in Telegram. The link expires in 10 minutes. <a id=\\"tgopen\\" href=\\"" + url + "\\" target=\\"_blank\\" rel=\\"noopener\\">Open @" + name + "</a>";
-    const timer = setInterval(async () => {
-      const me = await fetch("/api/me", {credentials:"same-origin"});
-      const body = await me.json().catch(() => ({}));
-      if (body.telegram_verified) {
-        clearInterval(timer);
-        out.textContent = "Telegram is connected for this account. Later notices follow the markets, timeframes and directions saved here.";
-      }
-    }, 3000);
-    setTimeout(() => clearInterval(timer), 120000);
+    const reason = String(d.reason || d.error || "");
+    if (r.ok && d.delivered) {
+      out.textContent = d.sent ? "Connected. Telegram accepted the message and the matching notices were sent." : "Connected. Telegram accepted the message. Later notices follow the markets, timeframes and directions saved here.";
+      return;
+    }
+    if (/start|initiate|blocked|forbidden/i.test(reason)) out.textContent = "Open @AureonLabBot and press Start, then connect again.";
+    else if (d.error === "destination_in_use") out.textContent = "That Telegram chat is already connected to another account.";
+    else if (d.error === "invalid_id") out.textContent = "Enter a numeric Telegram ID or an @username.";
+    else out.textContent = reason ? "Telegram did not accept the message: " + reason.slice(0, 180) : "Telegram did not accept the message.";
   };
   document.getElementById("tgtest").onclick = async () => {
     const r = await fetch("/api/telegram/test", {method:"POST", headers:{"Content-Type":"application/json"}, credentials:"same-origin", body: "{}"});
     const d = await r.json().catch(() => ({}));
-    document.getElementById("tglinkout").textContent = r.ok && d.delivered ? "Telegram accepted the test. That does not mean it was read." : "The test was not accepted. Open the link and press Start, then try again.";
+    document.getElementById("tglinkout").textContent = r.ok && d.delivered ? "Telegram accepted the test. That does not mean it was read." : "The test was not accepted. Open @AureonLabBot and press Start, then try again.";
   };
   document.getElementById("tgunlink").onclick = async () => {
     const r = await fetch("/api/telegram/unlink", {method:"POST", headers:{"Content-Type":"application/json"}, credentials:"same-origin", body: "{}"});

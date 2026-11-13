@@ -275,20 +275,13 @@ def begin_telegram_code(user_id: str, chat_id: str) -> dict:
     return {"ok": True, "chat_id": chat_id, "code": code}
 
 
-def finish_telegram_code(user_id: str, chat_id: str, code: str) -> dict:
-    """Connect only when the typed code matches the one sent to that same ID."""
-    chat_id = _chat_id(chat_id)
-    typed = str(code or "").strip()
-    if chat_id is None or not typed.isdigit() or len(typed) != 6:
+def connect_telegram(user_id: str, chat_id: str) -> dict:
+    """Store the chat Telegram confirmed. A typed ID alone is not enough."""
+    chat_id = str(chat_id or "").strip()
+    if not chat_id.lstrip("-").isdigit():
         return {"error": "invalid_id"}
     if _chat_taken(chat_id, user_id):
         return {"error": "destination_in_use"}
-    user = get(user_id)
-    pending = (user or {}).get("telegram_code") or {}
-    if pending.get("chat_id") != chat_id or time.time() > float(pending.get("expires") or 0):
-        return {"error": "expired"}
-    if pending.get("code_hash") != _token_hash(typed):
-        return {"error": "mismatch"}
 
     def mutator(current):
         current["telegram"] = {
@@ -304,6 +297,7 @@ def finish_telegram_code(user_id: str, chat_id: str, code: str) -> dict:
     if not saved or saved.get("conflict"):
         return {"error": "not_found"}
     return {"ok": True, "user_id": user_id}
+
 
 
 
