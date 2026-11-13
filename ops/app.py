@@ -1772,23 +1772,66 @@ def gold_signal():
         body = derived_withheld("XAUUSD", "1h")
         body["quote_semantics"] = "unavailable"
         return jsonify(body)
-    view = _engine_view("XAUUSD")
-    head = view.get("headline") or {}
+    from ops.desk_snapshot import headline_board, public_reading
+
+    shown = {}
+    semantics = "ohlc_not_bid_ask"
+    try:
+        snaps, readings = headline_board(int(time.time() * 1000))
+    except Exception:
+        snaps, readings = [], []
+    for snap, reading in zip(snaps, readings):
+        if snap.get("instrument") == "XAUUSD":
+            semantics = snap.get("candle_semantics") or semantics
+            shown = public_reading(reading) if reading else {}
+            break
+    sample = "spot_sample_not_bid_ask" if semantics == "spot_sample_not_bid_ask" else None
+    if shown and not reading_released("XAUUSD", "1h", sample):
+        shown = {}
+    if not shown:
+        view = _engine_view("XAUUSD")
+        head = view.get("headline") or {}
+        return jsonify({
+            "symbol": "XAUUSD",
+            "interval": view.get("interval") or "1h",
+            "strategy": head.get("strategy"),
+            "state": view.get("state"),
+            "reason": view.get("reason"),
+            "result": head.get("direction") or "WAIT",
+            "direction": head.get("direction") or "WAIT",
+            "decision": head.get("direction") or "WAIT",
+            "entry": None,
+            "stop": None,
+            "target": None,
+            "production": "WAIT_DEFAULT",
+            "approved": False,
+            "validated": False,
+            "broker": False,
+            "quote_semantics": view.get("quote_semantics") or "ohlc_not_bid_ask",
+            "rows": view.get("rows") or [],
+            "note": "XAUUSD 1-hour reading from the desk source. A sampled reference bar is not exchange OHLC. Not a paper order, not bid/ask, and not an approved signal.",
+        })
+    decision = shown.get("decision") or "WAIT"
     return jsonify({
         "symbol": "XAUUSD",
-        "interval": view.get("interval") or "1h",
-        "strategy": head.get("strategy"),
-        "state": view.get("state"),
-        "reason": view.get("reason"),
-        "result": head.get("direction") or "WAIT",
-        "direction": head.get("direction") or "WAIT",
+        "interval": "1h",
+        "strategy": shown.get("reading_class") or "gold-ohlc-reading",
+        "state": shown.get("setup_state") or "confirmed",
+        "reason": shown.get("explanation"),
+        "result": decision,
+        "direction": decision,
+        "decision": decision,
+        "entry": shown.get("entry"),
+        "stop": shown.get("stop"),
+        "target": shown.get("target"),
+        "candle_close_ms": shown.get("candle_close_ms"),
+        "snapshot_id": shown.get("snapshot_id"),
         "production": "WAIT_DEFAULT",
         "approved": False,
         "validated": False,
         "broker": False,
-        "quote_semantics": view.get("quote_semantics") or "ohlc_not_bid_ask",
-        "rows": view.get("rows") or [],
-        "note": "XAUUSD 1-hour reading from the desk source. A sampled reference bar is not exchange OHLC. Not a paper order, not bid/ask, and not an approved signal.",
+        "quote_semantics": semantics,
+        "note": "Same completed-candle paper reading as the market board. Not bid/ask, not a broker fill, and not an approved signal.",
     })
 
 
@@ -3721,7 +3764,11 @@ async function signals(){
       return `<div class="row"><span>${item.symbol} ${item.interval || ""}</span><span>${decision}</span></div><div class="row"><span>${closeLabel}</span><span class="num">${item.customer_status === "reading_unavailable" || minute ? "—" : px}</span></div><p class="muted">${dir} · ${kind} · ${whenText}. ${plainReason(item.explanation || item.message || "")}</p>${stance}`;
       }).join("");
     }).join("");
-    now.innerHTML = `<h2>Live signals</h2><p class="muted">No eligible live reading is available. That is separate from whether a research strategy is approved. Nothing here is an order.</p>${cards || "<p>No eligible live reading is available.</p>"}${manualPlanCard()}<p><a href="/scanner">Open the scanner</a> · <a href="/trading">Terminal</a></p>`;
+    const released = ((scan && scan.markets) || []).some(item => item.customer_status !== "reading_unavailable" && item.reading_class !== "unavailable" && item.decision_label !== "UNAVAILABLE" && item.scanner_state !== "BLOCKED");
+    const lead = released
+      ? "Completed-candle paper readings. A plan is not an order and not an approved strategy."
+      : "No eligible live reading is available. That is separate from whether a research strategy is approved. Nothing here is an order.";
+    now.innerHTML = `<h2>Live signals</h2><p class="muted">${lead}</p>${cards || "<p>No eligible live reading is available.</p>"}${manualPlanCard()}<p><a href="/scanner">Open the scanner</a> · <a href="/trading">Terminal</a></p>`;
     bindManualPlan();
     bindAsk();
     const again = document.getElementById("sig-retry");

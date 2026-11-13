@@ -150,7 +150,10 @@ def present_window(window, now_ms):
                     else:
                         lead = "Public chart candles, not a bid/ask. "
                     shared["quote"] = quote
-                    shared["message"] = lead + "The London rule was not calculated. " + (shared.get("message") or "")
+                    message = shared.get("message") or ""
+                    preface = lead + "The London rule was not calculated. "
+                    if not message.startswith(lead):
+                        shared["message"] = preface + message
                     base.update(shared)
                     base["price"] = price
                     return base

@@ -69,11 +69,40 @@ def test_scanner_ohlc_not_bid_ask_is_not_a_london_trade(monkeypatch):
     assert row["eligible_for_alert"] is False
     assert row.get("rule") != "london-reclaim-1h-20261028"
     assert "London rule was not calculated" in row["message"]
+    assert row["message"].count("The London rule was not calculated.") == 1
+    assert row["message"].count("Public chart candles, not a bid/ask.") <= 1
     assert "not a bid/ask" in row["message"]
     assert "SIGNAL_CANDIDATE" not in dumped
     assert row["price"] == 100
     assert row["approved"] is False
     assert row["scanner_state"] != "APPROVED_SIGNAL"
+
+
+def test_gold_signal_matches_the_released_market_reading(monkeypatch):
+    snap = {"instrument": "XAUUSD", "candle_semantics": "ohlc_not_bid_ask"}
+    reading = {
+        "decision_label": "SELL · Short idea",
+        "entry": 3897.2,
+        "stop": 3911.7,
+        "target": 3870.9,
+        "explanation": "Public chart candles, not a bid/ask. The London rule was not calculated. Once.",
+        "setup_state": "confirmed",
+        "reading_class": "manual_plan",
+        "candle_close_ms": 1794571199999,
+        "snapshot_id": "XAUUSD:1h:test",
+        "approved": False,
+    }
+    monkeypatch.setattr("ops.desk_snapshot.headline_board", lambda now_ms: ([snap], [reading]))
+    from ops.app import app
+    app.config["TESTING"] = True
+    body = app.test_client().get("/api/gold/signal").get_json()
+    assert body["decision"] == "SELL · Short idea"
+    assert body["entry"] == 3897.2
+    assert body["stop"] == 3911.7
+    assert body["target"] == 3870.9
+    assert body["approved"] is False
+    assert body["broker"] is False
+    assert body["reason"].count("The London rule was not calculated.") == 1
 
 
 def test_scanner_shows_the_same_experimental_plan_as_the_terminal():
