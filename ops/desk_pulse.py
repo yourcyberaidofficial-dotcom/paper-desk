@@ -46,6 +46,8 @@ def publish(result, now_ms):
     key = (symbol, interval)
     with _LOCK:
         previous = _READINGS.get(key)
+        if previous and int(previous.get("bar_close_ms") or 0) > int(close_ms):
+            return False
         if previous and previous.get("bar_close_ms") == close_ms and previous.get("feed_state") == row.get("feed_state"):
             return False
         _READINGS[key] = row

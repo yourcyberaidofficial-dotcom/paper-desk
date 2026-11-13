@@ -379,47 +379,65 @@ def cycle(now_ms=None, transport=None, windows=None):
             note_unavailable(symbol, interval, (loaded or {}).get("reason") or "source_failure", now_ms, component="signal_engine")
             markets.append(_gated(symbol, interval, "source_failure"))
             continue
-        remembered = _remembered(symbol, interval, bars, source_id)
-        if remembered is not None:
-            follow = _expire_or_invalidate(remembered, now_ms)
+        from ops.candle_claim import exclusive, inspect as claim_inspect, note_once, seal
+
+        bar = bars[-1]
+        with exclusive(symbol, interval) as outermost:
+            claim = claim_inspect(symbol, interval, bar)
+            if claim.get("status") == "same":
+                remembered = _remembered(symbol, interval, bars, source_id) or claim.get("decision")
+                if remembered:
+                    follow = _expire_or_invalidate(remembered, now_ms)
+                    if follow:
+                        record_observations([follow], now_ms=now_ms, component="signal_engine")
+                    decisions[(symbol, interval)] = remembered
+                    markets.append(remembered)
+                    continue
+            if claim.get("status") == "revised":
+                note_once(symbol, interval, "revised", bar, now_ms)
+                kept = _remembered(symbol, interval, bars, source_id) or claim.get("decision")
+                if kept:
+                    decisions[(symbol, interval)] = kept
+                    markets.append(kept)
+                continue
+            if claim.get("status") == "older":
+                note_once(symbol, interval, "late", bar, now_ms)
+                continue
+            try:
+                card = _observe(symbol, interval, bars, source_id, now_ms)
+            except Exception:
+                note_unavailable(symbol, interval, "evaluation_failed", now_ms, component="signal_engine")
+                markets.append(_gated(symbol, interval, "source_failure"))
+                continue
+            stored = record_observations([card], now_ms=now_ms, component="signal_engine")
+            follow = _expire_or_invalidate(card, now_ms)
             if follow:
                 record_observations([follow], now_ms=now_ms, component="signal_engine")
-            decisions[(symbol, interval)] = remembered
-            markets.append(remembered)
-            continue
-        try:
-            card = _observe(symbol, interval, bars, source_id, now_ms)
-        except Exception:
-            note_unavailable(symbol, interval, "evaluation_failed", now_ms, component="signal_engine")
-            markets.append(_gated(symbol, interval, "source_failure"))
-            continue
-        stored = record_observations([card], now_ms=now_ms, component="signal_engine")
-        follow = _expire_or_invalidate(card, now_ms)
-        if follow:
-            record_observations([follow], now_ms=now_ms, component="signal_engine")
-        classified = classify_card(card)
-        classified["conditions"] = card.get("conditions")
-        classified["higher_timeframe"] = card.get("higher_timeframe")
-        classified["freshness"] = card.get("freshness")
-        classified["permission"] = "granted"
-        classified["bar_close_ms"] = card.get("bar_close_ms")
-        classified["decision_label"] = card.get("decision_label")
-        classified["strategy"] = card.get("strategy")
-        classified["reference_price"] = card.get("reference_price")
-        classified["reward_risk"] = card.get("reward_risk")
-        classified["fresh"] = card.get("fresh")
-        classified["runtime_status"] = card.get("runtime_status")
-        if card.get("freshness") == "stale" or card.get("quality") == "stale":
-            classified["price"] = None
-            classified["entry"] = None
-            classified["stop"] = None
-            classified["target"] = None
-            classified["note"] = "The candle is stale. It is not a current signal and it is not a missing licence."
-        if stored.get("rows"):
-            classified = {**classified, "persisted": True}
-        _ACCEPTED[(symbol, interval)] = (bars[-1].get("close_time_ms"), source_id, dict(classified))
-        decisions[(symbol, interval)] = dict(classified)
-        markets.append(classified)
+            classified = classify_card(card)
+            classified["conditions"] = card.get("conditions")
+            classified["higher_timeframe"] = card.get("higher_timeframe")
+            classified["freshness"] = card.get("freshness")
+            classified["permission"] = "granted"
+            classified["bar_close_ms"] = card.get("bar_close_ms")
+            classified["decision_label"] = card.get("decision_label")
+            classified["strategy"] = card.get("strategy")
+            classified["reference_price"] = card.get("reference_price")
+            classified["reward_risk"] = card.get("reward_risk")
+            classified["fresh"] = card.get("fresh")
+            classified["runtime_status"] = card.get("runtime_status")
+            if card.get("freshness") == "stale" or card.get("quality") == "stale":
+                classified["price"] = None
+                classified["entry"] = None
+                classified["stop"] = None
+                classified["target"] = None
+                classified["note"] = "The candle is stale. It is not a current signal and it is not a missing licence."
+            if stored.get("rows"):
+                classified = {**classified, "persisted": True}
+            _ACCEPTED[(symbol, interval)] = (bar.get("close_time_ms"), source_id, dict(classified))
+            decisions[(symbol, interval)] = dict(classified)
+            markets.append(classified)
+            if outermost:
+                seal(symbol, interval, bar, classified)
     _DECISIONS = decisions
     return {
         "markets": markets,

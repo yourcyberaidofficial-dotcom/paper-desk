@@ -276,37 +276,64 @@ class Worker:
 
         if windows is None:
             windows = self._monitor_windows(now_ms)
-        try:
-            from ops.signal_engine import cycle, take_decisions
+        self.last_cycle_error = None
+        if not windows:
+            try:
+                from ops.signal_engine import cycle
 
-            cycle(now_ms, windows=windows)
-            self.last_cycle_error = None
-            decisions = take_decisions()
-        except Exception as exc:
-            self.last_cycle_error = type(exc).__name__
-            decisions = {}
-        for window in windows:
-            shared = decisions.get((window.get("symbol"), window.get("interval")))
-            if isinstance(shared, dict):
-                window["engine_result"] = shared
+                cycle(now_ms, windows=windows)
+            except Exception as exc:
+                self.last_cycle_error = type(exc).__name__
         users = list_users()
         evaluations = []
         delivered = 0
         unchanged = 0
+        from ops.candle_claim import exclusive, inspect as claim_inspect, note_once, seal
+        from ops.desk_pulse import carried, same_bar
+        from ops.signal_engine import cycle, take_decisions
+
         for window in windows:
             symbol = window.get("symbol")
             interval = window.get("interval")
+            bars = window.get("bars") or []
+            bar = bars[-1] if bars and isinstance(bars[-1], dict) else None
             try:
-                from ops.desk_pulse import carried, same_bar
-
-                if same_bar(window):
-                    remembered = carried(window)
-                    if remembered:
-                        evaluations.append(remembered)
+                with exclusive(symbol, interval):
+                    claim = claim_inspect(symbol, interval, bar) if bar else {"status": "empty"}
+                    if claim.get("status") == "same":
+                        remembered = carried(window) or claim.get("decision")
+                        if remembered:
+                            evaluations.append(remembered)
+                            unchanged += 1
+                            continue
+                    if claim.get("status") == "revised":
+                        note_once(symbol, interval, "revised", bar, now_ms)
+                        remembered = carried(window) or claim.get("decision")
+                        if remembered:
+                            evaluations.append(remembered)
                         unchanged += 1
                         continue
-                delivered += self._monitor_one(now_ms, window, users, evaluations)
+                    if claim.get("status") == "older":
+                        note_once(symbol, interval, "late", bar, now_ms)
+                        unchanged += 1
+                        continue
+                    cycle(now_ms, windows=[window])
+                    shared = take_decisions().get((symbol, interval))
+                    if isinstance(shared, dict):
+                        window["engine_result"] = shared
+                    if same_bar(window):
+                        remembered = carried(window)
+                        if remembered:
+                            evaluations.append(remembered)
+                            unchanged += 1
+                            if bar and claim.get("status") == "new":
+                                seal(symbol, interval, bar, remembered)
+                            continue
+                    delivered += self._monitor_one(now_ms, window, users, evaluations)
+                    if bar and claim.get("status") == "new":
+                        seal(symbol, interval, bar, window.get("engine_result") or (evaluations[-1] if evaluations else {}))
             except Exception as exc:
+                self.last_cycle_error = type(exc).__name__
                 evaluations.append({
                     "symbol": symbol,
                     "interval": interval,
