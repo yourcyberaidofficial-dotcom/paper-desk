@@ -196,14 +196,16 @@ def test_a_manual_close_is_the_only_new_pnl_and_ambiguous_is_excluded(tmp_path, 
     assert opened_sell["ok"] is True
 
 
-def test_public_chart_covers_gold_minutes():
+def test_public_chart_covers_gold_without_inventing_minutes():
     from ops.worker import pair_availability
     rows = pair_availability()
     assert len(rows) == 12
-    assert [row for row in rows if row["status"] == "unavailable"] == []
     gold = [row for row in rows if row["symbol"] == "XAUUSD"]
     assert {row["interval"] for row in gold} == {"1m", "3m", "15m", "1h"}
-    assert all(row["feed"] == "xaus_public_chart" and row["status"] == "ready" for row in gold)
+    minutes = [row for row in gold if row["interval"] in {"1m", "3m"}]
+    assert all(row["status"] == "unsupported" and row["reason"] == "xau_minute_unsupported" for row in minutes)
+    offered = [row for row in gold if row["interval"] in {"15m", "1h"}]
+    assert all(row["feed"] == "xaus_public_chart" and row["status"] == "ready" for row in offered)
 
 
 def test_a_completed_candle_exit_is_not_an_account_exit(tmp_path, monkeypatch):

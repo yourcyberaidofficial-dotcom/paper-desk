@@ -24,6 +24,7 @@ def test_a_state_change_without_the_session_token_is_refused():
 
     app.config["CSRF_ENFORCE"] = True
     client = app.test_client()
+    client.raw_csrf = True
     with client.session_transaction() as sess:
         sess["csrf"] = "a" * 32
         sess["user_id"] = "absent"

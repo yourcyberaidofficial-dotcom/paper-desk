@@ -52,10 +52,11 @@ def _spawn(port, bind, data, extra_env=None):
         "AUREON_DISABLE_WORKERS": "1",
         "DESK_BIND": bind,
         "PORT": str(port),
-        "PYTHONPATH": str(ROOT),
         "PYTHONUNBUFFERED": "1",
         "DESK_SESSION_SECRET": "phase4-session-secret-is-32-characters-minimum",
     })
+    prior = env.get("PYTHONPATH", "")
+    env["PYTHONPATH"] = str(ROOT) if not prior else str(ROOT) + os.pathsep + prior
     env.pop("DESK_AUTH_LIMIT", None)
     env.pop("DESK_GENERAL_LIMIT", None)
     if extra_env:
