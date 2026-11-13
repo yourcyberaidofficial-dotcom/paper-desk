@@ -28,11 +28,11 @@ The public site is https://aureontradelab.tech. Do not deploy while that host do
 
 Before replacing the container:
 
-1. Back up the named volumes `desk-data`, `desk-users` and `desk-shadow`. Do not run `docker compose down -v`.
+1. Back up every named volume under `/opt/aureon` with `python -m ops.volume_backup`. The runbook is `docs/VOLUME_RUNBOOK.md`. The nine volumes are `desk-data`, `desk-users`, `desk-shadow`, `desk-signals`, `desk-activity`, `desk-rights`, `desk-cache`, `desk-canonical`, and `desk-ai`. Do not run `docker compose down -v`.
 2. Leave the server `.env` untouched.
-3. Build from a clean worktree with `AUREON_BUILD_COMMIT` set to the full commit SHA.
-4. Recreate only the app container. The volumes stay mounted.
-5. Confirm `https://aureontradelab.tech/version` reports that same SHA.
+3. Build from a clean worktree with `AUREON_BUILD_COMMIT` set to the full commit SHA. That value is a label. `/version` also reports `content_hash`, which is the digest baked from `ops/`, `desk/`, and `requirements-lock.txt`. The two fields are not the same thing.
+4. Recreate the `web` and `worker` containers. The volumes stay mounted. `web` is one gunicorn process and does not run the desk loops. `worker` does.
+5. Confirm `https://aureontradelab.tech/version` reports that same SHA in `build_commit`, and a 64-character `content_hash` with `content_hash_baked` true. `build_commit_kind` is `label`. `content_hash_kind` is `image`.
 
 Rollback is the previous image on the same volumes.
 

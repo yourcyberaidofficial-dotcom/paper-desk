@@ -1,6 +1,7 @@
 """Closed-candle evaluator. Always WAIT. Idempotent. No fills."""
 
 import json
+import os
 import time
 from pathlib import Path
 
@@ -118,6 +119,25 @@ class Worker:
         except Exception:
             pass
 
+    def _publish_status(self):
+        """Write the heartbeat only in the worker role. Tests do not grow a status file."""
+        if os.environ.get("AUREON_ROLE", "").strip().lower() != "worker":
+            return None
+        try:
+            from ops.worker_status import publish_patch
+
+            return publish_patch({
+                "alive_ms": int(time.time() * 1000),
+                "last_beat_ms": int(self.last_beat_ms or 0),
+                "last_monitor_ms": int(self.last_monitor_ms or 0),
+                "last_monitor_error": self.last_monitor_error,
+                "last_cycle_error": self.last_cycle_error,
+                "last_monitor": self.last_monitor if isinstance(self.last_monitor, dict) else None,
+                "role": "worker",
+            })
+        except Exception:
+            return None
+
     def prefs(self) -> dict:
         if not self.prefs_path.exists():
             return dict(DEFAULT_PREFS)
@@ -164,6 +184,7 @@ class Worker:
     def evaluate(self, now_ms: int | None = None, sender=send_alert) -> list[dict]:
         now_ms = int(now_ms if now_ms is not None else time.time() * 1000)
         self.last_beat_ms = now_ms
+        self._publish_status()
         try:
             from ops.activity import record
             record("worker_started", component="worker", entity="desk", detail={"note": "Worker loop reached an evaluation. This is not a market reading."}, now_ms=now_ms)
@@ -280,6 +301,7 @@ class Worker:
             self.last_monitor_error = type(exc).__name__
             summary = {"evaluated_at_ms": now_ms, "evaluations": [], "delivered": 0, "error": type(exc).__name__}
         self.last_monitor = summary
+        self._publish_status()
         return summary
 
     def _monitor(self, now_ms, windows):
@@ -542,14 +564,15 @@ class Worker:
             self._feed_ok(symbol)
             return {"symbol": symbol, "interval": interval, "bars": gold, "live_quote": None, "reason": None, "feed_state": feed_state(symbol, interval)}
         loaded = load_crypto_bars(symbol, interval, now_ms)
-        if isinstance(loaded, tuple):
+        failed = isinstance(loaded, tuple)
+        if failed or not loaded:
             alt = self._kraken_bars(symbol, interval, now_ms)
             if alt:
                 self._feed_ok(symbol)
                 return {"symbol": symbol, "interval": interval, "bars": alt, "feed_state": "live", "reason": None}
-            self._feed_failed(symbol, now_ms)
-            return self._cached(symbol, interval, now_ms, loaded[1])
-        if not loaded:
+            if failed:
+                self._feed_failed(symbol, now_ms)
+                return self._cached(symbol, interval, now_ms, loaded[1])
             cached = self._cached(symbol, interval, now_ms, "missing_bars")
             if cached.get("bars"):
                 return cached
