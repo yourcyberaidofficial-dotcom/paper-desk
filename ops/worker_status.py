@@ -7,18 +7,18 @@ the process heartbeat. It is not a market price.
 from __future__ import annotations
 
 import json
-import os
 import sys
 import threading
 import time
-from pathlib import Path
 
 _LOCK = threading.Lock()
+REQUIRED_THREADS = ("aureon-desk", "aureon-telegram", "aureon-digest")
 
 
 def status_path():
-    root = Path(os.environ.get("AUREON_DATA") or "data")
-    return root / "canonical" / "worker_status.json"
+    from ops.paths import data_root
+
+    return data_root() / "canonical" / "worker_status.json"
 
 
 def read_status():
@@ -50,11 +50,19 @@ def publish_patch(patch):
 
 
 def check(max_age_ms=30_000):
-    """Process heartbeat only. A missing market reading is not a failed check."""
-    alive = int(read_status().get("alive_ms") or 0)
-    if alive <= 0:
+    """Fail unless the process heartbeat is fresh and every loop is still named.
+
+    Refreshing alive_ms from the outer loop is not enough. A dead desk or
+    Telegram thread must fail the container check.
+    """
+    body = read_status()
+    alive = int(body.get("alive_ms") or 0)
+    if alive <= 0 or int(time.time() * 1000) - alive > int(max_age_ms):
         return False
-    return int(time.time() * 1000) - alive <= int(max_age_ms)
+    running = body.get("threads")
+    if not isinstance(running, list):
+        return False
+    return all(name in running for name in REQUIRED_THREADS)
 
 
 if __name__ == "__main__":

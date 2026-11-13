@@ -8,7 +8,6 @@ A 429 waits. A blocked chat is not retried. Missing prices are not filled in.
 from __future__ import annotations
 
 import fcntl
-import hashlib
 import json
 import os
 import threading
@@ -26,14 +25,17 @@ def wake():
 
 
 def _outbox_stamp():
-    """File identity shared by every container that mounts the outbox volume."""
+    """Identity of the outbox file. Stat only, so a growing file is not re-read.
+
+    mtime_ns, size, and inode change when another container appends or
+    replaces the file. The bytes are not hashed.
+    """
     path = _outbox()
     try:
         stat = path.stat()
-        digest = hashlib.sha256(path.read_bytes()).hexdigest()
     except OSError:
         return None
-    return (stat.st_mtime_ns, stat.st_size, digest)
+    return (stat.st_mtime_ns, stat.st_size, stat.st_ino)
 
 
 def wait_for_work(seconds, stop_event=None):
