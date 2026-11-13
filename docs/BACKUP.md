@@ -1,8 +1,8 @@
 # Backup and restore
 
-Aureon stores account JSON on the volumes named `desk-users`, `desk-data` and `desk-shadow`. This procedure copies those directories and checks every file before a restore. It does not delete the source, and it does not run `docker compose down -v`.
+Aureon stores account JSON on the volumes named `desk-users`, `desk-data` and `desk-shadow`, and the rest of the desk on `desk-signals`, `desk-activity`, `desk-rights`, `desk-cache`, `desk-canonical`, and `desk-ai`. This procedure copies those directories and checks every file before a restore. It does not delete the source, and it does not run `docker compose down -v`.
 
-The code path is `ops.backup`.
+The code path is `ops.backup`. The host tree at `/opt/aureon` is copied by `ops.volume_backup`. The steps are in `docs/VOLUME_RUNBOOK.md`.
 
 1. Copy one volume directory into an empty backup directory with `create_backup(source, destination)`.
 2. `verify_backup(destination)` recomputes SHA-256 for every file in `manifest.json`.

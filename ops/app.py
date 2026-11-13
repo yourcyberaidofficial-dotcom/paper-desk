@@ -250,27 +250,52 @@ def data_coverage():
     return jsonify(public_report())
 
 
-def _worker_public():
-    beat = worker.last_beat_ms or 0
+def _worker_view(beat, monitor_ms, monitor, monitor_error, cycle_error, source):
+    beat = int(beat or 0)
     heartbeat_age = None if not beat else max(0, int(time.time() * 1000) - beat)
     if not beat:
         worker_status = "unknown"
-    elif getattr(worker, "last_monitor_error", None) or getattr(worker, "last_cycle_error", None):
+    elif monitor_error or cycle_error:
         worker_status = "error"
     elif heartbeat_age > 180_000:
         worker_status = "stale"
     else:
         worker_status = "beating"
+    from ops.customer_release import diagnostic_monitor
     return {
         "last_beat_ms": beat or None,
         "heartbeat_age_ms": heartbeat_age,
         "status": worker_status,
-        "last_monitor_ms": getattr(worker, "last_monitor_ms", 0) or None,
-        "last_monitor": __import__("ops.customer_release", fromlist=["diagnostic_monitor"]).diagnostic_monitor(getattr(worker, "last_monitor", None)),
-        "last_monitor_error": getattr(worker, "last_monitor_error", None),
-        "last_cycle_error": getattr(worker, "last_cycle_error", None),
+        "last_monitor_ms": int(monitor_ms or 0) or None,
+        "last_monitor": diagnostic_monitor(monitor),
+        "last_monitor_error": monitor_error,
+        "last_cycle_error": cycle_error,
         "healthy": worker_status == "beating",
+        "source": source,
     }
+
+
+def _worker_public():
+    if os.environ.get("AUREON_ROLE", "").strip().lower() == "web":
+        from ops.worker_status import read_status
+
+        disk = read_status()
+        return _worker_view(
+            disk.get("last_beat_ms"),
+            disk.get("last_monitor_ms"),
+            disk.get("last_monitor"),
+            disk.get("last_monitor_error"),
+            disk.get("last_cycle_error"),
+            "worker_file",
+        )
+    return _worker_view(
+        worker.last_beat_ms,
+        getattr(worker, "last_monitor_ms", 0),
+        getattr(worker, "last_monitor", None),
+        getattr(worker, "last_monitor_error", None),
+        getattr(worker, "last_cycle_error", None),
+        "process",
+    )
 
 
 def _ollama_public():
@@ -296,8 +321,11 @@ def health():
     promoted = _promotion_state()
     crypto_released = candles_released("BTCUSDT", "15m") or candles_released("ETHUSDT", "15m")
     if crypto_released:
-        markets = market_snapshot()
-        report = _market_report(markets)
+        if os.environ.get("AUREON_ROLE", "").strip().lower() == "web":
+            report = _canonical_health_report()
+        else:
+            markets = market_snapshot()
+            report = _market_report(markets)
         fresh = report["BTCUSDT"]["status"] == "fresh" and report["ETHUSDT"]["status"] == "fresh"
         withheld = report["BTCUSDT"]["status"] == "withheld" or report["ETHUSDT"]["status"] == "withheld"
         status = "rights_withheld" if withheld else ("ok" if fresh else "degraded")
@@ -338,13 +366,69 @@ def health():
         "paper_only": True,
         "broker": False,
         "worker": _worker_public(),
-        "runtime": desk_runtime.operational_view(),
+        "runtime": _runtime_public(),
         "ollama": _ollama_public(),
         "qualification": _qualification_public(),
+        "data_schema": _schema_public(),
     })
 
 
-def _reading_not_shown():
+def _canonical_health_report():
+    """Stored worker readings only. This does not call a market host."""
+    from ops.desk_pulse import health_label, latest
+
+    now_ms = int(time.time() * 1000)
+    out = {}
+    for symbol in ("BTCUSDT", "ETHUSDT"):
+        stored = latest(symbol)
+        if not stored:
+            out[symbol] = {
+                "status": "unknown",
+                "last_close_time_ms": None,
+                "source": "canonical",
+                "kind": "canonical_reading",
+                "not_a_quote": True,
+                "note": "No stored worker reading. This request did not fetch a market.",
+            }
+            continue
+        label = health_label(stored, now_ms)
+        out[symbol] = {
+            "status": "fresh" if label == "live" else ("stale" if label == "cached" else label),
+            "feed": label,
+            "last_close_time_ms": stored.get("bar_close_ms"),
+            "snapshot_id": stored.get("snapshot_id"),
+            "source": "canonical",
+            "kind": "canonical_reading",
+            "not_a_quote": True,
+            "desk_snapshot": True,
+            "note": "Stored worker reading. This request did not fetch a market.",
+        }
+    out["XAUUSD"] = _gold_health_row()
+    return out
+
+
+def _runtime_public():
+    local = desk_runtime.operational_view()
+    if os.environ.get("AUREON_ROLE", "").strip().lower() != "web":
+        return local
+    from ops.worker_status import read_status
+
+    runtime = read_status().get("runtime")
+    if isinstance(runtime, dict):
+        shown = dict(runtime)
+        shown["source"] = "worker_file"
+        return shown
+    local = dict(local)
+    local["source"] = "web_process"
+    return local
+
+
+def _schema_public():
+    from ops.schema_guard import CURRENT, guard
+
+    root = Path(os.environ.get("AUREON_DATA") or "data")
+    state = guard(root, apply=False)
+    return {"version": CURRENT, "status": state.get("action"), "ok": state.get("ok") is True}
     from ops.customer_release import STATUS
 
     return {
@@ -445,12 +529,20 @@ def _market_report(snapshot):
 
 @app.get("/version")
 def version():
+    from ops.content_hash import content_hash, content_hash_baked
+
+    baked = content_hash_baked()
     return jsonify({
         "build_commit": build_commit(),
+        "build_commit_kind": "label",
+        "content_hash": content_hash(),
+        "content_hash_kind": "image" if baked else "source",
+        "content_hash_baked": baked,
         "strategy_status": "WAIT_DEFAULT",
         "paper_only": True,
         "broker": False,
         "shadow": "enabled" if shadow_enabled() else "disabled",
+        "data_schema": _schema_public(),
     })
 
 
@@ -1268,10 +1360,13 @@ def markets():
     from ops.desk_snapshot import headline_board, public_reading
 
     now_ms = int(time.time() * 1000)
-    try:
-        snaps, readings = headline_board(now_ms)
-    except Exception:
+    if os.environ.get("AUREON_ROLE", "").strip().lower() == "web":
         snaps, readings = [], []
+    else:
+        try:
+            snaps, readings = headline_board(now_ms)
+        except Exception:
+            snaps, readings = [], []
     by_symbol = {snap.get("instrument"): (snap, readings[index] if index < len(readings) else {}) for index, snap in enumerate(snaps)}
 
     def row(symbol, row_id, frame, source=None):
@@ -1335,6 +1430,13 @@ def markets():
                 shown["snapshot_id"] = stored.get("snapshot_id")
                 shown["candle_close_ms"] = stored.get("bar_close_ms")
                 payload["reading"] = shown
+        if os.environ.get("AUREON_ROLE", "").strip().lower() == "web":
+            payload["fetched_upstream"] = False
+            if not stored:
+                display = dict(payload.get("data") or {})
+                display.setdefault("price", None)
+                display["note"] = "No stored worker reading. This request did not fetch a market."
+                payload["data"] = display
         return payload
 
     return jsonify({
@@ -2334,6 +2436,9 @@ def scanner_api():
     now_ms = int(time.time() * 1000)
     if not any_customer_display():
         body = empty_desk()
+    elif os.environ.get("AUREON_ROLE", "").strip().lower() == "web":
+        from ops.canonical_read import stored_desk
+        body = stored_desk(now_ms)
     else:
         from ops.desk_snapshot import desk_scan
         try:
@@ -2388,6 +2493,10 @@ def desk_api():
     now_ms = int(time.time() * 1000)
     if not any_customer_display():
         return jsonify(empty_desk())
+    if os.environ.get("AUREON_ROLE", "").strip().lower() == "web":
+        from ops.canonical_read import stored_desk
+        from ops.desk_pulse import project_markets
+        return jsonify(project_markets(stored_desk(now_ms)))
     try:
         body = release_scan(desk_scan(now_ms))
     except Exception as exc:
@@ -2540,6 +2649,9 @@ def workspace_api():
     now_ms = int(time.time() * 1000)
     if not any_customer_display():
         body = empty_desk()
+    elif os.environ.get("AUREON_ROLE", "").strip().lower() == "web":
+        from ops.canonical_read import stored_desk
+        body = stored_desk(now_ms)
     else:
         try:
             body = release_scan(desk_scan(now_ms))
@@ -4814,6 +4926,31 @@ async function settings(){
   }
   document.getElementById("saveall").onclick = () => save(path === "/onboarding");
   document.getElementById("skip").onclick = () => { location.href = "/overview"; };
+  function watchTelegram(){
+    if (window.__aureonTelegramPoll) return;
+    window.__aureonTelegramPoll = setInterval(async () => {
+      const stateEl = document.getElementById("tgstate");
+      if (!stateEl) {
+        clearInterval(window.__aureonTelegramPoll);
+        window.__aureonTelegramPoll = null;
+        return;
+      }
+      const fresh = await fetch("/api/me", {credentials:"same-origin"}).then(r => r.ok ? r.json() : null).catch(() => null);
+      const state = fresh && fresh.telegram_state;
+      if (state !== "pending") {
+        clearInterval(window.__aureonTelegramPoll);
+        window.__aureonTelegramPoll = null;
+      }
+      if (state === "connected") {
+        stateEl.textContent = "Telegram is connected.";
+        const note = document.getElementById("tglinkout");
+        if (note) note.textContent = "Telegram is connected. Start was confirmed for this account.";
+      } else if (state === "unlinked") {
+        stateEl.textContent = "Telegram is unlinked.";
+      }
+    }, 4000);
+  }
+  if (me.telegram_state === "pending") watchTelegram();
   document.getElementById("tgconnect").onclick = async () => {
     const out = document.getElementById("tglinkout");
     const box = document.getElementById("tglinkbox");
@@ -4840,6 +4977,7 @@ async function settings(){
     const state = document.getElementById("tgstate");
     if (state) state.textContent = "Telegram is pending.";
     out.textContent = "Waiting for Telegram. State: pending. This link expires in 10 minutes. A typed @username is not accepted.";
+    watchTelegram();
   };
   document.getElementById("tgtest").onclick = async () => {
     const r = await fetch("/api/telegram/test", {method:"POST", headers:{"Content-Type":"application/json"}, credentials:"same-origin", body: "{}"});
@@ -4960,6 +5098,23 @@ def _shutdown_background():
 
 
 atexit.register(_shutdown_background)
+
+
+def _boot_web_schema():
+    """Stamp the shared schema only in the web role. A newer file is not rewritten."""
+    if os.environ.get("AUREON_ROLE", "").strip().lower() != "web":
+        return None
+    try:
+        from ops.schema_guard import guard
+
+        root = Path(os.environ.get("AUREON_DATA") or "data")
+        app.config["SCHEMA_GUARD"] = guard(root, apply=True)
+    except Exception as exc:
+        app.config["SCHEMA_GUARD"] = {"ok": False, "action": "error", "reason": type(exc).__name__}
+    return app.config.get("SCHEMA_GUARD")
+
+
+_boot_web_schema()
 
 
 if __name__ == "__main__":

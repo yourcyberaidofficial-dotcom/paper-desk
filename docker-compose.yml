@@ -1,5 +1,5 @@
 services:
-  desk:
+  web:
     build:
       context: .
       args:
@@ -13,6 +13,21 @@ services:
       # stays on loopback, so the desk is not published on a public interface.
       DESK_BIND: "0.0.0.0"
       PORT: "8080"
+      # One web process. It must not start the desk, Telegram, or digest loops.
+      AUREON_DISABLE_WORKERS: "1"
+      AUREON_ROLE: web
+      AUREON_DATA: /app/data
+    command:
+      - gunicorn
+      - --workers
+      - "1"
+      - --threads
+      - "1"
+      - --bind
+      - 0.0.0.0:8080
+      - --timeout
+      - "60"
+      - ops.app:app
     ports:
       - "127.0.0.1:8080:8080"
     volumes:
@@ -30,6 +45,36 @@ services:
       interval: 30s
       timeout: 5s
       retries: 3
+      start_period: 20s
+  worker:
+    build:
+      context: .
+      args:
+        AUREON_BUILD_COMMIT: ${AUREON_BUILD_COMMIT:-unknown}
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      AUREON_DISABLE_WORKERS: "1"
+      AUREON_ROLE: worker
+      AUREON_DATA: /app/data
+    command: ["python", "-m", "ops.worker_main"]
+    volumes:
+      - desk-data:/app/data/paper
+      - desk-users:/app/data/users
+      - desk-shadow:/app/data/shadow
+      - desk-signals:/app/data/signals
+      - desk-activity:/app/data/activity
+      - desk-rights:/app/data/rights
+      - desk-cache:/app/data/cache
+      - desk-canonical:/app/data/canonical
+      - desk-ai:/app/data/ai
+    healthcheck:
+      test: ["CMD", "python", "-m", "ops.worker_status", "--check"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 25s
 volumes:
   desk-data:
   desk-users:

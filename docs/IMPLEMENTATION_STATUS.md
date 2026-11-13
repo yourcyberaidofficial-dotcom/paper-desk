@@ -1,3 +1,5 @@
+2026-11-13. Stage 4 is source only. `web` is one gunicorn process with the desk loops off. `worker` writes the canonical reading, the Telegram outbox, and `canonical/worker_status.json` on the same nine volumes. Customer reads of markets, scanner, desk, workspace, and health use those files when `AUREON_ROLE=web`. `/version` reports the optional `build_commit` label and a separate baked `content_hash`. The schema guard refuses a newer data file and does not rewrite accounts. Not deployed. Docker was not started against a production project.
+
 2026-11-08. Self-audit of `product/backend-recovery`, not an independent review. Imported signal rows are read only for the signed-in account. The private Ollama compose file does not declare a Docker network, because the production desk network was not observed. Local Ollama inference was checked on this host only. Not deployed.
 
 # Implementation status
