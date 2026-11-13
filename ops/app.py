@@ -25,11 +25,12 @@ from ops.market import snapshot as market_snapshot, fetch_klines
 from ops.notify import send_alert
 from ops.strategy import WaitStrategy
 from ops.build_id import build_commit, shadow_enabled
+from ops.paths import ledger_path, shadow_observations_path
 from ops.worker import Worker
 from ops.runtime import DeskRuntime
 
 ROOT = Path(__file__).resolve().parents[1]
-LEDGER_PATH = ROOT / "data" / "paper" / "ledger.jsonl"
+LEDGER_PATH = ledger_path()
 STARTED = time.time()
 LIMITER = RateLimit(int(os.environ.get("DESK_GENERAL_LIMIT", "300")))
 AUTH_LIMITER = RateLimit(int(os.environ.get("DESK_AUTH_LIMIT", "20")))
@@ -70,7 +71,7 @@ app.config.update(
 )
 ledger = Ledger(LEDGER_PATH)
 engine = PaperEngine(ledger, WaitStrategy())
-worker = Worker(ledger, LEDGER_PATH.parent / "prefs.json", shadow_path=ROOT / "data" / "shadow" / "observations.jsonl")
+worker = Worker(ledger, LEDGER_PATH.parent / "prefs.json", shadow_path=shadow_observations_path())
 desk_runtime = DeskRuntime(deadline_s=5)
 
 
@@ -424,11 +425,14 @@ def _runtime_public():
 
 
 def _schema_public():
+    from ops.paths import data_root
     from ops.schema_guard import CURRENT, guard
 
-    root = Path(os.environ.get("AUREON_DATA") or "data")
-    state = guard(root, apply=False)
+    state = guard(data_root(), apply=False)
     return {"version": CURRENT, "status": state.get("action"), "ok": state.get("ok") is True}
+
+
+def _reading_not_shown():
     from ops.customer_release import STATUS
 
     return {
@@ -5105,10 +5109,10 @@ def _boot_web_schema():
     if os.environ.get("AUREON_ROLE", "").strip().lower() != "web":
         return None
     try:
+        from ops.paths import data_root
         from ops.schema_guard import guard
 
-        root = Path(os.environ.get("AUREON_DATA") or "data")
-        app.config["SCHEMA_GUARD"] = guard(root, apply=True)
+        app.config["SCHEMA_GUARD"] = guard(data_root(), apply=True)
     except Exception as exc:
         app.config["SCHEMA_GUARD"] = {"ok": False, "action": "error", "reason": type(exc).__name__}
     return app.config.get("SCHEMA_GUARD")

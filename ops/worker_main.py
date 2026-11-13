@@ -7,19 +7,33 @@ here so a web process with AUREON_DISABLE_WORKERS=1 never starts them.
 from __future__ import annotations
 
 import os
+import signal
 import sys
 import threading
 import time
-from pathlib import Path
+
+
+def request_stop(runtime):
+    """Ask the loops to finish the current tick. Do not kill them."""
+    runtime._stop.set()
+
+
+def install_signals(runtime):
+    def handler(_signum, _frame):
+        request_stop(runtime)
+
+    signal.signal(signal.SIGTERM, handler)
+    signal.signal(signal.SIGINT, handler)
+    return handler
 
 
 def main():
     os.environ["AUREON_DISABLE_WORKERS"] = "1"
     os.environ["AUREON_ROLE"] = "worker"
+    from ops.paths import data_root
     from ops.schema_guard import guard
 
-    root = Path(os.environ.get("AUREON_DATA") or "data")
-    checked = guard(root, apply=os.environ.get("AUREON_SCHEMA_APPLY", "1") != "0")
+    checked = guard(data_root(), apply=os.environ.get("AUREON_SCHEMA_APPLY", "1") != "0")
     if not checked.get("ok"):
         sys.stderr.write("schema guard refused: " + str(checked.get("action")) + "\n")
         return 2
@@ -27,6 +41,7 @@ def main():
     from ops.worker_status import publish_patch
 
     desk_runtime.mark_started()
+    install_signals(desk_runtime)
     threads = [
         threading.Thread(target=_loop, name="aureon-desk", daemon=True),
         threading.Thread(target=_telegram_loop, name="aureon-telegram", daemon=True),
@@ -41,9 +56,10 @@ def main():
             "threads": [thread.name for thread in threads if thread.is_alive()],
             "runtime": desk_runtime.operational_view(),
         })
-        if desk_runtime._stop.wait(10):
+        if desk_runtime._stop.wait(2):
             break
-    return 0
+    stopped = desk_runtime.shutdown(deadline_s=5)
+    return 0 if stopped.get("ok") else 1
 
 
 if __name__ == "__main__":

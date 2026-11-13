@@ -12,11 +12,8 @@ import urllib.parse
 import urllib.request
 from pathlib import Path
 
+from ops.paths import telegram_offset_path, telegram_seen_path
 from ops.users import process_start_command
-
-ROOT = Path(__file__).resolve().parents[1]
-OFFSET_PATH = ROOT / "data" / "paper" / "telegram_offset.txt"
-SEEN_PATH = ROOT / "data" / "paper" / "telegram_updates.jsonl"
 
 
 def polling_enabled():
@@ -41,7 +38,7 @@ def intake_mode():
 
 class UpdateInbox:
     def __init__(self, path=None):
-        self.path = Path(path) if path is not None else SEEN_PATH
+        self.path = Path(path) if path is not None else telegram_seen_path()
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self.seen = set()
         if self.path.exists():
@@ -181,13 +178,14 @@ def poll_if_enabled(opener=None):
         except Exception:
             return None
         _webhook_cleared = True
+    offset_path = telegram_offset_path()
     offset = None
-    if OFFSET_PATH.exists():
-        raw = OFFSET_PATH.read_text(encoding="utf-8").strip()
+    if offset_path.exists():
+        raw = offset_path.read_text(encoding="utf-8").strip()
         if raw.isdigit():
             offset = int(raw)
     _updates, next_offset = poll_once(token, offset, opener=opener)
     if next_offset is not None:
-        OFFSET_PATH.parent.mkdir(parents=True, exist_ok=True)
-        OFFSET_PATH.write_text(str(next_offset), encoding="utf-8")
+        offset_path.parent.mkdir(parents=True, exist_ok=True)
+        offset_path.write_text(str(next_offset), encoding="utf-8")
     return next_offset

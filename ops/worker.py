@@ -120,14 +120,13 @@ class Worker:
             pass
 
     def _publish_status(self):
-        """Write the heartbeat only in the worker role. Tests do not grow a status file."""
+        """Record the evaluation beat in the worker role. The supervisor owns the process heartbeat."""
         if os.environ.get("AUREON_ROLE", "").strip().lower() != "worker":
             return None
         try:
             from ops.worker_status import publish_patch
 
             return publish_patch({
-                "alive_ms": int(time.time() * 1000),
                 "last_beat_ms": int(self.last_beat_ms or 0),
                 "last_monitor_ms": int(self.last_monitor_ms or 0),
                 "last_monitor_error": self.last_monitor_error,

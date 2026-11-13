@@ -16,7 +16,9 @@ SYMBOLS = {"BTCUSDT", "ETHUSDT", "XAUUSD"}
 
 
 def load_promotions(path=None):
-    target = Path(path) if path is not None else Path(__file__).resolve().parents[1] / "data" / "promotions.json"
+    from ops.paths import promotions_path
+
+    target = Path(path) if path is not None else promotions_path()
     if not target.exists():
         return []
     try:

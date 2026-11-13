@@ -8,8 +8,6 @@ from ops.engine_eval import evaluate_snapshot
 from ops.hypotheses import VERSIONS
 from ops.shadow import STATES
 
-PROMOTIONS = "data/promotions.json"
-
 
 def config_sha256():
     raw = json.dumps(VERSIONS, sort_keys=True, separators=(",", ":")).encode()
@@ -20,7 +18,9 @@ def promotion_ids(path=None):
     """Empty unless a future review writes a list of approved strategy versions."""
     from pathlib import Path
 
-    target = Path(path) if path is not None else Path(__file__).resolve().parents[1] / PROMOTIONS
+    from ops.paths import promotions_path
+
+    target = Path(path) if path is not None else promotions_path()
     if not target.exists():
         return []
     try:
