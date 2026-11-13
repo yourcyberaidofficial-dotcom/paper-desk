@@ -8,6 +8,7 @@ A 429 waits. A blocked chat is not retried. Missing prices are not filled in.
 from __future__ import annotations
 
 import fcntl
+import hashlib
 import json
 import os
 import threading
@@ -24,15 +25,32 @@ def wake():
     _WAKE.set()
 
 
+def _outbox_stamp():
+    """File identity shared by every container that mounts the outbox volume."""
+    path = _outbox()
+    try:
+        stat = path.stat()
+        digest = hashlib.sha256(path.read_bytes()).hexdigest()
+    except OSError:
+        return None
+    return (stat.st_mtime_ns, stat.st_size, digest)
+
+
 def wait_for_work(seconds, stop_event=None):
     """Sleep until a notice is queued, the pause ends, or the desk is stopping.
 
     True means the caller should stop. False means it should send or poll.
+    A write from another container changes the outbox file. The in-process
+    event is only a faster path inside one process.
     """
     end = time.monotonic() + max(0.0, float(seconds))
+    seen = _outbox_stamp()
     while True:
         if stop_event is not None and stop_event.is_set():
             return True
+        current = _outbox_stamp()
+        if current != seen:
+            return False
         remaining = end - time.monotonic()
         if remaining <= 0:
             return False
