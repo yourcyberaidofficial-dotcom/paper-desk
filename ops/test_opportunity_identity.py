@@ -188,6 +188,14 @@ def test_an_unorderable_crypto_quantity_is_not_shown_as_a_size():
     gold = present_size(qualify_size("XAUUSD", 1000, 1, "USD", 2000, 1990))
     assert gold["executable_quantity"] == 1
     assert "troy_ounce" in gold["text"]
-    page = Path("ops/app.py").read_text(encoding="utf-8")
+    page = "\n".join(
+        path.read_text(encoding="utf-8")
+        for path in (
+            Path("ops/app.py"),
+            Path("ops/ui/dashboard.html"),
+            Path("ops/ui/landing.html"),
+            Path("ops/routes/pages.py"),
+        )
+    )
     assert "units, risk" not in page
     assert "account.quantity" not in page

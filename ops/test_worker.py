@@ -265,7 +265,8 @@ def test_anonymous_session_and_bias_book(tmp_path, monkeypatch):
     assert client.post("/api/logout").status_code == 200
     assert client.get("/api/me").status_code == 401
     assert client.get("/api/eligibility").status_code == 401
+    page = __import__("pathlib").Path(__file__).resolve().parent.joinpath("ui", "dashboard.html").read_text(encoding="utf-8")
+    assert "Production is WAIT_DEFAULT, so no trade alert is sent until a strategy is promoted." in page
     text = __import__("pathlib").Path(__file__).with_name("app.py").read_text(encoding="utf-8")
-    assert "Production is WAIT_DEFAULT, so no trade alert is sent until a strategy is promoted." in text
     assert 'SESSION_COOKIE_SECURE=os.environ.get("DESK_COOKIE_SECURE", "0") == "1"' in text
 

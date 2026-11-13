@@ -113,7 +113,7 @@ def test_an_old_worker_heartbeat_is_not_reported_as_healthy():
         worker.last_monitor_error = None
         worker.last_cycle_error = "RuntimeError"
         assert client.get("/health").get_json()["worker"]["status"] == "error"
-        text = __import__("pathlib").Path(__file__).with_name("app.py").read_text(encoding="utf-8")
+        text = __import__("pathlib").Path(__file__).resolve().parent.joinpath("ui", "dashboard.html").read_text(encoding="utf-8")
         assert "Worker status" in text
         assert "not confirmed" in text
         assert "The health report could not be read" in text

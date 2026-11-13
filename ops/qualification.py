@@ -84,6 +84,19 @@ def catalog():
     }
 
 
+def paper_research(user_id):
+    """This account's paper diagnostics. The registry approval count is not changed."""
+    from ops.learning import for_account
+
+    report = for_account(user_id)
+    report["changes_approval"] = False
+    report["promotes"] = False
+    report["confidence"] = None
+    report["holdout_opened"] = False
+    report["registry_approved_for_paper"] = catalog()["approved_for_paper"]
+    return report
+
+
 def summary():
     body = catalog()
     return {
