@@ -47,10 +47,16 @@ def _instruction(event, user):
 
 
 def compose(user, scan_body, history):
-    found = {row.get("symbol"): row for row in (scan_body or {}).get("markets") or []}
+    by_pair = {}
+    by_symbol = {}
+    for row in (scan_body or {}).get("markets") or []:
+        if not isinstance(row, dict):
+            continue
+        by_symbol[row.get("symbol")] = row
+        by_pair[(row.get("symbol"), row.get("interval"))] = row
     panels = []
     for symbol, interval in PANELS:
-        row = dict(found.get(symbol) or {})
+        row = dict(by_pair.get((symbol, interval)) or by_symbol.get(symbol) or {})
         row.setdefault("symbol", symbol)
         row.setdefault("interval", interval)
         row.setdefault("scanner_state", "BLOCKED")
