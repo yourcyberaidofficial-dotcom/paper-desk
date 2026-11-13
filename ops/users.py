@@ -367,7 +367,7 @@ def update_profile(user_id: str, profile: dict, expected_revision=None) -> dict 
             "min_rr": spec.get("min_rr", current.get("min_rr")),
             "max_trades_per_day": spec.get("max_trades_per_day", current.get("max_trades_per_day")),
             "experimental_alerts": bool(profile.get("experimental_alerts", current.get("experimental_alerts", False))),
-            "live_trading": bool(profile.get("live_trading", current.get("live_trading", False))),
+            "live_trading": False,
             "daily_report": bool(profile.get("daily_report", current.get("daily_report", True))),
             "telegram_notices": bool(profile.get("telegram_notices", current.get("telegram_notices", True))),
             "timezone": str(profile.get("timezone") or current.get("timezone") or "Africa/Lagos")[:64],

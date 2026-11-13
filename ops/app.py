@@ -4,6 +4,7 @@ import json
 import os
 import sys
 import time
+import hmac
 import urllib.request
 import atexit
 import threading
@@ -34,8 +35,19 @@ LIMITER = RateLimit(int(os.environ.get("DESK_GENERAL_LIMIT", "300")))
 AUTH_LIMITER = RateLimit(int(os.environ.get("DESK_AUTH_LIMIT", "20")))
 _FEED_CACHE = {}
 
+def _session_secret():
+    """A production process must be given a stable secret. A random fallback logs everyone out on restart."""
+    secret = os.environ.get("DESK_SESSION_SECRET", "").strip()
+    if len(secret) >= 32:
+        return secret
+    if "pytest" in sys.modules:
+        return api_token() or "test-session-secret-not-for-production-use"
+    raise SystemExit("DESK_SESSION_SECRET must be at least 32 characters")
+
+
 app = Flask(__name__)
-app.secret_key = os.environ.get("DESK_SESSION_SECRET") or api_token() or os.urandom(32).hex()
+app.secret_key = _session_secret()
+app.config["CSRF_ENFORCE"] = True
 
 
 def _customer_failure(exc):
@@ -101,19 +113,24 @@ def _start_user_session(user):
 
 
 def _csrf():
-    token = session.get("csrf")
-    if not token:
-        token = os.urandom(16).hex()
-        session["csrf"] = token
-    return token
+    try:
+        token = session.get("csrf")
+        if not token:
+            token = os.urandom(16).hex()
+            session["csrf"] = token
+        return token
+    except RuntimeError:
+        return "0" * 32
 
 def _limited():
     from ops.auth import client_identity, limits_apply
 
     if not limits_apply("pytest" in sys.modules, bool(app.config.get("ENFORCE_RATE_LIMIT"))):
         return None
+    if request.method in {"GET", "HEAD", "OPTIONS"} and request.path in {"/login", "/register"}:
+        return None
     auth_paths = {"/login", "/register", "/api/login", "/api/register"}
-    limiter = AUTH_LIMITER if request.path in auth_paths else LIMITER
+    limiter = AUTH_LIMITER if request.method not in {"GET", "HEAD", "OPTIONS"} and request.path in auth_paths else LIMITER
     key = client_identity(request.remote_addr, request.headers.get("X-Forwarded-For"))
     if not limiter.allow(key):
         response = jsonify({"error": "rate_limited", "scope": "auth" if limiter is AUTH_LIMITER else "general"})
@@ -135,7 +152,33 @@ def _expire():
         request.environ["aureon_request_id"] = os.urandom(8).hex()
     if request.endpoint == "static":
         return None
-    return _limited()
+    limited = _limited()
+    if limited is not None:
+        return limited
+    if not _csrf_ok():
+        return jsonify({"error": "csrf", "approved": False, "order_opened": False}), 403
+    return None
+
+
+def _csrf_ok():
+    if not app.config.get("CSRF_ENFORCE", True):
+        return True
+    if request.method in {"GET", "HEAD", "OPTIONS"}:
+        return True
+    auth = request.headers.get("Authorization", "")
+    if auth.startswith("Bearer ") and not session.get("user_id") and not session.get("ok"):
+        return True
+    expected = str(session.get("csrf") or "")
+    supplied = request.headers.get("X-CSRF-Token") or ""
+    if not supplied:
+        payload = request.get_json(silent=True) if request.is_json else None
+        if isinstance(payload, dict):
+            supplied = str(payload.get("csrf") or "")
+    if not supplied:
+        supplied = request.form.get("csrf") or ""
+    if not expected or not supplied:
+        return False
+    return hmac.compare_digest(expected, supplied)
 
 
 class InjectedFault(RuntimeError):
@@ -320,7 +363,7 @@ def _gold_health_row():
         "source_reachable": "not_checked",
         "last_close_time_ms": None,
         "kind": "not_a_customer_reading",
-        "note": "Twelve Data XAU/USD candle display is recorded. This health row is not a price." if released else STATUS,
+        "note": "Gold health does not call a paid vendor and does not report a price. A public chart is not a bid or ask." if released else STATUS,
     }
 
 
@@ -616,10 +659,11 @@ def broker_status():
     if user_id:
         from ops.users import get
         user = get(user_id) or {}
-        body["account_live"] = bool((user.get("profile") or {}).get("live_trading"))
+        body["account_live"] = False
     else:
         body["account_live"] = False
-    body["broker"] = body["armed"] and body["account_live"]
+    body["broker"] = False
+    body["armed"] = False
     return jsonify(body)
 
 
@@ -2878,11 +2922,13 @@ def _auth_page(kind, nxt):
     button = "Create account" if kind == "register" else "Sign in"
     alt = '<a href="/login">Already have an account? Sign in</a>' if kind == "register" else '<a href="/register">Need an account? Create one</a>'
     endpoint = "/api/register" if kind == "register" else "/api/login"
+    csrf = _csrf()
     fail = "That name is taken or the details are invalid." if kind == "register" else "Name or password is incorrect."
     return f"""<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
+<meta name="csrf" content="{csrf}">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>{title} · Aureon Trading Lab</title>
 <style>
@@ -2948,7 +2994,7 @@ form.onsubmit = async (event) => {{
   try {{
     const response = await fetch("{endpoint}", {{
       method: "POST",
-      headers: {{"Content-Type": "application/json"}},
+      headers: {{"Content-Type": "application/json", "X-CSRF-Token": "{csrf}"}},
       credentials: "same-origin",
       body: JSON.stringify({{name, password}})
     }});
@@ -3015,7 +3061,7 @@ footer a{color:#99f6e4}
     <p class="muted">Illustrative desk layout. Not a live quote and not a performance claim.</p>
     <div class="row"><span>Production</span><strong>WAIT_DEFAULT</strong></div>
     <div class="row"><span>Paper broker</span><strong>On</strong></div>
-    <div class="row"><span>Live exchange</span><strong>Binance spot when armed</strong></div>
+    <div class="row"><span>Live exchange</span><strong>Off. Paper only.</strong></div>
     <div class="row"><span>Account currency</span><strong>Set by you</strong></div>
     <div class="row"><span>Paper position</span><strong>Only if recorded</strong></div>
   </aside>
@@ -3229,6 +3275,19 @@ button.pill{font:inherit;cursor:pointer;color:inherit}
   </main>
 </div>
 <script>
+const csrfToken = "{{CSRF}}";
+const _aureonFetch = window.fetch.bind(window);
+window.fetch = (url, opts) => {
+  const options = opts ? Object.assign({}, opts) : {};
+  const method = String(options.method || "GET").toUpperCase();
+  if (method !== "GET" && method !== "HEAD" && method !== "OPTIONS") {
+    const headers = new Headers(options.headers || {});
+    if (!headers.has("X-CSRF-Token")) headers.set("X-CSRF-Token", csrfToken);
+    options.headers = headers;
+  }
+  if (!options.credentials) options.credentials = "same-origin";
+  return _aureonFetch(url, options);
+};
 const menu = document.getElementById("menu");
 const nav = document.getElementById("nav");
 menu.onclick = () => { const open = nav.classList.toggle("open"); menu.setAttribute("aria-expanded", open); };
@@ -3664,7 +3723,7 @@ async function overview(){
     const lessons = lab && lab.completed_lessons ? lab.completed_lessons.length : 0;
     const lessonTotal = lab && lab.lessons ? lab.lessons.length : 0;
     const openRows = book && book.open && book.open.length ? book.open.map(row => `<div class="row"><span>${row.symbol} ${row.direction}</span><span>Open paper</span></div>`).join("") : "";
-    account.innerHTML = `<h2>${who}</h2>${openRows}<div class="row"><span>Persona</span><span>${styleName}</span></div><div class="row"><span>Daily loss cap</span><span>${profile.max_daily_loss_percent == null ? "Not set" : profile.max_daily_loss_percent + "%"}</span></div><div class="row"><span>Weekly loss limit</span><span>${plan ? weekLimit : "Not loaded"}</span></div><div class="row"><span>Risk per trade</span><span>${profile.max_risk_pct == null ? "Not set" : profile.max_risk_pct + "%"}</span></div><div class="row"><span>Academy</span><span>${lessonTotal ? lessons + " of " + lessonTotal + " lessons" : (lab ? "Available" : "Not loaded")}</span></div><p class="muted guide">Paper orders fill on this desk. They are not sent to a live exchange. ${profile.currency ? "Amounts use " + profile.currency + "." : "Choose a base currency before treating the balance as money."} Capital, open positions, closed trades and AutoPilot are shown once in the tiles above.</p>${steps.length ? `<h3>Next step</h3><ul>${steps.join("")}</ul>` : `<p><a href="/learn">Continue in the Academy</a> · <a href="/lab">Trading Lab</a> · <a href="/settings">Settings</a></p>`}`;
+    account.innerHTML = `<h2>${escapeHtml(who)}</h2>${openRows}<div class="row"><span>Persona</span><span>${styleName}</span></div><div class="row"><span>Daily loss cap</span><span>${profile.max_daily_loss_percent == null ? "Not set" : profile.max_daily_loss_percent + "%"}</span></div><div class="row"><span>Weekly loss limit</span><span>${plan ? weekLimit : "Not loaded"}</span></div><div class="row"><span>Risk per trade</span><span>${profile.max_risk_pct == null ? "Not set" : profile.max_risk_pct + "%"}</span></div><div class="row"><span>Academy</span><span>${lessonTotal ? lessons + " of " + lessonTotal + " lessons" : (lab ? "Available" : "Not loaded")}</span></div><p class="muted guide">Paper orders fill on this desk. They are not sent to a live exchange. ${profile.currency ? "Amounts use " + profile.currency + "." : "Choose a base currency before treating the balance as money."} Capital, open positions, closed trades and AutoPilot are shown once in the tiles above.</p>${steps.length ? `<h3>Next step</h3><ul>${steps.join("")}</ul>` : `<p><a href="/learn">Continue in the Academy</a> · <a href="/lab">Trading Lab</a> · <a href="/settings">Settings</a></p>`}`;
   }
   if (kpis) kpis.innerHTML = `<article class="card"><p class="muted">Paper capital</p><p class="price">${balance}</p></article><article class="card"><p class="muted">Open paper positions</p><p class="price num">${openCount}</p></article><article class="card"><p class="muted">Closed paper trades</p><p class="price num">${closedCount}</p><p class="muted">${figures.trades ? "Recorded result " + realised + ". Not a win rate." : "No closed paper trade. No win rate."}</p></article><article class="card"><p class="muted">AutoPilot</p><p class="price quiet">${bot ? (bot.facing || "Disabled") : "Not loaded"}</p></article>`;
   const market = document.getElementById("ov-market");
@@ -4302,7 +4361,7 @@ async function labPage(){
   const journal = (lab.journal || []).map(row => `<p>${row.opened_by === "autopilot" ? "AutoPilot" : "Account"} · ${row.symbol || ""} · ${row.status || ""} · ${row.exit_kind || "no exit"}. ${row.note || ""}</p>`).join("");
   const reflections = (lab.journal_notes || []).map(row => `<p>${row.text}</p>`).join("");
   const botLine = autoSentence(bot);
-  view.innerHTML = `<article class="card"><h2>Your desk</h2><p>Experience you stated: ${lab.experience}. Objective: ${lab.objective || "not set"}.</p><p>Persona ${persona.name || "not selected"}. Risk cap ${persona.risk_per_trade_percent ?? "—"}%. Reward floor ${persona.min_rr ?? "—"}. Paper timeframes ${(persona.paper_timeframes || []).join(", ") || "—"}.</p><p>Markets saved on the account: ${((lab.preferences || {}).markets || []).join(", ") || "not set"}.</p><p>AutoPilot ${botLine}</p><p>${lab.observation}</p><p class="muted">${figures.trades ? "Closed paper trades: " + figures.trades + "." : "No completed paper trade."} ${lab.note}</p></article><article class="card"><h2>Journal</h2>${journal || "<p>No paper order is recorded for this account.</p>"}<p class="muted">These lines come from the paper book. They are not a broker history, and they do not diagnose discipline.</p><h3>Your notes</h3>${reflections || "<p>No reflection saved.</p>"}<label>Reflection <input id="journalnote" maxlength="500"></label><button id="savenote" type="button">Save reflection</button><p class="muted">A note is what you wrote. It is not an inferred weakness.</p></article><article class="card"><h2>What to study next</h2><ul>${ideas || "<li>No further suggestion.</li>"}</ul><p class="muted">A suggestion is an unfinished lesson. It is not a skill score. <a href="/learn">Open Academy</a></p></article><form id="labform" class="card"><h2>Learning profile</h2><label>Experience <select id="exp"><option value="new">New</option><option value="developing">Developing</option><option value="independent">Independent</option></select></label><label>Objective <input id="objective" maxlength="160" value="${lab.objective || ""}"></label><div class="checks"><label><input type="checkbox" value="candles" ${focus.has("candles")?"checked":""}> Candles</label><label><input type="checkbox" value="risk" ${focus.has("risk")?"checked":""}> Risk</label><label><input type="checkbox" value="psychology" ${focus.has("psychology")?"checked":""}> Psychology</label><label><input type="checkbox" value="prop" ${focus.has("prop")?"checked":""}> Prop education</label></div><button type="submit">Save lab profile</button><p id="labsaved" class="muted"></p></form>`;
+  view.innerHTML = `<article class="card"><h2>Your desk</h2><p>Experience you stated: ${escapeHtml(lab.experience)}. Objective: ${escapeHtml(lab.objective || "not set")}.</p><p>Persona ${escapeHtml(persona.name || "not selected")}. Risk cap ${persona.risk_per_trade_percent ?? "—"}%. Reward floor ${persona.min_rr ?? "—"}. Paper timeframes ${(persona.paper_timeframes || []).join(", ") || "—"}.</p><p>Markets saved on the account: ${((lab.preferences || {}).markets || []).join(", ") || "not set"}.</p><p>AutoPilot ${botLine}</p><p>${lab.observation}</p><p class="muted">${figures.trades ? "Closed paper trades: " + figures.trades + "." : "No completed paper trade."} ${lab.note}</p></article><article class="card"><h2>Journal</h2>${journal || "<p>No paper order is recorded for this account.</p>"}<p class="muted">These lines come from the paper book. They are not a broker history, and they do not diagnose discipline.</p><h3>Your notes</h3>${reflections || "<p>No reflection saved.</p>"}<label>Reflection <input id="journalnote" maxlength="500"></label><button id="savenote" type="button">Save reflection</button><p class="muted">A note is what you wrote. It is not an inferred weakness.</p></article><article class="card"><h2>What to study next</h2><ul>${ideas || "<li>No further suggestion.</li>"}</ul><p class="muted">A suggestion is an unfinished lesson. It is not a skill score. <a href="/learn">Open Academy</a></p></article><form id="labform" class="card"><h2>Learning profile</h2><label>Experience <select id="exp"><option value="new">New</option><option value="developing">Developing</option><option value="independent">Independent</option></select></label><label>Objective <input id="objective" maxlength="160" value="${lab.objective || ""}"></label><div class="checks"><label><input type="checkbox" value="candles" ${focus.has("candles")?"checked":""}> Candles</label><label><input type="checkbox" value="risk" ${focus.has("risk")?"checked":""}> Risk</label><label><input type="checkbox" value="psychology" ${focus.has("psychology")?"checked":""}> Psychology</label><label><input type="checkbox" value="prop" ${focus.has("prop")?"checked":""}> Prop education</label></div><button type="submit">Save lab profile</button><p id="labsaved" class="muted"></p></form>`;
   if (lab.experience && lab.experience !== "not_stated") document.getElementById("exp").value = lab.experience;
   document.getElementById("labform").onsubmit = async (event) => {
     event.preventDefault();
@@ -4542,7 +4601,7 @@ async function systemPage(){
   const rightsLine = h.status === "rights_withheld"
     ? `<p>${RIGHTS_MESSAGE}</p><p class="muted">The process is up. Market data is withheld because commercial use is not approved. That is not a provider outage and not a stale feed.</p>`
     : (h.status === "reading_unavailable" ? `<p>A verified live reading is not available. This is not a fresh market and not a provider outage.</p>` : "");
-  view.innerHTML = `<article class="card"><h2>System</h2>${rightsLine}${stateRows}${row("Process", h.process||"unknown")}${row("Overall", h.status||"unknown")}${row("BTC / ETH", market)}${row("Gold", gold||"not scanned")}${row("Notifications", note)}${row("Approved strategies", qual)}${row("Ledger", h.ledger||"unknown")}${row("Strategy", h.strategy_status||"unknown")}${row("Paper broker", "On")}${row("Live exchange", "Binance spot when this account and the server are armed")}${row("Build", h.build_commit||"unknown")}${row("Worker status", workerStatus + " · " + workerHealthy)}${row("This account AutoPilot", autoLine)}${row("Worker heartbeat", h.worker && h.worker.last_beat_ms ? when(h.worker.last_beat_ms) : "unknown")}${row("Background scan", h.worker && h.worker.last_monitor_ms ? when(h.worker.last_monitor_ms) : "not run yet")}${row("Last scan", watched)}</article><article class="card" id="ai-status"><h2>Aureon AI</h2><p>Checking the hosted service. Local AI status is separate from the customer desk. The hosted model is not a customer switch.</p></article><article class="card" id="data-coverage"><h2>Research data coverage</h2><p>Reading data rights.</p></article><p class="muted">A missing, stale or failed heartbeat is not a healthy worker. A rights withhold is not an outage. AutoPilot is not confirmed while the worker is unhealthy. The background scan uses the same decision as the terminal. It does not send Telegram. Gold 1m and 3m are unavailable without a licensed minute feed. AutoPilot permission is not the same as an approved strategy or an eligible entry. Local AI cannot approve a strategy or place an order.</p>`;
+  view.innerHTML = `<article class="card"><h2>System</h2>${rightsLine}${stateRows}${row("Process", h.process||"unknown")}${row("Overall", h.status||"unknown")}${row("BTC / ETH", market)}${row("Gold", gold||"not scanned")}${row("Notifications", note)}${row("Approved strategies", qual)}${row("Ledger", h.ledger||"unknown")}${row("Strategy", h.strategy_status||"unknown")}${row("Paper broker", "On")}${row("Live exchange", "Off. Paper only.")}${row("Build", h.build_commit||"unknown")}${row("Worker status", workerStatus + " · " + workerHealthy)}${row("This account AutoPilot", autoLine)}${row("Worker heartbeat", h.worker && h.worker.last_beat_ms ? when(h.worker.last_beat_ms) : "unknown")}${row("Background scan", h.worker && h.worker.last_monitor_ms ? when(h.worker.last_monitor_ms) : "not run yet")}${row("Last scan", watched)}</article><article class="card" id="ai-status"><h2>Aureon AI</h2><p>Checking the hosted service. Local AI status is separate from the customer desk. The hosted model is not a customer switch.</p></article><article class="card" id="data-coverage"><h2>Research data coverage</h2><p>Reading data rights.</p></article><p class="muted">A missing, stale or failed heartbeat is not a healthy worker. A rights withhold is not an outage. AutoPilot is not confirmed while the worker is unhealthy. The background scan uses the same decision as the terminal. It does not send Telegram. Gold 1m and 3m are unavailable without a licensed minute feed. AutoPilot permission is not the same as an approved strategy or an eligible entry. Local AI cannot approve a strategy or place an order.</p>`;
   fetch("/api/aureon-ai", {method:"POST", credentials:"same-origin", headers:{"Content-Type":"application/json"}, body: JSON.stringify({page: "/system"})}).then(r => r.ok ? r.json() : null).then(ai => {
     const box = document.getElementById("ai-status");
     if (!box) return;
@@ -4554,7 +4613,7 @@ async function systemPage(){
     box.innerHTML = `<h2>Aureon AI</h2><p>Hosted service ${escapeHtml(operational)}. Ollama model installed: ${local.available === true ? "yes" : "no"}.</p><p class="muted">${escapeHtml(localLine)} ${escapeHtml((ai && (ai.note || ai.reason)) || "No analysis was produced.")} A stored record is not an analysis. The model is not a signal.</p>`;
   }).catch(() => {
     const box = document.getElementById("ai-status");
-    if (box) box.innerHTML = `<h2>Aureon AI</h2><p>BLOCKED</p><p class="muted">The status check failed. Trading did not stop. No analysis was invented. Local AI status is separate from the customer desk.</p>`;
+    if (box) box.innerHTML = `<h2>Aureon AI</h2><p>Desk record</p><p class="muted">The status check did not finish. Trading did not stop. No analysis was invented. A missing hosted key is not an error.</p>`;
   });
   fetch("/api/data-coverage", {credentials:"same-origin"}).then(r => r.json()).then(payload => {
     const box = document.getElementById("data-coverage");
@@ -4583,7 +4642,7 @@ async function settings(){
   const profile = me.profile || {};
   const styles = (catalog.profiles||[]).map(p => `<label><input type="radio" name="style" value="${p.key}" ${profile.signal_style===p.key?"checked":""}> ${p.name} — ${p.risk_mode}. ${p.confirmation}</label>`).join("");
   const currencies = (catalog.currencies||[]).map(c => `<option value="${c}" ${profile.currency===c?"selected":""}>${c}</option>`).join("");
-  view.innerHTML = `<article class="card"><h2>${path==="/onboarding"?"Choose a signal style":"Signal style"}</h2><p class="muted">${catalog.note||""}</p><div class="styles">${styles}</div></article><article class="card"><h2>Base currency and capital</h2><div class="field"><span>Currency</span><select id="currency"><option value="">Not set</option>${currencies}</select></div><div class="field"><span>Paper capital</span><input id="capital" type="number" min="0" step="any" value="${profile.capital??""}"></div><p class="muted">Saving a currency does not convert the stored amount. Market quotes stay in USDT or USD/oz.</p></article><article class="card"><h2>Markets</h2><div class="checks"><label><input type="checkbox" id="btc" ${has("BTCUSDT")}> BTCUSDT</label><label><input type="checkbox" id="eth" ${has("ETHUSDT")}> ETHUSDT</label><label><input type="checkbox" id="gold" ${has("XAUUSD")}> XAUUSD</label></div><p class="muted">BTC, ETH, and gold stay on the desk. A verified live reading is not available until that source is approved. Gold 1-minute and 3-minute stay unavailable.</p></article><article class="card" id="display-card"><h2>Display</h2><p class="muted">These change how this account is shown. They do not change permission, persona risk, or market rights. Aureon AI stays on.</p><div class="field"><span>Time zone</span><input id="timezone" value="Africa/Lagos"></div><div class="field"><span>Density</span><select id="density"><option value="comfortable">Comfortable</option><option value="compact">Compact</option></select></div><div class="field"><span>Explanation</span><select id="depth"><option value="guided">Guided</option><option value="concise">Concise</option></select></div><div class="field"><span>Layout</span><select id="layout"><option value="guided">Guided</option><option value="market">Market</option></select></div><div class="field"><span>Theme</span><select id="theme"><option value="dark">Dark</option><option value="light">Light</option><option value="system">System</option></select></div><div class="field"><span>Contrast</span><select id="contrast"><option value="standard">Standard</option><option value="high">High</option></select></div><div class="field"><span>Motion</span><select id="motion"><option value="full">Full</option><option value="reduced">Reduced</option></select></div><button id="savedisplay" type="button">Save display</button><p id="displaysaved" class="muted"></p></article><article class="card"><h2>Experience</h2><label>How you describe your experience <select id="labexp"><option value="">Not stated</option><option value="new">New</option><option value="developing">Developing</option><option value="independent">Independent</option></select></label><p class="muted">This is what you say about yourself. It is stored on this account and is not a skill score.</p></article><article class="card" id="autopilot-card"><h2>AutoPilot</h2><p>Loading paper automation.</p></article><article class="card"><h2>Notifications and risk</h2><div class="checks"><label><input type="checkbox" id="exp" ${profile.experimental_alerts?"checked":""}> Experimental alerts</label><label><input type="checkbox" id="digest" ${profile.daily_report!==false?"checked":""}> Daily digest</label></div><div class="field"><span>Max risk per trade %</span><input id="risk" type="number" step="0.1" min="0" value="${profile.max_risk_pct??""}"></div><p class="muted">The in-app inbox is where your notices are kept. Telegram only repeats a notice that is already in that inbox, and only for this account. Production is WAIT_DEFAULT, so no trade alert is sent until a strategy is promoted. A paper notice is not that alert and it is not an order. Open @AureonLabBot, press the link button, then tap Start. Aureon never asks for the bot token. A test is accepted only when Telegram returns a message id.</p><div class="checks"><label><input type="checkbox" id="tg-notices" ${profile.telegram_notices!==false?"checked":""}> Send inbox notices to Telegram</label></div><p class="muted">Telegram is ${me.telegram_verified?"connected":"not connected"}. Open @AureonLabBot and press Start. Enter your numeric Telegram ID or @username, then press Connect. The account is connected only when Telegram accepts the message. Matching paper notices are sent to that same chat.</p><div class="field"><span>Telegram ID</span><input id="tgid" autocomplete="off" placeholder="Numeric ID or @username"></div><button id="tgconnect" type="button">Connect this Telegram ID</button> <button id="tgtest" type="button">Send a connection test</button> <button id="tgunlink" type="button">Disconnect Telegram</button><p id="tglinkout" class="muted"></p></article><article class="card"><h2>Live Binance</h2><label><input type="checkbox" id="live-trading" ${profile.live_trading?"checked":""}> Send BTC and ETH buys to Binance spot</label><p class="muted">This stays paper until the server has AUREON_LIVE_TRADING=1 and both Binance keys. A short, and every gold trade, stays on the paper book. A buy that cannot place its stop is closed.</p></article><article class="card" id="inbox-settings"><h2>In-app inbox</h2><p class="muted" id="inboxnote">Loading delivery settings.</p></article><p><button id="saveall" type="button">Save</button> <button id="skip" type="button">Continue without optional alerts</button> <button id="out" type="button">Sign out</button></p><p id="savedp" class="muted"></p>`;
+  view.innerHTML = `<article class="card"><h2>${path==="/onboarding"?"Choose a signal style":"Signal style"}</h2><p class="muted">${catalog.note||""}</p><div class="styles">${styles}</div></article><article class="card"><h2>Base currency and capital</h2><div class="field"><span>Currency</span><select id="currency"><option value="">Not set</option>${currencies}</select></div><div class="field"><span>Paper capital</span><input id="capital" type="number" min="0" step="any" value="${profile.capital??""}"></div><p class="muted">Saving a currency does not convert the stored amount. Market quotes stay in USDT or USD/oz.</p></article><article class="card"><h2>Markets</h2><div class="checks"><label><input type="checkbox" id="btc" ${has("BTCUSDT")}> BTCUSDT</label><label><input type="checkbox" id="eth" ${has("ETHUSDT")}> ETHUSDT</label><label><input type="checkbox" id="gold" ${has("XAUUSD")}> XAUUSD</label></div><p class="muted">BTC, ETH, and gold stay on the desk. A verified live reading is not available until that source is approved. Gold 1-minute and 3-minute stay unavailable.</p></article><article class="card" id="display-card"><h2>Display</h2><p class="muted">These change how this account is shown. They do not change permission, persona risk, or market rights. Aureon AI stays on.</p><div class="field"><span>Time zone</span><input id="timezone" value="Africa/Lagos"></div><div class="field"><span>Density</span><select id="density"><option value="comfortable">Comfortable</option><option value="compact">Compact</option></select></div><div class="field"><span>Explanation</span><select id="depth"><option value="guided">Guided</option><option value="concise">Concise</option></select></div><div class="field"><span>Layout</span><select id="layout"><option value="guided">Guided</option><option value="market">Market</option></select></div><div class="field"><span>Theme</span><select id="theme"><option value="dark">Dark</option><option value="light">Light</option><option value="system">System</option></select></div><div class="field"><span>Contrast</span><select id="contrast"><option value="standard">Standard</option><option value="high">High</option></select></div><div class="field"><span>Motion</span><select id="motion"><option value="full">Full</option><option value="reduced">Reduced</option></select></div><button id="savedisplay" type="button">Save display</button><p id="displaysaved" class="muted"></p></article><article class="card"><h2>Experience</h2><label>How you describe your experience <select id="labexp"><option value="">Not stated</option><option value="new">New</option><option value="developing">Developing</option><option value="independent">Independent</option></select></label><p class="muted">This is what you say about yourself. It is stored on this account and is not a skill score.</p></article><article class="card" id="autopilot-card"><h2>AutoPilot</h2><p>Loading paper automation.</p></article><article class="card"><h2>Notifications and risk</h2><div class="checks"><label><input type="checkbox" id="exp" ${profile.experimental_alerts?"checked":""}> Experimental alerts</label><label><input type="checkbox" id="digest" ${profile.daily_report!==false?"checked":""}> Daily digest</label></div><div class="field"><span>Max risk per trade %</span><input id="risk" type="number" step="0.1" min="0" value="${profile.max_risk_pct??""}"></div><p class="muted">The in-app inbox is where your notices are kept. Telegram only repeats a notice that is already in that inbox, and only for this account. Production is WAIT_DEFAULT, so no trade alert is sent until a strategy is promoted. A paper notice is not that alert and it is not an order. Open @AureonLabBot, press the link button, then tap Start. Aureon never asks for the bot token. A test is accepted only when Telegram returns a message id.</p><div class="checks"><label><input type="checkbox" id="tg-notices" ${profile.telegram_notices!==false?"checked":""}> Send inbox notices to Telegram</label></div><p class="muted">Telegram is ${me.telegram_verified?"connected":"not connected"}. Open @AureonLabBot and press Start. Enter your numeric Telegram ID or @username, then press Connect. The account is connected only when Telegram accepts the message. Matching paper notices are sent to that same chat.</p><div class="field"><span>Telegram ID</span><input id="tgid" autocomplete="off" placeholder="Numeric ID or @username"></div><button id="tgconnect" type="button">Connect this Telegram ID</button> <button id="tgtest" type="button">Send a connection test</button> <button id="tgunlink" type="button">Disconnect Telegram</button><p id="tglinkout" class="muted"></p></article><article class="card"><h2>Paper only</h2><p class="muted">Orders stay on this paper book. Live exchange sending is off. No Binance key is used.</p></article><article class="card" id="inbox-settings"><h2>In-app inbox</h2><p class="muted" id="inboxnote">Loading delivery settings.</p></article><p><button id="saveall" type="button">Save</button> <button id="skip" type="button">Continue without optional alerts</button> <button id="out" type="button">Sign out</button></p><p id="savedp" class="muted"></p>`;
   const inbox = await fetch("/api/inbox/settings", {credentials:"same-origin"}).then(r => r.ok ? r.json() : null);
   const box = (inbox && inbox.settings) || {};
   const on = (name) => box[name] ? "checked" : "";
@@ -4695,7 +4754,7 @@ async function settings(){
       experimental_alerts: document.getElementById("exp").checked,
       telegram_notices: document.getElementById("tg-notices").checked,
       daily_report: document.getElementById("digest").checked,
-      live_trading: document.getElementById("live-trading") ? document.getElementById("live-trading").checked : false
+      live_trading: false
     };
     const pref = await fetch("/api/prefs", {method:"POST", headers:{"Content-Type":"application/json"}, credentials:"same-origin", body: JSON.stringify({markets})});
     const prof = await fetch("/api/profile", {method:"POST", headers:{"Content-Type":"application/json"}, credentials:"same-origin", body: JSON.stringify(body)});
@@ -4747,12 +4806,6 @@ load().catch(() => {
 </body>
 </html>
 """
-
-
-if __name__ == "__main__":
-    _bind = os.environ.get("DESK_BIND", "127.0.0.1")
-    _port = int(os.environ.get("PORT", "8080"))
-    app.run(host=_bind, port=_port)
 
 
 def _account_day(tzname):
@@ -4847,3 +4900,9 @@ def _shutdown_background():
 
 
 atexit.register(_shutdown_background)
+
+
+if __name__ == "__main__":
+    _bind = os.environ.get("DESK_BIND", "127.0.0.1")
+    _port = int(os.environ.get("PORT", "8080"))
+    app.run(host=_bind, port=_port)

@@ -168,7 +168,7 @@ def test_hosted_ai_is_blocked_without_a_provider_and_does_not_call_out(tmp_path,
     from ops.hosted_ai import complete
 
     result = complete("missing-user", "/overview", question="What is my account?")
-    assert result["operational"] == "BLOCKED"
+    assert result["operational"] == "DESK"
     assert result["analysis"] is None
     assert result["usage"]["provider_called"] is False
     assert result["approved"] is False and result["order_opened"] is False
@@ -176,7 +176,7 @@ def test_hosted_ai_is_blocked_without_a_provider_and_does_not_call_out(tmp_path,
     body = route.get_json()
     assert route.status_code == 200
     assert body["analysis"] is None
-    assert body["operational"] == "BLOCKED"
+    assert body["operational"] == "DESK"
     assert body["approved"] is False and body["order_opened"] is False
     assert "AUREON_AI_API_KEY" not in json.dumps(body)
     assert body["label"] == "stored_record_not_an_analysis"
@@ -426,7 +426,8 @@ def test_hosted_output_rejects_unicode_and_separator_bypasses(tmp_path, monkeypa
         raise AssertionError("transport")
     silent = complete(ada_body["id"], "/overview", question="Explain", transport=explode)
     assert silent["analysis"] is None
-    assert silent["reason"] == "provider_not_configured"
+    assert silent["operational"] == "DESK"
+    assert silent["reason"] is None
     assert silent["usage"]["provider_called"] is False
 
     monkeypatch.setenv("AUREON_AI_SPEND_APPROVED", "1")
@@ -612,7 +613,8 @@ def test_route_rejects_glued_forms_and_short_names(tmp_path, monkeypatch):
     monkeypatch.setattr("ops.hosted_ai._post", explode)
     status, body, blob = post("The win rate is ateight.")
     assert status == 200
-    assert body["reason"] == "provider_not_configured"
+    assert body["operational"] == "DESK"
+    assert body["reason"] is None
     assert body["analysis"] is None
     assert body["approved"] is False and body["order_opened"] is False
     assert state["calls"] == before
@@ -752,13 +754,13 @@ def test_ambiguous_account_names_do_not_block_commentary(tmp_path, monkeypatch):
 
     monkeypatch.setattr("ops.hosted_ai._post", explode)
     body, blob = ask("Stored observation is none. Broker is false.")
-    assert body["reason"] == "provider_not_configured" and body["analysis"] is None
+    assert body["reason"] is None and body["operational"] == "DESK" and body["analysis"] is None
     assert state["calls"] == before_calls and "Broker is false" not in blob
     del users
 
 
 def test_signal_engine_does_not_import_hosted_ai_or_ollama():
-    source = Path("/tmp/aureon-experience/ops/signal_engine.py").read_text(encoding="utf-8")
+    source = (Path(__file__).resolve().parent / "signal_engine.py").read_text(encoding="utf-8")
     assert "hosted_ai" not in source
     assert "ollama" not in source
 

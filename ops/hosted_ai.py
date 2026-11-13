@@ -113,9 +113,9 @@ def status():
         reason = None
         note = f"Local model {local.get('model')} is reachable. An answer is produced only when you ask. It is not a signal and not an order."
     else:
-        operational = "BLOCKED"
-        reason = "provider_not_configured"
-        note = "Aureon AI is part of the desk. The hosted model is not configured and the local model is not reachable, so this is not an analysis."
+        operational = "DESK"
+        reason = None
+        note = "No hosted model is configured. The desk uses the stored paper reading. That is not an error, not a signal, and not an order."
     return {
         "compulsory": True,
         "customer_toggle": False,
@@ -124,7 +124,7 @@ def status():
         "provider": "openai-compatible" if ready else ("local" if local_ready else None),
         "primary_model": spec["primary_model"] or (local.get("model") if local_ready else None),
         "fallback_model": spec["fallback_model"],
-        "missing": [] if ready or local_ready else list(spec["missing"]),
+        "missing": [],
         "live_model": "NOT TESTED",
         "local_model": local_ready,
         "local": {
