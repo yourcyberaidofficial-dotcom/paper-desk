@@ -3,13 +3,13 @@
 from __future__ import annotations
 
 import json
-import os
 import time
-from pathlib import Path
 
 
 def _path(user_id):
-    root = Path(os.environ.get("AUREON_DATA") or "data") / "bot"
+    from ops.paths import bot_root
+
+    root = bot_root()
     root.mkdir(parents=True, exist_ok=True)
     safe = "".join(ch for ch in str(user_id) if ch.isalnum())
     return root / f"{safe}.jsonl"

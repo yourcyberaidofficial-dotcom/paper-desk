@@ -155,10 +155,12 @@ def read_pipeline(account_id=None):
     Evaluations are stored under that account's import book. The old shared
     path is not opened, so one account cannot see another's historical rows.
     """
-    safe = "".join(ch for ch in str(account_id or "") if ch.isalnum())
-    if not safe:
+    from ops.paths import imports_root
+
+    root = imports_root(account_id)
+    if root is None:
         return []
-    path = Path(os.environ.get("AUREON_DATA") or "data") / "imports" / safe / "signals" / "lifecycle.jsonl"
+    path = root / "signals" / "lifecycle.jsonl"
     if not path.is_file():
         return []
     rows = []

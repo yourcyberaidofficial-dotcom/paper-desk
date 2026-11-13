@@ -88,7 +88,8 @@ def test_web_process_does_not_start_worker_loops():
         """
     )
     env = os.environ.copy()
-    env["PYTHONPATH"] = str(ROOT)
+    prior = env.get("PYTHONPATH", "")
+    env["PYTHONPATH"] = str(ROOT) if not prior else str(ROOT) + os.pathsep + prior
     ran = subprocess.run([sys.executable, "-c", code], cwd=str(ROOT), env=env, text=True, capture_output=True, timeout=30)
     assert ran.returncode == 0, ran.stdout + ran.stderr
     assert "web-quiet" in ran.stdout
@@ -197,7 +198,8 @@ def test_web_reads_the_worker_file_and_does_not_fetch(tmp_path, monkeypatch):
         """
     )
     env = os.environ.copy()
-    env["PYTHONPATH"] = str(ROOT)
+    prior = env.get("PYTHONPATH", "")
+    env["PYTHONPATH"] = str(ROOT) if not prior else str(ROOT) + os.pathsep + prior
     env["AUREON_DATA"] = str(tmp_path)
     ran = subprocess.run([sys.executable, "-c", code], cwd=str(ROOT), env=env, text=True, capture_output=True, timeout=30)
     assert ran.returncode == 0, ran.stdout + ran.stderr
@@ -305,3 +307,130 @@ def test_settings_polls_me_while_telegram_is_pending():
     assert 'if (me.telegram_state === "pending") watchTelegram();' in text
     assert "watchTelegram();" in text
     assert "setInterval" in text
+
+
+def test_health_without_customer_candles_is_not_a_server_error(monkeypatch):
+    monkeypatch.setattr("ops.customer_release.candles_released", lambda *_args, **_kwargs: False)
+    from ops.app import _reading_not_shown, app
+
+    app.config["TESTING"] = True
+    response = app.test_client().get("/health")
+    assert response.status_code == 200
+    body = response.get_json()
+    assert body["status"] == "reading_unavailable"
+    assert body["market_data"]["BTCUSDT"] == _reading_not_shown()
+    assert body["market_data"]["ETHUSDT"]["status"] == "not_shown"
+    assert body["market_data"]["ETHUSDT"]["kind"] == "not_a_customer_reading"
+    assert "traceback" not in json.dumps(body).lower()
+
+
+def test_worker_check_fails_when_a_loop_has_stopped(tmp_path, monkeypatch):
+    monkeypatch.setenv("AUREON_DATA", str(tmp_path))
+    from ops.worker_status import check, publish_patch
+
+    now = int(time.time() * 1000)
+    publish_patch({
+        "alive_ms": now,
+        "threads": ["aureon-desk", "aureon-telegram", "aureon-digest"],
+        "role": "worker",
+    })
+    assert check() is True
+    publish_patch({
+        "alive_ms": int(time.time() * 1000),
+        "threads": ["aureon-telegram", "aureon-digest"],
+    })
+    assert check() is False
+
+
+def test_term_asks_the_worker_to_stop(tmp_path, monkeypatch):
+    monkeypatch.setenv("AUREON_DATA", str(tmp_path))
+    import signal
+
+    from ops.runtime import DeskRuntime
+    from ops.worker_main import install_signals, request_stop
+
+    runtime = DeskRuntime(deadline_s=0.2)
+    runtime.mark_started()
+    request_stop(runtime)
+    assert runtime._stop.is_set()
+    runtime._stop.clear()
+    previous_term = signal.getsignal(signal.SIGTERM)
+    previous_int = signal.getsignal(signal.SIGINT)
+    try:
+        install_signals(runtime)
+        signal.getsignal(signal.SIGTERM)(signal.SIGTERM, None)
+        assert runtime._stop.is_set()
+    finally:
+        signal.signal(signal.SIGTERM, previous_term)
+        signal.signal(signal.SIGINT, previous_int)
+    stopped = runtime.shutdown(deadline_s=0.2)
+    assert stopped["phase"] == "stopped"
+    assert stopped["completed"] is True
+
+
+def test_outbox_watch_uses_stat_and_not_a_full_read(tmp_path, monkeypatch):
+    monkeypatch.setenv("AUREON_DATA", str(tmp_path))
+    from pathlib import Path
+
+    from ops.inbox_notify import _outbox, _outbox_stamp
+
+    path = _outbox()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("a" * 24, encoding="utf-8")
+    first = _outbox_stamp()
+    time.sleep(0.02)
+    path.write_text("b" * 24, encoding="utf-8")
+
+    def explode(self, *args, **kwargs):
+        raise AssertionError("the outbox watcher read the file")
+
+    monkeypatch.setattr(Path, "read_bytes", explode)
+    second = _outbox_stamp()
+    assert first is not None and second is not None
+    assert first != second
+    assert len(second) == 3
+
+
+def test_active_writes_stay_inside_the_nine_volumes(tmp_path, monkeypatch):
+    monkeypatch.setenv("AUREON_DATA", str(tmp_path))
+    from ops.desk_pulse import _path as readings_path
+    from ops.inbox_notify import _outbox
+    from ops.paths import (
+        VOLUME_DIRS,
+        bot_root,
+        claims_root,
+        imports_root,
+        ledger_path,
+        on_volume,
+        promotions_path,
+        runtime_state_path,
+        shadow_observations_path,
+        telegram_offset_path,
+        telegram_seen_path,
+    )
+    from ops.volume_backup import VOLUMES
+    from ops.worker_status import status_path
+
+    paths = [
+        ledger_path(),
+        shadow_observations_path(),
+        promotions_path(),
+        telegram_offset_path(),
+        telegram_seen_path(),
+        claims_root() / "BTCUSDT-15m.json",
+        runtime_state_path(),
+        imports_root("ada") / "import_log.jsonl",
+        bot_root() / "ada.jsonl",
+        status_path(),
+        readings_path(),
+        _outbox(),
+    ]
+    for path in paths:
+        assert on_volume(path), path
+    names = {volume for _directory, volume in VOLUME_DIRS}
+    assert names == {name for name, _relative in VOLUMES}
+    assert len(names) == 9
+    compose = (ROOT / "docker-compose.yml").read_text(encoding="utf-8")
+    for directory, volume in VOLUME_DIRS:
+        assert compose.count(f"{volume}:/app/data/{directory}") == 2
+
