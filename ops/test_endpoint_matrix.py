@@ -22,7 +22,7 @@ SESSION_POST = {
     "/api/activity/read", "/api/ai/ask", "/api/aureon-ai", "/api/autopilot", "/api/candles/evaluate", "/api/candles/import", "/api/desk/plan", "/api/digest", "/api/explain",
     "/api/experience", "/api/inbox/settings", "/api/lab", "/api/notifications/read", "/api/paper/close",
     "/api/paper/orders", "/api/plan", "/api/prefs", "/api/profile", "/api/size",
-    "/api/telegram/link", "/api/telegram/test", "/api/telegram/unlink", "/api/terminal/signal",
+    "/api/telegram/code", "/api/telegram/code/verify", "/api/telegram/link", "/api/telegram/test", "/api/telegram/unlink", "/api/terminal/signal",
 }
 TOKEN_GET = {"/api/evaluations", "/api/events", "/api/experimental", "/api/prefs", "/api/state"}
 TOKEN_POST = {"/api/alert-test", "/api/bar", "/api/worker/prefs"}
