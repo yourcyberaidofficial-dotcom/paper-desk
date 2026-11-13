@@ -145,7 +145,9 @@ def test_each_market_is_identified_and_a_mismatch_is_rejected(monkeypatch, tmp_p
     assert mismatch["rejected"] == "market_mismatch"
     assert mismatch["symbol"] == "ETHUSDT"
     assert response_matches({"symbol": "ETHUSDT", "interval": "4h", "request_id": "late"}, mismatch) is False
+    from pathlib import Path
     page = inspect.getsource(app_module)
+    page += (Path(__file__).resolve().parent / "ui" / "dashboard.html").read_text(encoding="utf-8")
     assert 'id="term-symbol"' in page
     assert "Previous evaluation" in page
     assert "request_id" in page
