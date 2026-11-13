@@ -74,6 +74,16 @@ def apply_update(update, inbox=None):
     sender = message.get("from") or {}
     chat = message.get("chat") or {}
     result = process_start_command(token, str(sender.get("id") or ""), str(chat.get("id") or ""))
+    if result.get("ok") and "pytest" not in sys.modules:
+        try:
+            from ops.notify import send_alert
+
+            send_alert(
+                "Aureon is connected to this chat. Notices you allow in Settings will come here. This is not a trade.",
+                chat_id=str(chat.get("id") or ""),
+            )
+        except Exception:
+            pass
     return {"ok": bool(result.get("ok")), "error": result.get("error"), "user_id": result.get("user_id")}
 
 

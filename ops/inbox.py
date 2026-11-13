@@ -231,6 +231,8 @@ def offer(user_id, notice, registry=None):
     for key in ("snapshot_id", "reading_version", "source_id", "provider", "explanation", "candle_open_ms", "levels_persisted", "persistence_capability", "persistence_state", "source_name", "provenance"):
         if notice.get(key) not in (None, ""):
             row[key] = notice.get(key)
+    if notice.get("reward_risk") is not None:
+        row["reward_risk"] = notice.get("reward_risk")
     if notice.get("snapshot_id"):
         row["events"][0]["snapshot_id"] = notice.get("snapshot_id")
         if notice.get("reading_version"):
@@ -735,6 +737,25 @@ def deliver_evaluation(user_id, user, result):
         "persistence_state": "unverified" if feed else None,
         "explanation": ELIGIBILITY_NOTE if feed else None,
     }, registry=load_promotions() if kind == "official" else None)
+    if saved.get("stored"):
+        try:
+            from ops.inbox_notify import queue_card
+
+            queue_card(user_id, user, {
+                "event_id": event_id,
+                "symbol": symbol,
+                "interval": interval,
+                "decision": side,
+                "entry": None if feed else payload.get("entry"),
+                "stop": None if feed else payload.get("stop"),
+                "target": None if feed else payload.get("target"),
+                "reward_risk": None if feed else result.get("reward_risk"),
+                "strategy": result.get("strategy"),
+                "explanation": None if feed else custom_notice(user, result),
+                "levels_persisted": False if feed else None,
+            })
+        except Exception:
+            pass
     return {
         "stored": bool(saved.get("stored")),
         "duplicate": bool(saved.get("duplicate")),
