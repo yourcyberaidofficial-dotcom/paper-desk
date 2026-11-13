@@ -19,10 +19,18 @@ COVERAGE = tuple(
 
 
 def pair_availability():
-    """Live desk pairs. Gold uses the public chart, including 1m and 3m."""
+    """Live desk pairs. Gold 1m and 3m are not offered."""
     rows = []
     for symbol, interval in COVERAGE:
-        if symbol == "XAUUSD":
+        if symbol == "XAUUSD" and interval in {"1m", "3m"}:
+            rows.append({
+                "symbol": symbol,
+                "interval": interval,
+                "status": "unsupported",
+                "feed": None,
+                "reason": "xau_minute_unsupported",
+            })
+        elif symbol == "XAUUSD":
             rows.append({
                 "symbol": symbol,
                 "interval": interval,
@@ -104,9 +112,9 @@ class Worker:
         self.last_monitor_error = None
         self.last_cycle_error = None
         try:
-            from ops.desk_pulse import reset
+            from ops.desk_pulse import bind
 
-            reset()
+            bind()
         except Exception:
             pass
 
@@ -262,6 +270,9 @@ class Worker:
     def monitor(self, now_ms: int | None = None, windows=None) -> dict:
         """Same decision as the terminal. A WAIT is not an inbox card. No Telegram."""
         now_ms = int(now_ms if now_ms is not None else time.time() * 1000)
+        from ops.desk_pulse import load as load_readings
+
+        load_readings()
         self.last_monitor_ms = now_ms
         try:
             summary = self._monitor(now_ms, windows)
@@ -463,30 +474,87 @@ class Worker:
         return delivered
 
     def _monitor_windows(self, now_ms):
-        from ops.terminal_route import feed_state, load_crypto_bars, load_gold_ohlc
-
         windows = []
         for symbol, interval in COVERAGE:
-            if symbol == "XAUUSD":
-                gold = load_gold_ohlc(interval, now_ms)
-                if isinstance(gold, tuple):
-                    windows.append({
-                        "symbol": symbol,
-                        "interval": interval,
-                        "bars": [],
-                        "reason": gold[1],
-                        "blocked": gold[1],
-                        "live_quote": None,
-                    })
-                    continue
-                windows.append({"symbol": symbol, "interval": interval, "bars": gold or [], "live_quote": None, "reason": None if gold else "missing_bars", "feed_state": feed_state(symbol, interval)})
-                continue
-            loaded = load_crypto_bars(symbol, interval, now_ms)
-            if isinstance(loaded, tuple):
-                windows.append({"symbol": symbol, "interval": interval, "bars": [], "reason": loaded[1]})
-            else:
-                windows.append({"symbol": symbol, "interval": interval, "bars": loaded or [], "feed_state": feed_state(symbol, interval)})
+            try:
+                windows.append(self._one_window(symbol, interval, now_ms))
+            except Exception as exc:
+                windows.append({
+                    "symbol": symbol,
+                    "interval": interval,
+                    "bars": [],
+                    "reason": type(exc).__name__,
+                    "blocked": type(exc).__name__,
+                    "live_quote": None,
+                    "feed_state": "down",
+                })
         return windows
+
+    def _one_window(self, symbol, interval, now_ms):
+        from ops.terminal_route import feed_state, load_crypto_bars, load_gold_ohlc
+
+        if not self._feed_allowed(symbol, now_ms):
+            from ops.market_cache import recall
+
+            remembered = recall(symbol, interval, now_ms) or []
+            return {
+                "symbol": symbol,
+                "interval": interval,
+                "bars": remembered,
+                "reason": None if remembered else "circuit_open",
+                "live_quote": None,
+                "feed_state": "last_good" if remembered else "down",
+            }
+        if symbol == "XAUUSD":
+            gold = load_gold_ohlc(interval, now_ms)
+            if isinstance(gold, tuple):
+                self._feed_failed(symbol, now_ms)
+                return {"symbol": symbol, "interval": interval, "bars": [], "reason": gold[1], "blocked": gold[1], "live_quote": None, "feed_state": "down"}
+            self._feed_ok(symbol)
+            return {"symbol": symbol, "interval": interval, "bars": gold or [], "live_quote": None, "reason": None if gold else "missing_bars", "feed_state": feed_state(symbol, interval)}
+        loaded = load_crypto_bars(symbol, interval, now_ms)
+        if isinstance(loaded, tuple) or not loaded:
+            loaded = self._kraken_bars(symbol, interval, now_ms) or loaded
+        if isinstance(loaded, tuple):
+            self._feed_failed(symbol, now_ms)
+            return {"symbol": symbol, "interval": interval, "bars": [], "reason": loaded[1], "feed_state": "down"}
+        self._feed_ok(symbol)
+        return {"symbol": symbol, "interval": interval, "bars": loaded or [], "feed_state": feed_state(symbol, interval) if loaded else "down"}
+
+    def _feed_allowed(self, symbol, now_ms):
+        until = getattr(self, "_feed_until", {}).get(symbol) or 0
+        return int(now_ms) >= int(until)
+
+    def _feed_failed(self, symbol, now_ms):
+        state = getattr(self, "_feed_until", None)
+        if state is None:
+            state = {}
+            self._feed_until = state
+        delay = min(60_000, 2_000 * (2 ** min(4, getattr(self, "_feed_strikes", {}).get(symbol, 0))))
+        strikes = getattr(self, "_feed_strikes", None)
+        if strikes is None:
+            strikes = {}
+            self._feed_strikes = strikes
+        strikes[symbol] = strikes.get(symbol, 0) + 1
+        state[symbol] = int(now_ms) + delay
+
+    def _feed_ok(self, symbol):
+        getattr(self, "_feed_until", {}).pop(symbol, None)
+        getattr(self, "_feed_strikes", {}).pop(symbol, None)
+
+    def _kraken_bars(self, symbol, interval, now_ms):
+        try:
+            from ops.kraken_public import authorized_bars
+
+            alt = authorized_bars(symbol, interval, now_ms, timeout=8)
+        except Exception:
+            return None
+        if isinstance(alt, dict) and alt.get("ok") and alt.get("bars"):
+            from ops.terminal_route import _keep
+
+            _keep(symbol, interval, alt["bars"], now_ms)
+            return alt["bars"]
+        return None
 
     def _shadow_book(self):
         if not shadow_enabled():
