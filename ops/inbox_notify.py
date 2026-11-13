@@ -147,11 +147,31 @@ def queue(user_id, user, event_id, text):
     return {"queued": True, "reason": "queued"}
 
 
+def queue_open():
+    """Queue complete inbox cards that were stored before Telegram was connected."""
+    from ops.inbox import items
+    from ops.users import list_users
+
+    queued = 0
+    for user in list_users():
+        if not isinstance(user, dict) or not enabled(user):
+            continue
+        for row in items(user.get("id")):
+            if row.get("lifecycle") not in (None, "", "active"):
+                continue
+            if row.get("decision") not in {"BUY", "SELL"}:
+                continue
+            if queue_card(user.get("id"), user, row).get("queued"):
+                queued += 1
+    return queued
+
+
 def flush(sender=None):
     """Send pending rows. Delivered means Telegram returned a message id."""
     from ops.notify import send_alert
 
     sender = sender or send_alert
+    queue_open()
     path = _outbox()
     handle = _locked(path)
     sent = 0
