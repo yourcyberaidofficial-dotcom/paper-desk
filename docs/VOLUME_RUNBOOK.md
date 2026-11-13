@@ -16,14 +16,14 @@ The nine Compose volumes map onto these directories when the host tree is `/opt/
 | desk-canonical | `/opt/aureon/canonical` |
 | desk-ai | `/opt/aureon/ai` |
 
-`canonical/schema.json` is the data schema stamp. `canonical/readings.json` is the worker's stored market reading. `canonical/worker_status.json` is the worker process heartbeat. `canonical/claims/` is the one-decision-per-candle lock. `canonical/runtime.json` is the worker lifecycle. A heartbeat is not a price.
+`canonical/schema.json` is the data schema stamp. `canonical/readings.json` is the worker's stored market reading. `canonical/worker_status.json` is the worker process heartbeat. `canonical/claims/` is the one-decision-per-candle lock. `canonical/runtime.json` is the worker lifecycle. A heartbeat is not a price. The stamp's `paper_orders` store is still schema 1: excursion, regime, session, and realized R live on the existing paper order rows under `users/paper/`. That file is not a new volume and the guard does not rewrite it.
 
 These files used to sit next to the nine mounts, so a new container lost them. They now sit inside a mounted directory:
 
 | File | Volume |
 |---|---|
 | `paper/ledger.jsonl`, `paper/promotions.json`, `paper/telegram_inbox.jsonl`, `paper/telegram_offset.txt`, `paper/telegram_updates.jsonl` | desk-data |
-| `users/…`, `users/imports/…`, `users/bot/…` | desk-users |
+| `users/…`, `users/imports/…`, `users/bot/…`, `users/paper/<account>.json` | desk-users |
 | `shadow/observations.jsonl` | desk-shadow |
 | `canonical/claims/`, `canonical/runtime.json` | desk-canonical |
 
